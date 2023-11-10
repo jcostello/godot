@@ -61,6 +61,7 @@ private:
 	Color ambient_color = Color(0, 0, 0);
 	float ambient_color_energy = 1.0;
 	float mesh_lod_threshold = 1.0;
+	int priority = 1;
 
 	uint32_t cull_mask = (1 << 20) - 1;
 	UpdateMode update_mode = UPDATE_ONCE;
@@ -100,6 +101,9 @@ public:
 
 	void set_origin_offset(const Vector3 &p_offset);
 	Vector3 get_origin_offset() const;
+
+	void set_priority(int p_priority);
+	int get_priority() const;
 
 	void set_as_interior(bool p_enable);
 	bool is_set_as_interior() const;

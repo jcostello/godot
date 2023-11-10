@@ -49,6 +49,15 @@ ReflectionProbe::AmbientMode ReflectionProbe::get_ambient_mode() const {
 	return ambient_mode;
 }
 
+void ReflectionProbe::set_priority(int p_priority) {
+	priority = p_priority;
+	RS::get_singleton()->reflection_probe_set_priority(probe, p_priority);
+}
+
+int ReflectionProbe::get_priority() const {
+	return priority;
+}
+
 void ReflectionProbe::set_ambient_color(Color p_ambient) {
 	ambient_color = p_ambient;
 	RS::get_singleton()->reflection_probe_set_ambient_color(probe, p_ambient);
@@ -204,6 +213,9 @@ void ReflectionProbe::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("set_intensity", "intensity"), &ReflectionProbe::set_intensity);
 	ClassDB::bind_method(D_METHOD("get_intensity"), &ReflectionProbe::get_intensity);
 
+	ClassDB::bind_method(D_METHOD("set_priority", "priority"), &ReflectionProbe::set_priority);
+	ClassDB::bind_method(D_METHOD("get_priority"), &ReflectionProbe::get_priority);
+
 	ClassDB::bind_method(D_METHOD("set_ambient_mode", "ambient"), &ReflectionProbe::set_ambient_mode);
 	ClassDB::bind_method(D_METHOD("get_ambient_mode"), &ReflectionProbe::get_ambient_mode);
 
@@ -241,6 +253,7 @@ void ReflectionProbe::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("get_update_mode"), &ReflectionProbe::get_update_mode);
 
 	ADD_PROPERTY(PropertyInfo(Variant::INT, "update_mode", PROPERTY_HINT_ENUM, "Once (Fast),Always (Slow)"), "set_update_mode", "get_update_mode");
+	ADD_PROPERTY(PropertyInfo(Variant::INT, "priority", PROPERTY_HINT_RANGE, "1,256"), "set_priority", "get_priority");
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "intensity", PROPERTY_HINT_RANGE, "0,1,0.01"), "set_intensity", "get_intensity");
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "max_distance", PROPERTY_HINT_RANGE, "0,16384,0.1,or_greater,exp,suffix:m"), "set_max_distance", "get_max_distance");
 	ADD_PROPERTY(PropertyInfo(Variant::VECTOR3, "size", PROPERTY_HINT_NONE, "suffix:m"), "set_size", "get_size");

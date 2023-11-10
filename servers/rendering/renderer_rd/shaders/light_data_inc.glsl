@@ -41,6 +41,7 @@ struct ReflectionData {
 	uint mask;
 	mediump vec3 ambient; // ambient color
 	mediump float intensity;
+	uint priority;
 	bool exterior;
 	bool box_project;
 	uint ambient_mode;

@@ -222,6 +222,7 @@ private:
 		RS::ReflectionProbeUpdateMode update_mode = RS::REFLECTION_PROBE_UPDATE_ONCE;
 		int resolution = 256;
 		float intensity = 1.0;
+		int priority = 1;
 		RS::ReflectionProbeAmbientMode ambient_mode = RS::REFLECTION_PROBE_AMBIENT_ENVIRONMENT;
 		Color ambient_color;
 		float ambient_color_energy = 1.0;
@@ -302,6 +303,7 @@ private:
 		uint32_t mask;
 		float ambient[3]; // ambient color,
 		float intensity;
+		uint32_t priority;
 		uint32_t exterior;
 		uint32_t box_project;
 		uint32_t ambient_mode;
@@ -787,6 +789,7 @@ public:
 
 	virtual void reflection_probe_set_update_mode(RID p_probe, RS::ReflectionProbeUpdateMode p_mode) override;
 	virtual void reflection_probe_set_intensity(RID p_probe, float p_intensity) override;
+	virtual void reflection_probe_set_priority(RID p_probe, int p_priority) override;
 	virtual void reflection_probe_set_ambient_mode(RID p_probe, RS::ReflectionProbeAmbientMode p_mode) override;
 	virtual void reflection_probe_set_ambient_color(RID p_probe, const Color &p_color) override;
 	virtual void reflection_probe_set_ambient_energy(RID p_probe, float p_energy) override;
@@ -815,6 +818,7 @@ public:
 	virtual bool reflection_probe_renders_shadows(RID p_probe) const override;
 
 	float reflection_probe_get_intensity(RID p_probe) const;
+	int reflection_probe_get_priority(RID p_probe) const;
 	bool reflection_probe_is_interior(RID p_probe) const;
 	bool reflection_probe_is_box_projection(RID p_probe) const;
 	RS::ReflectionProbeAmbientMode reflection_probe_get_ambient_mode(RID p_probe) const;
