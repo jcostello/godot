@@ -148,7 +148,7 @@ void LightmapperRD::add_directional_light(const String &p_name, bool p_static, c
 	light_metadata.push_back(md);
 }
 
-void LightmapperRD::add_omni_light(const String &p_name, bool p_static, const Vector3 &p_position, const Color &p_color, float p_energy, float p_indirect_energy, float p_range, float p_attenuation, float p_size, float p_shadow_blur) {
+void LightmapperRD::add_omni_light(const String &p_name, bool p_static, const Vector3 &p_position, const Color &p_color, float p_energy, float p_indirect_energy, float p_range, float p_attenuation, float p_size, float p_shadow_blur, const Basis &p_projector_basis, const Rect2 &p_projector_rect) {
 	Light l;
 	l.type = LIGHT_TYPE_OMNI;
 	l.position[0] = p_position.x;
@@ -164,6 +164,22 @@ void LightmapperRD::add_omni_light(const String &p_name, bool p_static, const Ve
 	l.static_bake = p_static;
 	l.size = p_size;
 	l.shadow_blur = p_shadow_blur;
+	const Vector3 projector_x = p_projector_basis.get_column(Vector3::AXIS_X).normalized();
+	const Vector3 projector_y = p_projector_basis.get_column(Vector3::AXIS_Y).normalized();
+	const Vector3 projector_z = p_projector_basis.get_column(Vector3::AXIS_Z).normalized();
+	l.projector_x[0] = projector_x.x;
+	l.projector_x[1] = projector_x.y;
+	l.projector_x[2] = projector_x.z;
+	l.projector_y[0] = projector_y.x;
+	l.projector_y[1] = projector_y.y;
+	l.projector_y[2] = projector_y.z;
+	l.projector_z[0] = projector_z.x;
+	l.projector_z[1] = projector_z.y;
+	l.projector_z[2] = projector_z.z;
+	l.projector_rect[0] = p_projector_rect.position.x;
+	l.projector_rect[1] = p_projector_rect.position.y;
+	l.projector_rect[2] = p_projector_rect.size.x;
+	l.projector_rect[3] = p_projector_rect.size.y;
 	lights.push_back(l);
 
 	LightMetadata md;
@@ -172,7 +188,7 @@ void LightmapperRD::add_omni_light(const String &p_name, bool p_static, const Ve
 	light_metadata.push_back(md);
 }
 
-void LightmapperRD::add_spot_light(const String &p_name, bool p_static, const Vector3 &p_position, const Vector3 &p_direction, const Color &p_color, float p_energy, float p_indirect_energy, float p_range, float p_attenuation, float p_spot_angle, float p_spot_attenuation, float p_size, float p_shadow_blur) {
+void LightmapperRD::add_spot_light(const String &p_name, bool p_static, const Vector3 &p_position, const Vector3 &p_direction, const Color &p_color, float p_energy, float p_indirect_energy, float p_range, float p_attenuation, float p_spot_angle, float p_spot_attenuation, float p_size, float p_shadow_blur, const Basis &p_projector_basis, const Rect2 &p_projector_rect) {
 	Light l;
 	l.type = LIGHT_TYPE_SPOT;
 	l.position[0] = p_position.x;
@@ -193,6 +209,22 @@ void LightmapperRD::add_spot_light(const String &p_name, bool p_static, const Ve
 	l.static_bake = p_static;
 	l.size = p_size;
 	l.shadow_blur = p_shadow_blur;
+	const Vector3 projector_x = p_projector_basis.get_column(Vector3::AXIS_X).normalized();
+	const Vector3 projector_y = p_projector_basis.get_column(Vector3::AXIS_Y).normalized();
+	const Vector3 projector_z = p_projector_basis.get_column(Vector3::AXIS_Z).normalized();
+	l.projector_x[0] = projector_x.x;
+	l.projector_x[1] = projector_x.y;
+	l.projector_x[2] = projector_x.z;
+	l.projector_y[0] = projector_y.x;
+	l.projector_y[1] = projector_y.y;
+	l.projector_y[2] = projector_y.z;
+	l.projector_z[0] = projector_z.x;
+	l.projector_z[1] = projector_z.y;
+	l.projector_z[2] = projector_z.z;
+	l.projector_rect[0] = p_projector_rect.position.x;
+	l.projector_rect[1] = p_projector_rect.position.y;
+	l.projector_rect[2] = p_projector_rect.size.x;
+	l.projector_rect[3] = p_projector_rect.size.y;
 	lights.push_back(l);
 
 	LightMetadata md;
