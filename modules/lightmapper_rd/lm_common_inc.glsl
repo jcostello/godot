@@ -101,6 +101,10 @@ struct Light {
 	vec4 area_width;
 	vec4 area_height;
 	vec4 area_texture_rect;
+	vec4 projector_x;
+	vec4 projector_y;
+	vec4 projector_z;
+	vec4 projector_rect;
 };
 
 layout(set = 0, binding = 4, std430) restrict readonly buffer Lights {

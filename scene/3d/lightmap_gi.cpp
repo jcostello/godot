@@ -928,6 +928,8 @@ void LightmapGI::_build_area_light_texture_atlas(const Vector<LightmapGI::Lights
 				if (l->get_area_texture().is_valid() && !r_textures.has(l->get_area_texture())) {
 					r_textures[l->get_area_texture()] = AreaLightAtlasTexture();
 				}
+			} else if (light->get_bake_mode() == Light3D::BAKE_STATIC && light->get_projector().is_valid() && !r_textures.has(light->get_projector())) {
+				r_textures[light->get_projector()] = AreaLightAtlasTexture();
 			}
 		}
 	}
@@ -1515,13 +1517,21 @@ LightmapGI::BakeError LightmapGI::bake(Node *p_from_node, String p_image_data_pa
 				if (use_physical_light_units) {
 					energy *= (1.0 / (Math::PI * 4.0));
 				}
-				lightmapper->add_omni_light(light->get_name(), light->get_bake_mode() == Light3D::BAKE_STATIC, xf.origin, linear_color, energy, indirect_energy, l->get_param(Light3D::PARAM_RANGE), l->get_param(Light3D::PARAM_ATTENUATION), l->get_param(Light3D::PARAM_SIZE), l->get_param(Light3D::PARAM_SHADOW_BLUR));
+				Rect2 projector_rect;
+				if (light->get_bake_mode() == Light3D::BAKE_STATIC && light->get_projector().is_valid()) {
+					projector_rect = area_light_atlas_textures[light->get_projector()].texture_rect;
+				}
+				lightmapper->add_omni_light(light->get_name(), light->get_bake_mode() == Light3D::BAKE_STATIC, xf.origin, linear_color, energy, indirect_energy, l->get_param(Light3D::PARAM_RANGE), l->get_param(Light3D::PARAM_ATTENUATION), l->get_param(Light3D::PARAM_SIZE), l->get_param(Light3D::PARAM_SHADOW_BLUR), xf.basis, projector_rect);
 			} else if (Object::cast_to<SpotLight3D>(light)) {
 				SpotLight3D *l = Object::cast_to<SpotLight3D>(light);
 				if (use_physical_light_units) {
 					energy *= (1.0 / Math::PI);
 				}
-				lightmapper->add_spot_light(light->get_name(), light->get_bake_mode() == Light3D::BAKE_STATIC, xf.origin, -xf.basis.get_column(Vector3::AXIS_Z).normalized(), linear_color, energy, indirect_energy, l->get_param(Light3D::PARAM_RANGE), l->get_param(Light3D::PARAM_ATTENUATION), l->get_param(Light3D::PARAM_SPOT_ANGLE), l->get_param(Light3D::PARAM_SPOT_ATTENUATION), l->get_param(Light3D::PARAM_SIZE), l->get_param(Light3D::PARAM_SHADOW_BLUR));
+				Rect2 projector_rect;
+				if (light->get_bake_mode() == Light3D::BAKE_STATIC && light->get_projector().is_valid()) {
+					projector_rect = area_light_atlas_textures[light->get_projector()].texture_rect;
+				}
+				lightmapper->add_spot_light(light->get_name(), light->get_bake_mode() == Light3D::BAKE_STATIC, xf.origin, -xf.basis.get_column(Vector3::AXIS_Z).normalized(), linear_color, energy, indirect_energy, l->get_param(Light3D::PARAM_RANGE), l->get_param(Light3D::PARAM_ATTENUATION), l->get_param(Light3D::PARAM_SPOT_ANGLE), l->get_param(Light3D::PARAM_SPOT_ATTENUATION), l->get_param(Light3D::PARAM_SIZE), l->get_param(Light3D::PARAM_SHADOW_BLUR), xf.basis, projector_rect);
 			} else if (Object::cast_to<AreaLight3D>(light)) {
 				AreaLight3D *l = Object::cast_to<AreaLight3D>(light);
 				if (use_physical_light_units) {

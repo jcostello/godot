@@ -519,6 +519,13 @@ vec2 get_vogel_disk(float p_i, float p_rotation, float p_sample_count_sqrt) {
 	return vec2(cos(theta), sin(theta)) * r;
 }
 
+vec3 projector_srgb_to_linear(vec3 p_color) {
+	return mix(
+			pow((p_color + vec3(0.055)) * (1.0 / 1.055), vec3(2.4)),
+			p_color * (1.0 / 12.92),
+			lessThan(p_color, vec3(0.04045)));
+}
+
 void trace_direct_light(vec3 p_position, vec3 p_normal, vec3 p_geometry_normal, uint p_light_index, bool p_soft_shadowing, out vec3 r_light, out vec3 r_light_dir, inout uint r_noise, float p_texel_size, out float r_shadow) {
 	const float EPSILON = 0.00001;
 
@@ -605,6 +612,42 @@ void trace_direct_light(vec3 p_position, vec3 p_normal, vec3 p_geometry_normal, 
 			float scos = max(cos_angle, cos_spot_angle);
 			float spot_rim = max(0.0001, (1.0 - scos) / (1.0 - cos_spot_angle));
 			attenuation *= 1.0 - pow(spot_rim, light_data.inv_spot_attenuation);
+		}
+
+		if (light_data.projector_rect.z > 0.0 && light_data.projector_rect.w > 0.0) {
+			vec3 light_to_point = p_position - light_pos;
+			vec2 projector_uv;
+
+			if (light_data.type == LIGHT_TYPE_SPOT) {
+				float projector_depth = dot(light_to_point, light_data.direction);
+				float tan_spot_angle = sqrt(max(0.0, 1.0 - light_data.cos_spot_angle * light_data.cos_spot_angle)) / light_data.cos_spot_angle;
+				projector_uv = vec2(0.5) + vec2(
+						dot(light_to_point, light_data.projector_x.xyz),
+						-dot(light_to_point, light_data.projector_y.xyz)) /
+								(2.0 * projector_depth * tan_spot_angle);
+				projector_uv = light_data.projector_rect.xy + projector_uv * light_data.projector_rect.zw;
+			} else {
+				vec3 local_v = normalize(vec3(
+						dot(light_to_point, light_data.projector_x.xyz),
+						dot(light_to_point, light_data.projector_y.xyz),
+						dot(light_to_point, light_data.projector_z.xyz)));
+				vec2 hemisphere_offset = vec2(0.0);
+				if (local_v.z >= 0.0) {
+					hemisphere_offset.y = light_data.projector_rect.w * 0.5;
+				}
+				local_v.z = 1.0 + abs(local_v.z);
+				projector_uv = local_v.xy / local_v.z;
+				projector_uv = projector_uv * 0.5 + 0.5;
+				projector_uv = light_data.projector_rect.xy + hemisphere_offset +
+						projector_uv * vec2(light_data.projector_rect.z, light_data.projector_rect.w * 0.5);
+			}
+
+			vec2 atlas_texel_size = 1.0 / vec2(textureSize(sampler2D(area_light_atlas, area_light_atlas_sampler), 0));
+			vec2 projector_min = light_data.projector_rect.xy + atlas_texel_size * 0.5;
+			vec2 projector_max = light_data.projector_rect.xy + light_data.projector_rect.zw - atlas_texel_size * 0.5;
+			projector_uv = clamp(projector_uv, projector_min, projector_max);
+			vec4 projector_color = textureLod(sampler2D(area_light_atlas, area_light_atlas_sampler), projector_uv, 0.0);
+			light_texture_color = projector_srgb_to_linear(projector_color.rgb) * projector_color.a;
 		}
 		attenuation *= max(0.0, dot(p_normal, r_light_dir));
 	}
