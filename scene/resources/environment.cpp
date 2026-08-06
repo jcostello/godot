@@ -250,12 +250,25 @@ float Environment::get_tonemap_agx_contrast() const {
 	return tonemap_agx_contrast;
 }
 
+void Environment::set_tonemap_temperature(float p_temperature) {
+	tonemap_temperature = CLAMP(p_temperature, 1000.0f, 15000.0f);
+	_update_tonemap_temperature();
+}
+
+float Environment::get_tonemap_temperature() const {
+	return tonemap_temperature;
+}
+
 void Environment::_update_tonemap() {
 	RS::get_singleton()->environment_set_tonemap(
 			environment,
 			RSE::EnvironmentToneMapper(tone_mapper),
 			tonemap_exposure,
 			tone_mapper == TONE_MAPPER_AGX ? tonemap_agx_white : tonemap_white);
+}
+
+void Environment::_update_tonemap_temperature() {
+	RS::get_singleton()->environment_set_tonemap_temperature(environment, tonemap_temperature);
 }
 
 // SSR
@@ -1070,6 +1083,24 @@ float Environment::get_adjustment_saturation() const {
 	return adjustment_saturation;
 }
 
+void Environment::set_adjustment_offset_color(const Color &p_color) {
+	adjustment_offset_color = p_color;
+	_update_adjustment();
+}
+
+Color Environment::get_adjustment_offset_color() const {
+	return adjustment_offset_color;
+}
+
+void Environment::set_adjustment_offset_luminance(float p_luminance) {
+	adjustment_offset_luminance = p_luminance;
+	_update_adjustment();
+}
+
+float Environment::get_adjustment_offset_luminance() const {
+	return adjustment_offset_luminance;
+}
+
 void Environment::set_adjustment_shadows_color(const Color &p_color) {
 	adjustment_shadows_color = p_color;
 	_update_adjustment();
@@ -1218,6 +1249,10 @@ void Environment::_update_adjustment() {
 			adjustment_midtones_luminance,
 			adjustment_highlights_color,
 			adjustment_highlights_luminance);
+	RS::get_singleton()->environment_set_adjustment_offset(
+			environment,
+			adjustment_offset_color,
+			adjustment_offset_luminance);
 }
 
 void Environment::_update_adjustment_curves() {
@@ -1436,6 +1471,8 @@ void Environment::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("get_tonemap_agx_white"), &Environment::get_tonemap_agx_white);
 	ClassDB::bind_method(D_METHOD("set_tonemap_agx_contrast", "contrast"), &Environment::set_tonemap_agx_contrast);
 	ClassDB::bind_method(D_METHOD("get_tonemap_agx_contrast"), &Environment::get_tonemap_agx_contrast);
+	ClassDB::bind_method(D_METHOD("set_tonemap_temperature", "temperature"), &Environment::set_tonemap_temperature);
+	ClassDB::bind_method(D_METHOD("get_tonemap_temperature"), &Environment::get_tonemap_temperature);
 
 	ADD_GROUP("Tonemap", "tonemap_");
 	ADD_PROPERTY(PropertyInfo(Variant::INT, "tonemap_mode", PROPERTY_HINT_ENUM, "Linear,Reinhard,Filmic,ACES,AgX"), "set_tonemapper", "get_tonemapper");
@@ -1712,6 +1749,10 @@ void Environment::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("get_adjustment_contrast"), &Environment::get_adjustment_contrast);
 	ClassDB::bind_method(D_METHOD("set_adjustment_saturation", "saturation"), &Environment::set_adjustment_saturation);
 	ClassDB::bind_method(D_METHOD("get_adjustment_saturation"), &Environment::get_adjustment_saturation);
+	ClassDB::bind_method(D_METHOD("set_adjustment_offset_color", "color"), &Environment::set_adjustment_offset_color);
+	ClassDB::bind_method(D_METHOD("get_adjustment_offset_color"), &Environment::get_adjustment_offset_color);
+	ClassDB::bind_method(D_METHOD("set_adjustment_offset_luminance", "luminance"), &Environment::set_adjustment_offset_luminance);
+	ClassDB::bind_method(D_METHOD("get_adjustment_offset_luminance"), &Environment::get_adjustment_offset_luminance);
 	ClassDB::bind_method(D_METHOD("set_adjustment_shadows_color", "color"), &Environment::set_adjustment_shadows_color);
 	ClassDB::bind_method(D_METHOD("get_adjustment_shadows_color"), &Environment::get_adjustment_shadows_color);
 	ClassDB::bind_method(D_METHOD("set_adjustment_shadows_luminance", "luminance"), &Environment::set_adjustment_shadows_luminance);
@@ -1741,6 +1782,9 @@ void Environment::_bind_methods() {
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "adjustment_contrast", PROPERTY_HINT_RANGE, "0.75,1.25,0.005,or_less,or_greater"), "set_adjustment_contrast", "get_adjustment_contrast");
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "adjustment_saturation", PROPERTY_HINT_RANGE, "0.0,2.0,0.01,or_less,or_greater"), "set_adjustment_saturation", "get_adjustment_saturation");
 	ADD_SUBGROUP("Color Grading", "adjustment_");
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "adjustment_temperature", PROPERTY_HINT_RANGE, "1000,15000,1,suffix:k"), "set_tonemap_temperature", "get_tonemap_temperature");
+	ADD_PROPERTY(PropertyInfo(Variant::COLOR, "adjustment_offset_color", PROPERTY_HINT_COLOR_NO_ALPHA), "set_adjustment_offset_color", "get_adjustment_offset_color");
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "adjustment_offset_luminance", PROPERTY_HINT_RANGE, "0.0,2.0,0.01,or_greater"), "set_adjustment_offset_luminance", "get_adjustment_offset_luminance");
 	ADD_PROPERTY(PropertyInfo(Variant::COLOR, "adjustment_shadows_color", PROPERTY_HINT_COLOR_NO_ALPHA), "set_adjustment_shadows_color", "get_adjustment_shadows_color");
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "adjustment_shadows_luminance", PROPERTY_HINT_RANGE, "0.0,2.0,0.01,or_greater"), "set_adjustment_shadows_luminance", "get_adjustment_shadows_luminance");
 	ADD_PROPERTY(PropertyInfo(Variant::COLOR, "adjustment_midtones_color", PROPERTY_HINT_COLOR_NO_ALPHA), "set_adjustment_midtones_color", "get_adjustment_midtones_color");
@@ -1809,6 +1853,7 @@ Environment::Environment() {
 
 	_update_ambient_light();
 	_update_tonemap();
+	_update_tonemap_temperature();
 	_update_ssr();
 	_update_ssao();
 	_update_ssil();

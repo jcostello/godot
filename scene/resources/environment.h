@@ -119,7 +119,9 @@ private:
 	float tonemap_white = 1.0;
 	float tonemap_agx_white = 16.29; // Default to Blender's AgX white.
 	float tonemap_agx_contrast = 1.25; // Default to approximately Blender's AgX contrast.
+	float tonemap_temperature = 6500.0;
 	void _update_tonemap();
+	void _update_tonemap_temperature();
 
 	// SSR
 	bool ssr_enabled = false;
@@ -221,6 +223,8 @@ private:
 	float adjustment_brightness = 1.0;
 	float adjustment_contrast = 1.0;
 	float adjustment_saturation = 1.0;
+	Color adjustment_offset_color = Color(1, 1, 1);
+	float adjustment_offset_luminance = 1.0;
 	Color adjustment_shadows_color = Color(1, 1, 1);
 	float adjustment_shadows_luminance = 1.0;
 	Color adjustment_midtones_color = Color(1, 1, 1);
@@ -290,6 +294,8 @@ public:
 	float get_tonemap_agx_white() const;
 	void set_tonemap_agx_contrast(float p_agx_contrast);
 	float get_tonemap_agx_contrast() const;
+	void set_tonemap_temperature(float p_temperature);
+	float get_tonemap_temperature() const;
 
 	// SSR
 	void set_ssr_enabled(bool p_enabled);
@@ -458,6 +464,10 @@ public:
 	float get_adjustment_contrast() const;
 	void set_adjustment_saturation(float p_saturation);
 	float get_adjustment_saturation() const;
+	void set_adjustment_offset_color(const Color &p_color);
+	Color get_adjustment_offset_color() const;
+	void set_adjustment_offset_luminance(float p_luminance);
+	float get_adjustment_offset_luminance() const;
 	void set_adjustment_shadows_color(const Color &p_color);
 	Color get_adjustment_shadows_color() const;
 	void set_adjustment_shadows_luminance(float p_luminance);

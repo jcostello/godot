@@ -69,8 +69,17 @@
 		<member name="adjustment_midtones_luminance" type="float" setter="set_adjustment_midtones_luminance" getter="get_adjustment_midtones_luminance" default="1.0">
 			Multiplies the brightness of the mid-range luminance of the rendered image. Effective only if [member adjustment_enabled] is [code]true[/code].
 		</member>
+		<member name="adjustment_offset_color" type="Color" setter="set_adjustment_offset_color" getter="get_adjustment_offset_color" default="Color(1, 1, 1, 1)">
+			Applies a global tint to the entire tonal range. Effective only if [member adjustment_enabled] is [code]true[/code].
+		</member>
+		<member name="adjustment_offset_luminance" type="float" setter="set_adjustment_offset_luminance" getter="get_adjustment_offset_luminance" default="1.0">
+			Multiplies the global color grading [member adjustment_offset_color] influence over the entire tonal range. Effective only if [member adjustment_enabled] is [code]true[/code].
+		</member>
 		<member name="adjustment_saturation" type="float" setter="set_adjustment_saturation" getter="get_adjustment_saturation" default="1.0">
 			Applies a simple saturation adjustment to the rendered image after tonemaping. When [member adjustment_saturation] is set to [code]0.0[/code], the rendered image will be fully converted to a grayscale image. Effective only if [member adjustment_enabled] is [code]true[/code].
+		</member>
+		<member name="adjustment_temperature" type="float" setter="set_tonemap_temperature" getter="get_tonemap_temperature" default="6500.0">
+			Sets the white balance temperature in Kelvin. Lower values produce warmer colors, while higher values produce cooler colors. A value of [code]6500.0[/code] is neutral.
 		</member>
 		<member name="adjustment_saturation_vs_saturation" type="CurveTexture" setter="set_adjustment_saturation_vs_saturation" getter="get_adjustment_saturation_vs_saturation">
 			Adjusts saturation according to input saturation. A curve value of [code]0.5[/code] is neutral.

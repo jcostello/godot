@@ -261,6 +261,18 @@ float RendererEnvironmentStorage::environment_get_white(RID p_env, bool p_limit_
 	}
 }
 
+void RendererEnvironmentStorage::environment_set_tonemap_temperature(RID p_env, float p_temperature) {
+	Environment *env = environment_owner.get_or_null(p_env);
+	ERR_FAIL_NULL(env);
+	env->tonemap_temperature = CLAMP(p_temperature, 1000.0f, 15000.0f);
+}
+
+float RendererEnvironmentStorage::environment_get_tonemap_temperature(RID p_env) const {
+	Environment *env = environment_owner.get_or_null(p_env);
+	ERR_FAIL_NULL_V(env, 6500.0f);
+	return env->tonemap_temperature;
+}
+
 void RendererEnvironmentStorage::environment_set_tonemap_agx_contrast(RID p_env, float p_agx_contrast) {
 	Environment *env = environment_owner.get_or_null(p_env);
 	ERR_FAIL_NULL(env);
@@ -916,6 +928,13 @@ void RendererEnvironmentStorage::environment_set_adjustment(RID p_env, bool p_en
 	env->color_correction = p_color_correction;
 }
 
+void RendererEnvironmentStorage::environment_set_adjustment_offset(RID p_env, const Color &p_color, float p_luminance) {
+	Environment *env = environment_owner.get_or_null(p_env);
+	ERR_FAIL_NULL(env);
+	env->adjustments_offset_color = p_color;
+	env->adjustments_offset_luminance = p_luminance;
+}
+
 void RendererEnvironmentStorage::environment_set_adjustment_curves(RID p_env, RID p_hue_vs_hue, RID p_hue_vs_saturation, RID p_saturation_vs_saturation, RID p_luminance_vs_saturation) {
 	Environment *env = environment_owner.get_or_null(p_env);
 	ERR_FAIL_NULL(env);
@@ -947,6 +966,18 @@ float RendererEnvironmentStorage::environment_get_adjustments_saturation(RID p_e
 	Environment *env = environment_owner.get_or_null(p_env);
 	ERR_FAIL_NULL_V(env, 1.0);
 	return env->adjustments_saturation;
+}
+
+Color RendererEnvironmentStorage::environment_get_adjustments_offset_color(RID p_env) const {
+	Environment *env = environment_owner.get_or_null(p_env);
+	ERR_FAIL_NULL_V(env, Color(1, 1, 1));
+	return env->adjustments_offset_color;
+}
+
+float RendererEnvironmentStorage::environment_get_adjustments_offset_luminance(RID p_env) const {
+	Environment *env = environment_owner.get_or_null(p_env);
+	ERR_FAIL_NULL_V(env, 1.0);
+	return env->adjustments_offset_luminance;
 }
 
 Color RendererEnvironmentStorage::environment_get_adjustments_shadows_color(RID p_env) const {

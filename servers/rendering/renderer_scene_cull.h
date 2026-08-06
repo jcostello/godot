@@ -1246,9 +1246,11 @@ public:
 	// Tonemap
 	PASS4(environment_set_tonemap, RID, RSE::EnvironmentToneMapper, float, float)
 	PASS2(environment_set_tonemap_agx_contrast, RID, float)
+	PASS2(environment_set_tonemap_temperature, RID, float)
 	PASS1RC(RSE::EnvironmentToneMapper, environment_get_tone_mapper, RID)
 	PASS1RC(float, environment_get_exposure, RID)
 	PASS3RC(float, environment_get_white, RID, bool, float)
+	PASS1RC(float, environment_get_tonemap_temperature, RID)
 
 	// Fog
 	PASS11(environment_set_fog, RID, bool, const Color &, float, float, float, float, float, float, float, RSE::EnvironmentFogMode)
@@ -1367,12 +1369,15 @@ public:
 
 	// Adjustment
 	PASS13(environment_set_adjustment, RID, bool, float, float, float, bool, RID, const Color &, float, const Color &, float, const Color &, float)
+	PASS3(environment_set_adjustment_offset, RID, const Color &, float)
 	PASS5(environment_set_adjustment_curves, RID, RID, RID, RID, RID)
 
 	PASS1RC(bool, environment_get_adjustments_enabled, RID)
 	PASS1RC(float, environment_get_adjustments_brightness, RID)
 	PASS1RC(float, environment_get_adjustments_contrast, RID)
 	PASS1RC(float, environment_get_adjustments_saturation, RID)
+	PASS1RC(Color, environment_get_adjustments_offset_color, RID)
+	PASS1RC(float, environment_get_adjustments_offset_luminance, RID)
 	PASS1RC(Color, environment_get_adjustments_shadows_color, RID)
 	PASS1RC(float, environment_get_adjustments_shadows_luminance, RID)
 	PASS1RC(Color, environment_get_adjustments_midtones_color, RID)
