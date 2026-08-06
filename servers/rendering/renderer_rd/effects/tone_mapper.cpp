@@ -170,6 +170,9 @@ void ToneMapper::tonemapper(RID p_source_color, RID p_dst_framebuffer, const Ton
 	tonemap.push_constant.offset[1] = p_settings.offset_color.g;
 	tonemap.push_constant.offset[2] = p_settings.offset_color.b;
 	tonemap.push_constant.offset[3] = p_settings.offset_luminance;
+	tonemap.push_constant.tint_midtones_range[0] = p_settings.tint;
+	tonemap.push_constant.tint_midtones_range[1] = p_settings.midtones_start;
+	tonemap.push_constant.tint_midtones_range[2] = p_settings.midtones_end;
 	tonemap.push_constant.flags |= p_settings.use_auto_exposure ? TONEMAP_FLAG_USE_AUTO_EXPOSURE : 0;
 	tonemap.push_constant.exposure = p_settings.exposure;
 	tonemap.push_constant.white = p_settings.white;
@@ -282,6 +285,9 @@ void ToneMapper::tonemapper_mobile(RID p_source_color, RID p_dst_framebuffer, co
 	tonemap_mobile.push_constant.offset[1] = p_settings.offset_color.g;
 	tonemap_mobile.push_constant.offset[2] = p_settings.offset_color.b;
 	tonemap_mobile.push_constant.offset[3] = p_settings.offset_luminance;
+	tonemap_mobile.push_constant.tint_midtones_range[0] = p_settings.tint;
+	tonemap_mobile.push_constant.tint_midtones_range[1] = p_settings.midtones_start;
+	tonemap_mobile.push_constant.tint_midtones_range[2] = p_settings.midtones_end;
 	tonemap_mobile.push_constant.shadows[0] = p_settings.shadows_color.r;
 	tonemap_mobile.push_constant.shadows[1] = p_settings.shadows_color.g;
 	tonemap_mobile.push_constant.shadows[2] = p_settings.shadows_color.b;
@@ -398,6 +404,9 @@ void ToneMapper::tonemapper_subpass(RD::DrawListID p_subpass_draw_list, RID p_so
 	tonemap_mobile.push_constant.offset[1] = p_settings.offset_color.g;
 	tonemap_mobile.push_constant.offset[2] = p_settings.offset_color.b;
 	tonemap_mobile.push_constant.offset[3] = p_settings.offset_luminance;
+	tonemap_mobile.push_constant.tint_midtones_range[0] = p_settings.tint;
+	tonemap_mobile.push_constant.tint_midtones_range[1] = p_settings.midtones_start;
+	tonemap_mobile.push_constant.tint_midtones_range[2] = p_settings.midtones_end;
 	tonemap_mobile.push_constant.shadows[0] = p_settings.shadows_color.r;
 	tonemap_mobile.push_constant.shadows[1] = p_settings.shadows_color.g;
 	tonemap_mobile.push_constant.shadows[2] = p_settings.shadows_color.b;

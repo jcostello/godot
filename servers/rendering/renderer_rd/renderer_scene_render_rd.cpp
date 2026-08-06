@@ -778,9 +778,9 @@ void RendererSceneRenderRD::_render_buffers_post_process_and_tonemap(const Rende
 			tonemap.tonemapper_params[1] = params.tonemapper_params[1];
 			tonemap.tonemapper_params[2] = params.tonemapper_params[2];
 			tonemap.tonemapper_params[3] = params.tonemapper_params[3];
-			tonemap.white = environment_get_white(p_render_data->environment, limit_agx_white, max_value);
+			const bool advanced_adjustments_enabled = environment_get_adjustments_enabled(p_render_data->environment) && environment_get_adjustment_advance(p_render_data->environment);
+			Vector3 temperature_balance = advanced_adjustments_enabled ? tonemap_temperature_balance(environment_get_tonemap_temperature(p_render_data->environment)) : Vector3(1.0, 1.0, 1.0);
 			tonemap.exposure = environment_get_exposure(p_render_data->environment);
-			Vector3 temperature_balance = tonemap_temperature_balance(environment_get_tonemap_temperature(p_render_data->environment));
 			tonemap.tonemap_temperature[0] = temperature_balance.x;
 			tonemap.tonemap_temperature[1] = temperature_balance.y;
 			tonemap.tonemap_temperature[2] = temperature_balance.z;
@@ -799,13 +799,19 @@ void RendererSceneRenderRD::_render_buffers_post_process_and_tonemap(const Rende
 		tonemap.convert_to_srgb = !using_hdr;
 
 		if (can_use_effects && p_render_data->environment.is_valid()) {
-			tonemap.use_bcs = environment_get_adjustments_enabled(p_render_data->environment);
+			const bool adjustments_enabled = environment_get_adjustments_enabled(p_render_data->environment);
+			const bool advanced_adjustments_enabled = adjustments_enabled && environment_get_adjustment_advance(p_render_data->environment);
+
+			tonemap.use_bcs = adjustments_enabled;
 			tonemap.brightness = environment_get_adjustments_brightness(p_render_data->environment);
 			tonemap.contrast = environment_get_adjustments_contrast(p_render_data->environment);
 			tonemap.saturation = environment_get_adjustments_saturation(p_render_data->environment);
-			tonemap.use_color_grading = environment_get_adjustments_enabled(p_render_data->environment);
+			tonemap.use_color_grading = advanced_adjustments_enabled;
 			tonemap.offset_color = environment_get_adjustments_offset_color(p_render_data->environment);
 			tonemap.offset_luminance = environment_get_adjustments_offset_luminance(p_render_data->environment);
+			tonemap.tint = environment_get_adjustment_tint(p_render_data->environment);
+			tonemap.midtones_start = environment_get_adjustment_midtones_start(p_render_data->environment);
+			tonemap.midtones_end = environment_get_adjustment_midtones_end(p_render_data->environment);
 			tonemap.shadows_color = environment_get_adjustments_shadows_color(p_render_data->environment);
 			tonemap.shadows_luminance = environment_get_adjustments_shadows_luminance(p_render_data->environment);
 			tonemap.midtones_color = environment_get_adjustments_midtones_color(p_render_data->environment);
@@ -817,13 +823,13 @@ void RendererSceneRenderRD::_render_buffers_post_process_and_tonemap(const Rende
 			RID saturation_vs_saturation = environment_get_adjustments_saturation_vs_saturation(p_render_data->environment);
 			RID luminance_vs_saturation = environment_get_adjustments_luminance_vs_saturation(p_render_data->environment);
 			if (hue_vs_hue.is_valid() && hue_vs_saturation.is_valid() && saturation_vs_saturation.is_valid() && luminance_vs_saturation.is_valid()) {
-				tonemap.use_color_grading_curves = environment_get_adjustments_enabled(p_render_data->environment);
+				tonemap.use_color_grading_curves = advanced_adjustments_enabled;
 				tonemap.hue_vs_hue_texture = texture_storage->texture_get_rd_texture(hue_vs_hue);
 				tonemap.hue_vs_saturation_texture = texture_storage->texture_get_rd_texture(hue_vs_saturation);
 				tonemap.saturation_vs_saturation_texture = texture_storage->texture_get_rd_texture(saturation_vs_saturation);
 				tonemap.luminance_vs_saturation_texture = texture_storage->texture_get_rd_texture(luminance_vs_saturation);
 			}
-			if (environment_get_adjustments_enabled(p_render_data->environment) && environment_get_color_correction(p_render_data->environment).is_valid()) {
+			if (advanced_adjustments_enabled && environment_get_color_correction(p_render_data->environment).is_valid()) {
 				tonemap.use_color_correction = true;
 				tonemap.use_1d_color_correction = environment_get_use_1d_color_correction(p_render_data->environment);
 				tonemap.color_correction_texture = texture_storage->texture_get_rd_texture(environment_get_color_correction(p_render_data->environment), !tonemap.convert_to_srgb);
@@ -1040,13 +1046,19 @@ void RendererSceneRenderRD::_post_process_subpass(RID p_source_texture, RID p_fr
 	tonemap.convert_to_srgb = !using_hdr;
 
 	if (can_use_effects && p_render_data->environment.is_valid()) {
-		tonemap.use_bcs = environment_get_adjustments_enabled(p_render_data->environment);
+		const bool adjustments_enabled = environment_get_adjustments_enabled(p_render_data->environment);
+		const bool advanced_adjustments_enabled = adjustments_enabled && environment_get_adjustment_advance(p_render_data->environment);
+
+		tonemap.use_bcs = adjustments_enabled;
 		tonemap.brightness = environment_get_adjustments_brightness(p_render_data->environment);
 		tonemap.contrast = environment_get_adjustments_contrast(p_render_data->environment);
 		tonemap.saturation = environment_get_adjustments_saturation(p_render_data->environment);
-		tonemap.use_color_grading = environment_get_adjustments_enabled(p_render_data->environment);
+		tonemap.use_color_grading = advanced_adjustments_enabled;
 		tonemap.offset_color = environment_get_adjustments_offset_color(p_render_data->environment);
 		tonemap.offset_luminance = environment_get_adjustments_offset_luminance(p_render_data->environment);
+		tonemap.tint = environment_get_adjustment_tint(p_render_data->environment);
+		tonemap.midtones_start = environment_get_adjustment_midtones_start(p_render_data->environment);
+		tonemap.midtones_end = environment_get_adjustment_midtones_end(p_render_data->environment);
 		tonemap.shadows_color = environment_get_adjustments_shadows_color(p_render_data->environment);
 		tonemap.shadows_luminance = environment_get_adjustments_shadows_luminance(p_render_data->environment);
 		tonemap.midtones_color = environment_get_adjustments_midtones_color(p_render_data->environment);
@@ -1058,13 +1070,13 @@ void RendererSceneRenderRD::_post_process_subpass(RID p_source_texture, RID p_fr
 		RID saturation_vs_saturation = environment_get_adjustments_saturation_vs_saturation(p_render_data->environment);
 		RID luminance_vs_saturation = environment_get_adjustments_luminance_vs_saturation(p_render_data->environment);
 		if (hue_vs_hue.is_valid() && hue_vs_saturation.is_valid() && saturation_vs_saturation.is_valid() && luminance_vs_saturation.is_valid()) {
-			tonemap.use_color_grading_curves = environment_get_adjustments_enabled(p_render_data->environment);
+			tonemap.use_color_grading_curves = advanced_adjustments_enabled;
 			tonemap.hue_vs_hue_texture = texture_storage->texture_get_rd_texture(hue_vs_hue);
 			tonemap.hue_vs_saturation_texture = texture_storage->texture_get_rd_texture(hue_vs_saturation);
 			tonemap.saturation_vs_saturation_texture = texture_storage->texture_get_rd_texture(saturation_vs_saturation);
 			tonemap.luminance_vs_saturation_texture = texture_storage->texture_get_rd_texture(luminance_vs_saturation);
 		}
-		if (environment_get_adjustments_enabled(p_render_data->environment) && environment_get_color_correction(p_render_data->environment).is_valid()) {
+		if (advanced_adjustments_enabled && environment_get_color_correction(p_render_data->environment).is_valid()) {
 			tonemap.use_color_correction = true;
 			tonemap.use_1d_color_correction = environment_get_use_1d_color_correction(p_render_data->environment);
 			tonemap.color_correction_texture = texture_storage->texture_get_rd_texture(environment_get_color_correction(p_render_data->environment), !tonemap.convert_to_srgb);

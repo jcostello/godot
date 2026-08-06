@@ -99,6 +99,7 @@ layout(push_constant, std430) uniform Params {
 
 	vec4 tonemapper_params;
 	vec4 offset;
+	vec4 tint_midtones_range;
 
 	float output_max_value;
 	vec3 tonemap_temperature;
@@ -855,11 +856,16 @@ void main() {
 
 		if (use_color_grading) {
 			color.rgb *= params.offset.rgb * params.offset.a;
+			float tint = params.tint_midtones_range.x;
+			vec3 tint_balance = vec3(1.0 - tint, 1.0 + tint, 1.0 + abs(tint));
+			color.rgb *= tint_balance;
 
 			float luminance = dot(color.rgb, vec3(0.2126, 0.7152, 0.0722));
-			float shadows_weight = 1.0 - smoothstep(0.1, 0.45, luminance);
-			float highlights_weight = smoothstep(0.55, 0.9, luminance);
-			float midtones_weight = 1.0 - shadows_weight - highlights_weight;
+			float midtones_start = clamp(params.tint_midtones_range.y, 0.0, 0.99);
+			float midtones_end = clamp(params.tint_midtones_range.z, midtones_start + 0.01, 1.0);
+			float shadows_weight = 1.0 - smoothstep(0.0, midtones_start, luminance);
+			float highlights_weight = smoothstep(midtones_end, 1.0, luminance);
+			float midtones_weight = max(0.0, 1.0 - shadows_weight - highlights_weight);
 			vec3 grade = params.shadows.rgb * params.shadows.a * shadows_weight;
 			grade += params.midtones.rgb * params.midtones.a * midtones_weight;
 			grade += params.highlights.rgb * params.highlights.a * highlights_weight;
