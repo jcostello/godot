@@ -2562,6 +2562,21 @@ void RasterizerSceneGLES3::render_scene(const Ref<RenderSceneBuffers> &p_render_
 		tonemap_ubo.brightness = environment_get_adjustments_brightness(render_data.environment);
 		tonemap_ubo.contrast = environment_get_adjustments_contrast(render_data.environment);
 		tonemap_ubo.saturation = environment_get_adjustments_saturation(render_data.environment);
+		Color shadows = environment_get_adjustments_shadows_color(render_data.environment);
+		Color midtones = environment_get_adjustments_midtones_color(render_data.environment);
+		Color highlights = environment_get_adjustments_highlights_color(render_data.environment);
+		tonemap_ubo.shadows[0] = shadows.r;
+		tonemap_ubo.shadows[1] = shadows.g;
+		tonemap_ubo.shadows[2] = shadows.b;
+		tonemap_ubo.shadows[3] = environment_get_adjustments_shadows_luminance(render_data.environment);
+		tonemap_ubo.midtones[0] = midtones.r;
+		tonemap_ubo.midtones[1] = midtones.g;
+		tonemap_ubo.midtones[2] = midtones.b;
+		tonemap_ubo.midtones[3] = environment_get_adjustments_midtones_luminance(render_data.environment);
+		tonemap_ubo.highlights[0] = highlights.r;
+		tonemap_ubo.highlights[1] = highlights.g;
+		tonemap_ubo.highlights[2] = highlights.b;
+		tonemap_ubo.highlights[3] = environment_get_adjustments_highlights_luminance(render_data.environment);
 	}
 	const float manual_exposure_adjustment = render_data.camera_attributes.is_valid() ? RSG::camera_attributes->camera_attributes_get_exposure_adjustment_factor(render_data.camera_attributes) : 1.0f;
 	tonemap_ubo.exposure *= manual_exposure_adjustment;
@@ -3080,6 +3095,24 @@ void RasterizerSceneGLES3::_render_post_processing(const RenderDataGLES3 *p_rend
 		RID color_correction_texture = environment_get_color_correction(p_render_data->environment);
 		if (use_bcs) {
 			bcs_spec_constants |= PostShaderGLES3::USE_BCS;
+			bcs_spec_constants |= PostShaderGLES3::USE_COLOR_GRADING;
+
+			RID curve_textures[4] = {
+				environment_get_adjustments_hue_vs_hue(p_render_data->environment),
+				environment_get_adjustments_hue_vs_saturation(p_render_data->environment),
+				environment_get_adjustments_saturation_vs_saturation(p_render_data->environment),
+				environment_get_adjustments_luminance_vs_saturation(p_render_data->environment)
+			};
+			if (curve_textures[0].is_valid() && curve_textures[1].is_valid() && curve_textures[2].is_valid() && curve_textures[3].is_valid()) {
+				bcs_spec_constants |= PostShaderGLES3::USE_COLOR_GRADING_CURVES;
+				for (int i = 0; i < 4; i++) {
+					glActiveTexture(GL_TEXTURE4 + i);
+					glBindTexture(GL_TEXTURE_2D, texture_storage->texture_get_texid(curve_textures[i]));
+					glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+					glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+					glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+				}
+			}
 
 			if (color_correction_texture.is_valid()) {
 				bcs_spec_constants |= PostShaderGLES3::USE_COLOR_CORRECTION;

@@ -1070,6 +1070,118 @@ float Environment::get_adjustment_saturation() const {
 	return adjustment_saturation;
 }
 
+void Environment::set_adjustment_shadows_color(const Color &p_color) {
+	adjustment_shadows_color = p_color;
+	_update_adjustment();
+}
+
+Color Environment::get_adjustment_shadows_color() const {
+	return adjustment_shadows_color;
+}
+
+void Environment::set_adjustment_shadows_luminance(float p_luminance) {
+	adjustment_shadows_luminance = p_luminance;
+	_update_adjustment();
+}
+
+float Environment::get_adjustment_shadows_luminance() const {
+	return adjustment_shadows_luminance;
+}
+
+void Environment::set_adjustment_midtones_color(const Color &p_color) {
+	adjustment_midtones_color = p_color;
+	_update_adjustment();
+}
+
+Color Environment::get_adjustment_midtones_color() const {
+	return adjustment_midtones_color;
+}
+
+void Environment::set_adjustment_midtones_luminance(float p_luminance) {
+	adjustment_midtones_luminance = p_luminance;
+	_update_adjustment();
+}
+
+float Environment::get_adjustment_midtones_luminance() const {
+	return adjustment_midtones_luminance;
+}
+
+void Environment::set_adjustment_highlights_color(const Color &p_color) {
+	adjustment_highlights_color = p_color;
+	_update_adjustment();
+}
+
+Color Environment::get_adjustment_highlights_color() const {
+	return adjustment_highlights_color;
+}
+
+void Environment::set_adjustment_highlights_luminance(float p_luminance) {
+	adjustment_highlights_luminance = p_luminance;
+	_update_adjustment();
+}
+
+float Environment::get_adjustment_highlights_luminance() const {
+	return adjustment_highlights_luminance;
+}
+
+static void _initialize_color_grading_curve(const Ref<CurveTexture> &p_curve, int p_mode) {
+	if (p_curve.is_null()) {
+		return;
+	}
+
+	Ref<Curve> curve = p_curve->get_curve();
+	if (curve.is_null()) {
+		curve.instantiate();
+		p_curve->set_curve(curve);
+	}
+	if (curve->get_point_count() == 0) {
+		curve->add_point(Vector2(0.0, 0.5));
+		curve->add_point(Vector2(1.0, 0.5));
+	}
+	p_curve->set_texture_mode(CurveTexture::TEXTURE_MODE_RED);
+	curve->set_meta(SNAME("_color_grading_curve"), p_mode);
+}
+
+void Environment::set_adjustment_hue_vs_hue(const Ref<CurveTexture> &p_curve) {
+	adjustment_hue_vs_hue = p_curve;
+	_initialize_color_grading_curve(p_curve, 0);
+	_update_adjustment_curves();
+}
+
+Ref<CurveTexture> Environment::get_adjustment_hue_vs_hue() const {
+	return adjustment_hue_vs_hue;
+}
+
+void Environment::set_adjustment_hue_vs_saturation(const Ref<CurveTexture> &p_curve) {
+	adjustment_hue_vs_saturation = p_curve;
+	_initialize_color_grading_curve(p_curve, 1);
+	_update_adjustment_curves();
+}
+
+Ref<CurveTexture> Environment::get_adjustment_hue_vs_saturation() const {
+	return adjustment_hue_vs_saturation;
+}
+
+void Environment::set_adjustment_saturation_vs_saturation(const Ref<CurveTexture> &p_curve) {
+	adjustment_saturation_vs_saturation = p_curve;
+	_initialize_color_grading_curve(p_curve, 2);
+	_update_adjustment_curves();
+}
+
+Ref<CurveTexture> Environment::get_adjustment_saturation_vs_saturation() const {
+	return adjustment_saturation_vs_saturation;
+}
+
+void Environment::set_adjustment_luminance_vs_saturation(const Ref<CurveTexture> &p_curve) {
+	adjustment_luminance_vs_saturation = p_curve;
+	_initialize_color_grading_curve(p_curve, 3);
+	_update_adjustment_curves();
+}
+
+Ref<CurveTexture> Environment::get_adjustment_luminance_vs_saturation() const {
+	return adjustment_luminance_vs_saturation;
+}
+
 void Environment::set_adjustment_color_correction(Ref<Texture> p_color_correction) {
 	adjustment_color_correction = p_color_correction;
 	Ref<GradientTexture1D> grad_tex = p_color_correction;
@@ -1099,7 +1211,22 @@ void Environment::_update_adjustment() {
 			adjustment_contrast,
 			adjustment_saturation,
 			use_1d_color_correction,
-			color_correction);
+			color_correction,
+			adjustment_shadows_color,
+			adjustment_shadows_luminance,
+			adjustment_midtones_color,
+			adjustment_midtones_luminance,
+			adjustment_highlights_color,
+			adjustment_highlights_luminance);
+}
+
+void Environment::_update_adjustment_curves() {
+	RS::get_singleton()->environment_set_adjustment_curves(
+			environment,
+			adjustment_hue_vs_hue.is_valid() ? adjustment_hue_vs_hue->get_rid() : RID(),
+			adjustment_hue_vs_saturation.is_valid() ? adjustment_hue_vs_saturation->get_rid() : RID(),
+			adjustment_saturation_vs_saturation.is_valid() ? adjustment_saturation_vs_saturation->get_rid() : RID(),
+			adjustment_luminance_vs_saturation.is_valid() ? adjustment_luminance_vs_saturation->get_rid() : RID());
 }
 
 // Private methods, constructor and destructor
@@ -1585,6 +1712,26 @@ void Environment::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("get_adjustment_contrast"), &Environment::get_adjustment_contrast);
 	ClassDB::bind_method(D_METHOD("set_adjustment_saturation", "saturation"), &Environment::set_adjustment_saturation);
 	ClassDB::bind_method(D_METHOD("get_adjustment_saturation"), &Environment::get_adjustment_saturation);
+	ClassDB::bind_method(D_METHOD("set_adjustment_shadows_color", "color"), &Environment::set_adjustment_shadows_color);
+	ClassDB::bind_method(D_METHOD("get_adjustment_shadows_color"), &Environment::get_adjustment_shadows_color);
+	ClassDB::bind_method(D_METHOD("set_adjustment_shadows_luminance", "luminance"), &Environment::set_adjustment_shadows_luminance);
+	ClassDB::bind_method(D_METHOD("get_adjustment_shadows_luminance"), &Environment::get_adjustment_shadows_luminance);
+	ClassDB::bind_method(D_METHOD("set_adjustment_midtones_color", "color"), &Environment::set_adjustment_midtones_color);
+	ClassDB::bind_method(D_METHOD("get_adjustment_midtones_color"), &Environment::get_adjustment_midtones_color);
+	ClassDB::bind_method(D_METHOD("set_adjustment_midtones_luminance", "luminance"), &Environment::set_adjustment_midtones_luminance);
+	ClassDB::bind_method(D_METHOD("get_adjustment_midtones_luminance"), &Environment::get_adjustment_midtones_luminance);
+	ClassDB::bind_method(D_METHOD("set_adjustment_highlights_color", "color"), &Environment::set_adjustment_highlights_color);
+	ClassDB::bind_method(D_METHOD("get_adjustment_highlights_color"), &Environment::get_adjustment_highlights_color);
+	ClassDB::bind_method(D_METHOD("set_adjustment_highlights_luminance", "luminance"), &Environment::set_adjustment_highlights_luminance);
+	ClassDB::bind_method(D_METHOD("get_adjustment_highlights_luminance"), &Environment::get_adjustment_highlights_luminance);
+	ClassDB::bind_method(D_METHOD("set_adjustment_hue_vs_hue", "curve"), &Environment::set_adjustment_hue_vs_hue);
+	ClassDB::bind_method(D_METHOD("get_adjustment_hue_vs_hue"), &Environment::get_adjustment_hue_vs_hue);
+	ClassDB::bind_method(D_METHOD("set_adjustment_hue_vs_saturation", "curve"), &Environment::set_adjustment_hue_vs_saturation);
+	ClassDB::bind_method(D_METHOD("get_adjustment_hue_vs_saturation"), &Environment::get_adjustment_hue_vs_saturation);
+	ClassDB::bind_method(D_METHOD("set_adjustment_saturation_vs_saturation", "curve"), &Environment::set_adjustment_saturation_vs_saturation);
+	ClassDB::bind_method(D_METHOD("get_adjustment_saturation_vs_saturation"), &Environment::get_adjustment_saturation_vs_saturation);
+	ClassDB::bind_method(D_METHOD("set_adjustment_luminance_vs_saturation", "curve"), &Environment::set_adjustment_luminance_vs_saturation);
+	ClassDB::bind_method(D_METHOD("get_adjustment_luminance_vs_saturation"), &Environment::get_adjustment_luminance_vs_saturation);
 	ClassDB::bind_method(D_METHOD("set_adjustment_color_correction", "color_correction"), &Environment::set_adjustment_color_correction);
 	ClassDB::bind_method(D_METHOD("get_adjustment_color_correction"), &Environment::get_adjustment_color_correction);
 
@@ -1593,6 +1740,18 @@ void Environment::_bind_methods() {
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "adjustment_brightness", PROPERTY_HINT_RANGE, "0.0,2.0,0.01,or_greater"), "set_adjustment_brightness", "get_adjustment_brightness");
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "adjustment_contrast", PROPERTY_HINT_RANGE, "0.75,1.25,0.005,or_less,or_greater"), "set_adjustment_contrast", "get_adjustment_contrast");
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "adjustment_saturation", PROPERTY_HINT_RANGE, "0.0,2.0,0.01,or_less,or_greater"), "set_adjustment_saturation", "get_adjustment_saturation");
+	ADD_SUBGROUP("Color Grading", "adjustment_");
+	ADD_PROPERTY(PropertyInfo(Variant::COLOR, "adjustment_shadows_color", PROPERTY_HINT_COLOR_NO_ALPHA), "set_adjustment_shadows_color", "get_adjustment_shadows_color");
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "adjustment_shadows_luminance", PROPERTY_HINT_RANGE, "0.0,2.0,0.01,or_greater"), "set_adjustment_shadows_luminance", "get_adjustment_shadows_luminance");
+	ADD_PROPERTY(PropertyInfo(Variant::COLOR, "adjustment_midtones_color", PROPERTY_HINT_COLOR_NO_ALPHA), "set_adjustment_midtones_color", "get_adjustment_midtones_color");
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "adjustment_midtones_luminance", PROPERTY_HINT_RANGE, "0.0,2.0,0.01,or_greater"), "set_adjustment_midtones_luminance", "get_adjustment_midtones_luminance");
+	ADD_PROPERTY(PropertyInfo(Variant::COLOR, "adjustment_highlights_color", PROPERTY_HINT_COLOR_NO_ALPHA), "set_adjustment_highlights_color", "get_adjustment_highlights_color");
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "adjustment_highlights_luminance", PROPERTY_HINT_RANGE, "0.0,2.0,0.01,or_greater"), "set_adjustment_highlights_luminance", "get_adjustment_highlights_luminance");
+	ADD_SUBGROUP("Curves", "adjustment_");
+	ADD_PROPERTY(PropertyInfo(Variant::OBJECT, "adjustment_hue_vs_hue", PROPERTY_HINT_RESOURCE_TYPE, "CurveTexture", PROPERTY_USAGE_DEFAULT | PROPERTY_USAGE_EDITOR_INSTANTIATE_OBJECT), "set_adjustment_hue_vs_hue", "get_adjustment_hue_vs_hue");
+	ADD_PROPERTY(PropertyInfo(Variant::OBJECT, "adjustment_hue_vs_saturation", PROPERTY_HINT_RESOURCE_TYPE, "CurveTexture", PROPERTY_USAGE_DEFAULT | PROPERTY_USAGE_EDITOR_INSTANTIATE_OBJECT), "set_adjustment_hue_vs_saturation", "get_adjustment_hue_vs_saturation");
+	ADD_PROPERTY(PropertyInfo(Variant::OBJECT, "adjustment_saturation_vs_saturation", PROPERTY_HINT_RESOURCE_TYPE, "CurveTexture", PROPERTY_USAGE_DEFAULT | PROPERTY_USAGE_EDITOR_INSTANTIATE_OBJECT), "set_adjustment_saturation_vs_saturation", "get_adjustment_saturation_vs_saturation");
+	ADD_PROPERTY(PropertyInfo(Variant::OBJECT, "adjustment_luminance_vs_saturation", PROPERTY_HINT_RESOURCE_TYPE, "CurveTexture", PROPERTY_USAGE_DEFAULT | PROPERTY_USAGE_EDITOR_INSTANTIATE_OBJECT), "set_adjustment_luminance_vs_saturation", "get_adjustment_luminance_vs_saturation");
 	ADD_PROPERTY(PropertyInfo(Variant::OBJECT, "adjustment_color_correction", PROPERTY_HINT_RESOURCE_TYPE, "Texture2D,Texture3D"), "set_adjustment_color_correction", "get_adjustment_color_correction");
 
 	// Constants
@@ -1657,6 +1816,7 @@ Environment::Environment() {
 	_update_glow();
 	_update_fog();
 	_update_adjustment();
+	_update_adjustment_curves();
 	_update_volumetric_fog();
 	_update_bg_energy();
 	notify_property_list_changed();

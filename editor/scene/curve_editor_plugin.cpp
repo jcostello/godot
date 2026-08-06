@@ -777,6 +777,50 @@ void CurveEdit::_redraw() {
 
 	Vector2 view_size = get_rect().size;
 	draw_style_box(get_theme_stylebox(SceneStringName(panel), SNAME("Tree")), Rect2(Point2(), view_size));
+	if (curve->has_meta(SNAME("_color_grading_curve"))) {
+		const int mode = curve->get_meta(SNAME("_color_grading_curve"));
+		const int columns = 96;
+		const int rows = 24;
+		for (int x = 0; x < columns; x++) {
+			for (int y = 0; y < rows; y++) {
+				float input = (x + 0.5) / columns;
+				float output = 1.0 - (y + 0.5) / rows;
+				Color background;
+				float distance_from_neutral = Math::abs(output - 0.5) * 2.0;
+				switch (mode) {
+					case 0: { // Hue vs Hue: show the resulting hue shift.
+						float shifted_hue = Math::fposmod(input + output - 0.5, 1.0);
+						Color shifted = Color::from_hsv(shifted_hue, 0.52, 0.62);
+						Color neutral = Color::from_hsv(input, 0.18, 0.48);
+						background = neutral.lerp(shifted, 0.35 + distance_from_neutral * 0.65);
+					} break;
+					case 1: { // Hue vs Saturation: neutral gray at the center.
+						Color hue = Color::from_hsv(input, 0.58, 0.64);
+						Color neutral(0.43, 0.43, 0.43);
+						background = neutral.lerp(hue, distance_from_neutral * 0.78);
+						if (output < 0.5) {
+							background = background.darkened((0.5 - output) * 0.18);
+						}
+					} break;
+					case 2: { // Saturation vs Saturation.
+						float input_gray = Math::lerp(0.31f, 0.67f, input);
+						float value = Math::lerp(0.22f, 0.82f, output);
+						float gray = Math::lerp(input_gray, value, 0.72f);
+						background = Color(gray, gray, gray);
+					} break;
+					default: { // Luminance vs Saturation.
+						float luminance = Math::lerp(0.18f, 0.82f, input);
+						float vertical_shade = Math::lerp(0.78f, 1.18f, output);
+						float gray = CLAMP(luminance * vertical_shade, 0.0f, 1.0f);
+						background = Color(gray, gray, gray);
+					} break;
+				}
+				draw_rect(Rect2(Vector2(view_size.x * x / columns, view_size.y * y / rows), Vector2(view_size.x / columns + 1.0, view_size.y / rows + 1.0)), background);
+			}
+		}
+		// Make the neutral 0.5 line immediately recognizable behind the curve.
+		draw_rect(Rect2(0, view_size.y * 0.5 - EDSCALE, view_size.x, 2.0 * EDSCALE), Color(0.72, 0.72, 0.72, 0.72));
+	}
 
 	// Draw primary grid.
 	draw_set_transform_matrix(_world_to_view);

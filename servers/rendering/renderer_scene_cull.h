@@ -1366,12 +1366,23 @@ public:
 	PASS1(environment_set_sdfgi_frames_to_update_light, RSE::EnvironmentSDFGIFramesToUpdateLight)
 
 	// Adjustment
-	PASS7(environment_set_adjustment, RID, bool, float, float, float, bool, RID)
+	PASS13(environment_set_adjustment, RID, bool, float, float, float, bool, RID, const Color &, float, const Color &, float, const Color &, float)
+	PASS5(environment_set_adjustment_curves, RID, RID, RID, RID, RID)
 
 	PASS1RC(bool, environment_get_adjustments_enabled, RID)
 	PASS1RC(float, environment_get_adjustments_brightness, RID)
 	PASS1RC(float, environment_get_adjustments_contrast, RID)
 	PASS1RC(float, environment_get_adjustments_saturation, RID)
+	PASS1RC(Color, environment_get_adjustments_shadows_color, RID)
+	PASS1RC(float, environment_get_adjustments_shadows_luminance, RID)
+	PASS1RC(Color, environment_get_adjustments_midtones_color, RID)
+	PASS1RC(float, environment_get_adjustments_midtones_luminance, RID)
+	PASS1RC(Color, environment_get_adjustments_highlights_color, RID)
+	PASS1RC(float, environment_get_adjustments_highlights_luminance, RID)
+	PASS1RC(RID, environment_get_adjustments_hue_vs_hue, RID)
+	PASS1RC(RID, environment_get_adjustments_hue_vs_saturation, RID)
+	PASS1RC(RID, environment_get_adjustments_saturation_vs_saturation, RID)
+	PASS1RC(RID, environment_get_adjustments_luminance_vs_saturation, RID)
 	PASS1RC(bool, environment_get_use_1d_color_correction, RID)
 	PASS1RC(RID, environment_get_color_correction, RID)
 

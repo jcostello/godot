@@ -111,6 +111,7 @@
 #include "editor/import/resource_importer_texture_atlas.h"
 #include "editor/import/resource_importer_wav.h"
 #include "editor/inspector/editor_context_menu_plugin.h"
+#include "editor/inspector/environment_color_grading_editor.h"
 #include "editor/inspector/editor_inspector.h"
 #include "editor/inspector/editor_preview_plugins.h"
 #include "editor/inspector/editor_properties.h"
@@ -8751,6 +8752,10 @@ EditorNode::EditorNode() {
 		Ref<EditorInspectorDefaultPlugin> eidp;
 		eidp.instantiate();
 		EditorInspector::add_inspector_plugin(eidp);
+
+		Ref<EditorInspectorEnvironmentColorGradingPlugin> environment_color_grading_plugin;
+		environment_color_grading_plugin.instantiate();
+		EditorInspector::add_inspector_plugin(environment_color_grading_plugin);
 
 		Ref<EditorInspectorRootMotionPlugin> rmp;
 		rmp.instantiate();

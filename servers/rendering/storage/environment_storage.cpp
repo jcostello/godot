@@ -896,7 +896,7 @@ RSE::EnvironmentSDFGIYScale RendererEnvironmentStorage::environment_get_sdfgi_y_
 
 // Adjustments
 
-void RendererEnvironmentStorage::environment_set_adjustment(RID p_env, bool p_enable, float p_brightness, float p_contrast, float p_saturation, bool p_use_1d_color_correction, RID p_color_correction) {
+void RendererEnvironmentStorage::environment_set_adjustment(RID p_env, bool p_enable, float p_brightness, float p_contrast, float p_saturation, bool p_use_1d_color_correction, RID p_color_correction, const Color &p_shadows_color, float p_shadows_luminance, const Color &p_midtones_color, float p_midtones_luminance, const Color &p_highlights_color, float p_highlights_luminance) {
 	Environment *env = environment_owner.get_or_null(p_env);
 	ERR_FAIL_NULL(env);
 
@@ -906,8 +906,23 @@ void RendererEnvironmentStorage::environment_set_adjustment(RID p_env, bool p_en
 	env->adjustments_brightness = p_brightness < 0.04045f ? p_brightness * (1.0f / 12.92f) : Math::pow(float((p_brightness + 0.055f) * (1.0f / (1.055f))), 2.4f);
 	env->adjustments_contrast = p_contrast;
 	env->adjustments_saturation = p_saturation;
+	env->adjustments_shadows_color = p_shadows_color;
+	env->adjustments_shadows_luminance = p_shadows_luminance;
+	env->adjustments_midtones_color = p_midtones_color;
+	env->adjustments_midtones_luminance = p_midtones_luminance;
+	env->adjustments_highlights_color = p_highlights_color;
+	env->adjustments_highlights_luminance = p_highlights_luminance;
 	env->use_1d_color_correction = p_use_1d_color_correction;
 	env->color_correction = p_color_correction;
+}
+
+void RendererEnvironmentStorage::environment_set_adjustment_curves(RID p_env, RID p_hue_vs_hue, RID p_hue_vs_saturation, RID p_saturation_vs_saturation, RID p_luminance_vs_saturation) {
+	Environment *env = environment_owner.get_or_null(p_env);
+	ERR_FAIL_NULL(env);
+	env->adjustments_hue_vs_hue = p_hue_vs_hue;
+	env->adjustments_hue_vs_saturation = p_hue_vs_saturation;
+	env->adjustments_saturation_vs_saturation = p_saturation_vs_saturation;
+	env->adjustments_luminance_vs_saturation = p_luminance_vs_saturation;
 }
 
 bool RendererEnvironmentStorage::environment_get_adjustments_enabled(RID p_env) const {
@@ -932,6 +947,66 @@ float RendererEnvironmentStorage::environment_get_adjustments_saturation(RID p_e
 	Environment *env = environment_owner.get_or_null(p_env);
 	ERR_FAIL_NULL_V(env, 1.0);
 	return env->adjustments_saturation;
+}
+
+Color RendererEnvironmentStorage::environment_get_adjustments_shadows_color(RID p_env) const {
+	Environment *env = environment_owner.get_or_null(p_env);
+	ERR_FAIL_NULL_V(env, Color(1, 1, 1));
+	return env->adjustments_shadows_color;
+}
+
+float RendererEnvironmentStorage::environment_get_adjustments_shadows_luminance(RID p_env) const {
+	Environment *env = environment_owner.get_or_null(p_env);
+	ERR_FAIL_NULL_V(env, 1.0);
+	return env->adjustments_shadows_luminance;
+}
+
+Color RendererEnvironmentStorage::environment_get_adjustments_midtones_color(RID p_env) const {
+	Environment *env = environment_owner.get_or_null(p_env);
+	ERR_FAIL_NULL_V(env, Color(1, 1, 1));
+	return env->adjustments_midtones_color;
+}
+
+float RendererEnvironmentStorage::environment_get_adjustments_midtones_luminance(RID p_env) const {
+	Environment *env = environment_owner.get_or_null(p_env);
+	ERR_FAIL_NULL_V(env, 1.0);
+	return env->adjustments_midtones_luminance;
+}
+
+Color RendererEnvironmentStorage::environment_get_adjustments_highlights_color(RID p_env) const {
+	Environment *env = environment_owner.get_or_null(p_env);
+	ERR_FAIL_NULL_V(env, Color(1, 1, 1));
+	return env->adjustments_highlights_color;
+}
+
+float RendererEnvironmentStorage::environment_get_adjustments_highlights_luminance(RID p_env) const {
+	Environment *env = environment_owner.get_or_null(p_env);
+	ERR_FAIL_NULL_V(env, 1.0);
+	return env->adjustments_highlights_luminance;
+}
+
+RID RendererEnvironmentStorage::environment_get_adjustments_hue_vs_hue(RID p_env) const {
+	Environment *env = environment_owner.get_or_null(p_env);
+	ERR_FAIL_NULL_V(env, RID());
+	return env->adjustments_hue_vs_hue;
+}
+
+RID RendererEnvironmentStorage::environment_get_adjustments_hue_vs_saturation(RID p_env) const {
+	Environment *env = environment_owner.get_or_null(p_env);
+	ERR_FAIL_NULL_V(env, RID());
+	return env->adjustments_hue_vs_saturation;
+}
+
+RID RendererEnvironmentStorage::environment_get_adjustments_saturation_vs_saturation(RID p_env) const {
+	Environment *env = environment_owner.get_or_null(p_env);
+	ERR_FAIL_NULL_V(env, RID());
+	return env->adjustments_saturation_vs_saturation;
+}
+
+RID RendererEnvironmentStorage::environment_get_adjustments_luminance_vs_saturation(RID p_env) const {
+	Environment *env = environment_owner.get_or_null(p_env);
+	ERR_FAIL_NULL_V(env, RID());
+	return env->adjustments_luminance_vs_saturation;
 }
 
 bool RendererEnvironmentStorage::environment_get_use_1d_color_correction(RID p_env) const {

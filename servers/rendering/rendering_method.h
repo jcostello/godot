@@ -315,12 +315,23 @@ public:
 	virtual void environment_set_sdfgi_frames_to_converge(RSE::EnvironmentSDFGIFramesToConverge p_frames) = 0;
 	virtual void environment_set_sdfgi_frames_to_update_light(RSE::EnvironmentSDFGIFramesToUpdateLight p_update) = 0;
 
-	virtual void environment_set_adjustment(RID p_env, bool p_enable, float p_brightness, float p_contrast, float p_saturation, bool p_use_1d_color_correction, RID p_color_correction) = 0;
+	virtual void environment_set_adjustment(RID p_env, bool p_enable, float p_brightness, float p_contrast, float p_saturation, bool p_use_1d_color_correction, RID p_color_correction, const Color &p_shadows_color, float p_shadows_luminance, const Color &p_midtones_color, float p_midtones_luminance, const Color &p_highlights_color, float p_highlights_luminance) = 0;
+	virtual void environment_set_adjustment_curves(RID p_env, RID p_hue_vs_hue, RID p_hue_vs_saturation, RID p_saturation_vs_saturation, RID p_luminance_vs_saturation) = 0;
 
 	virtual bool environment_get_adjustments_enabled(RID p_env) const = 0;
 	virtual float environment_get_adjustments_brightness(RID p_env) const = 0;
 	virtual float environment_get_adjustments_contrast(RID p_env) const = 0;
 	virtual float environment_get_adjustments_saturation(RID p_env) const = 0;
+	virtual Color environment_get_adjustments_shadows_color(RID p_env) const = 0;
+	virtual float environment_get_adjustments_shadows_luminance(RID p_env) const = 0;
+	virtual Color environment_get_adjustments_midtones_color(RID p_env) const = 0;
+	virtual float environment_get_adjustments_midtones_luminance(RID p_env) const = 0;
+	virtual Color environment_get_adjustments_highlights_color(RID p_env) const = 0;
+	virtual float environment_get_adjustments_highlights_luminance(RID p_env) const = 0;
+	virtual RID environment_get_adjustments_hue_vs_hue(RID p_env) const = 0;
+	virtual RID environment_get_adjustments_hue_vs_saturation(RID p_env) const = 0;
+	virtual RID environment_get_adjustments_saturation_vs_saturation(RID p_env) const = 0;
+	virtual RID environment_get_adjustments_luminance_vs_saturation(RID p_env) const = 0;
 	virtual bool environment_get_use_1d_color_correction(RID p_env) const = 0;
 	virtual RID environment_get_color_correction(RID p_env) const = 0;
 

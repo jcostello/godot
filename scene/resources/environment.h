@@ -31,6 +31,7 @@
 #pragma once
 
 #include "core/io/resource.h"
+#include "scene/resources/curve_texture.h"
 #include "scene/resources/texture.h"
 
 class Sky;
@@ -220,9 +221,20 @@ private:
 	float adjustment_brightness = 1.0;
 	float adjustment_contrast = 1.0;
 	float adjustment_saturation = 1.0;
+	Color adjustment_shadows_color = Color(1, 1, 1);
+	float adjustment_shadows_luminance = 1.0;
+	Color adjustment_midtones_color = Color(1, 1, 1);
+	float adjustment_midtones_luminance = 1.0;
+	Color adjustment_highlights_color = Color(1, 1, 1);
+	float adjustment_highlights_luminance = 1.0;
+	Ref<CurveTexture> adjustment_hue_vs_hue;
+	Ref<CurveTexture> adjustment_hue_vs_saturation;
+	Ref<CurveTexture> adjustment_saturation_vs_saturation;
+	Ref<CurveTexture> adjustment_luminance_vs_saturation;
 	bool use_1d_color_correction = true;
 	Ref<Texture> adjustment_color_correction;
 	void _update_adjustment();
+	void _update_adjustment_curves();
 
 protected:
 	static void _bind_methods();
@@ -446,6 +458,26 @@ public:
 	float get_adjustment_contrast() const;
 	void set_adjustment_saturation(float p_saturation);
 	float get_adjustment_saturation() const;
+	void set_adjustment_shadows_color(const Color &p_color);
+	Color get_adjustment_shadows_color() const;
+	void set_adjustment_shadows_luminance(float p_luminance);
+	float get_adjustment_shadows_luminance() const;
+	void set_adjustment_midtones_color(const Color &p_color);
+	Color get_adjustment_midtones_color() const;
+	void set_adjustment_midtones_luminance(float p_luminance);
+	float get_adjustment_midtones_luminance() const;
+	void set_adjustment_highlights_color(const Color &p_color);
+	Color get_adjustment_highlights_color() const;
+	void set_adjustment_highlights_luminance(float p_luminance);
+	float get_adjustment_highlights_luminance() const;
+	void set_adjustment_hue_vs_hue(const Ref<CurveTexture> &p_curve);
+	Ref<CurveTexture> get_adjustment_hue_vs_hue() const;
+	void set_adjustment_hue_vs_saturation(const Ref<CurveTexture> &p_curve);
+	Ref<CurveTexture> get_adjustment_hue_vs_saturation() const;
+	void set_adjustment_saturation_vs_saturation(const Ref<CurveTexture> &p_curve);
+	Ref<CurveTexture> get_adjustment_saturation_vs_saturation() const;
+	void set_adjustment_luminance_vs_saturation(const Ref<CurveTexture> &p_curve);
+	Ref<CurveTexture> get_adjustment_luminance_vs_saturation() const;
 	void set_adjustment_color_correction(Ref<Texture> p_color_correction);
 	Ref<Texture> get_adjustment_color_correction() const;
 

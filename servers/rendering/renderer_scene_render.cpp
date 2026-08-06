@@ -586,8 +586,12 @@ RSE::EnvironmentSDFGIYScale RendererSceneRender::environment_get_sdfgi_y_scale(R
 
 // Adjustments
 
-void RendererSceneRender::environment_set_adjustment(RID p_env, bool p_enable, float p_brightness, float p_contrast, float p_saturation, bool p_use_1d_color_correction, RID p_color_correction) {
-	environment_storage.environment_set_adjustment(p_env, p_enable, p_brightness, p_contrast, p_saturation, p_use_1d_color_correction, p_color_correction);
+void RendererSceneRender::environment_set_adjustment(RID p_env, bool p_enable, float p_brightness, float p_contrast, float p_saturation, bool p_use_1d_color_correction, RID p_color_correction, const Color &p_shadows_color, float p_shadows_luminance, const Color &p_midtones_color, float p_midtones_luminance, const Color &p_highlights_color, float p_highlights_luminance) {
+	environment_storage.environment_set_adjustment(p_env, p_enable, p_brightness, p_contrast, p_saturation, p_use_1d_color_correction, p_color_correction, p_shadows_color, p_shadows_luminance, p_midtones_color, p_midtones_luminance, p_highlights_color, p_highlights_luminance);
+}
+
+void RendererSceneRender::environment_set_adjustment_curves(RID p_env, RID p_hue_vs_hue, RID p_hue_vs_saturation, RID p_saturation_vs_saturation, RID p_luminance_vs_saturation) {
+	environment_storage.environment_set_adjustment_curves(p_env, p_hue_vs_hue, p_hue_vs_saturation, p_saturation_vs_saturation, p_luminance_vs_saturation);
 }
 
 bool RendererSceneRender::environment_get_adjustments_enabled(RID p_env) const {
@@ -604,6 +608,46 @@ float RendererSceneRender::environment_get_adjustments_contrast(RID p_env) const
 
 float RendererSceneRender::environment_get_adjustments_saturation(RID p_env) const {
 	return environment_storage.environment_get_adjustments_saturation(p_env);
+}
+
+Color RendererSceneRender::environment_get_adjustments_shadows_color(RID p_env) const {
+	return environment_storage.environment_get_adjustments_shadows_color(p_env);
+}
+
+float RendererSceneRender::environment_get_adjustments_shadows_luminance(RID p_env) const {
+	return environment_storage.environment_get_adjustments_shadows_luminance(p_env);
+}
+
+Color RendererSceneRender::environment_get_adjustments_midtones_color(RID p_env) const {
+	return environment_storage.environment_get_adjustments_midtones_color(p_env);
+}
+
+float RendererSceneRender::environment_get_adjustments_midtones_luminance(RID p_env) const {
+	return environment_storage.environment_get_adjustments_midtones_luminance(p_env);
+}
+
+Color RendererSceneRender::environment_get_adjustments_highlights_color(RID p_env) const {
+	return environment_storage.environment_get_adjustments_highlights_color(p_env);
+}
+
+float RendererSceneRender::environment_get_adjustments_highlights_luminance(RID p_env) const {
+	return environment_storage.environment_get_adjustments_highlights_luminance(p_env);
+}
+
+RID RendererSceneRender::environment_get_adjustments_hue_vs_hue(RID p_env) const {
+	return environment_storage.environment_get_adjustments_hue_vs_hue(p_env);
+}
+
+RID RendererSceneRender::environment_get_adjustments_hue_vs_saturation(RID p_env) const {
+	return environment_storage.environment_get_adjustments_hue_vs_saturation(p_env);
+}
+
+RID RendererSceneRender::environment_get_adjustments_saturation_vs_saturation(RID p_env) const {
+	return environment_storage.environment_get_adjustments_saturation_vs_saturation(p_env);
+}
+
+RID RendererSceneRender::environment_get_adjustments_luminance_vs_saturation(RID p_env) const {
+	return environment_storage.environment_get_adjustments_luminance_vs_saturation(p_env);
 }
 
 bool RendererSceneRender::environment_get_use_1d_color_correction(RID p_env) const {
