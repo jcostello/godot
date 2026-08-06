@@ -829,7 +829,7 @@ void RendererSceneRenderRD::_render_buffers_post_process_and_tonemap(const Rende
 				tonemap.saturation_vs_saturation_texture = texture_storage->texture_get_rd_texture(saturation_vs_saturation);
 				tonemap.luminance_vs_saturation_texture = texture_storage->texture_get_rd_texture(luminance_vs_saturation);
 			}
-			if (advanced_adjustments_enabled && environment_get_color_correction(p_render_data->environment).is_valid()) {
+			if (adjustments_enabled && environment_get_color_correction(p_render_data->environment).is_valid()) {
 				tonemap.use_color_correction = true;
 				tonemap.use_1d_color_correction = environment_get_use_1d_color_correction(p_render_data->environment);
 				tonemap.color_correction_texture = texture_storage->texture_get_rd_texture(environment_get_color_correction(p_render_data->environment), !tonemap.convert_to_srgb);
@@ -1076,7 +1076,7 @@ void RendererSceneRenderRD::_post_process_subpass(RID p_source_texture, RID p_fr
 			tonemap.saturation_vs_saturation_texture = texture_storage->texture_get_rd_texture(saturation_vs_saturation);
 			tonemap.luminance_vs_saturation_texture = texture_storage->texture_get_rd_texture(luminance_vs_saturation);
 		}
-		if (advanced_adjustments_enabled && environment_get_color_correction(p_render_data->environment).is_valid()) {
+		if (adjustments_enabled && environment_get_color_correction(p_render_data->environment).is_valid()) {
 			tonemap.use_color_correction = true;
 			tonemap.use_1d_color_correction = environment_get_use_1d_color_correction(p_render_data->environment);
 			tonemap.color_correction_texture = texture_storage->texture_get_rd_texture(environment_get_color_correction(p_render_data->environment), !tonemap.convert_to_srgb);

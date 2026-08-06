@@ -239,6 +239,10 @@ private:
 	Ref<CurveTexture> adjustment_hue_vs_saturation;
 	Ref<CurveTexture> adjustment_saturation_vs_saturation;
 	Ref<CurveTexture> adjustment_luminance_vs_saturation;
+	Ref<CurveTexture> adjustment_default_hue_vs_hue;
+	Ref<CurveTexture> adjustment_default_hue_vs_saturation;
+	Ref<CurveTexture> adjustment_default_saturation_vs_saturation;
+	Ref<CurveTexture> adjustment_default_luminance_vs_saturation;
 	bool use_1d_color_correction = true;
 	Ref<Texture> adjustment_color_correction;
 	void _update_adjustment();

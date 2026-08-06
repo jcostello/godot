@@ -1215,6 +1215,19 @@ static void _initialize_color_grading_curve(const Ref<CurveTexture> &p_curve, in
 	curve->set_meta(SNAME("_color_grading_curve"), p_mode);
 }
 
+static Ref<CurveTexture> _create_default_color_grading_curve(int p_mode) {
+	Ref<CurveTexture> curve_texture;
+	curve_texture.instantiate();
+	Ref<Curve> curve;
+	curve.instantiate();
+	curve->add_point(Vector2(0.0, 0.5));
+	curve->add_point(Vector2(1.0, 0.5));
+	curve_texture->set_curve(curve);
+	curve_texture->set_texture_mode(CurveTexture::TEXTURE_MODE_RED);
+	curve->set_meta(SNAME("_color_grading_curve"), p_mode);
+	return curve_texture;
+}
+
 void Environment::set_adjustment_hue_vs_hue(const Ref<CurveTexture> &p_curve) {
 	adjustment_hue_vs_hue = p_curve;
 	_initialize_color_grading_curve(p_curve, 0);
@@ -1304,12 +1317,25 @@ void Environment::_update_adjustment() {
 }
 
 void Environment::_update_adjustment_curves() {
+	if (adjustment_default_hue_vs_hue.is_null()) {
+		adjustment_default_hue_vs_hue = _create_default_color_grading_curve(0);
+	}
+	if (adjustment_default_hue_vs_saturation.is_null()) {
+		adjustment_default_hue_vs_saturation = _create_default_color_grading_curve(1);
+	}
+	if (adjustment_default_saturation_vs_saturation.is_null()) {
+		adjustment_default_saturation_vs_saturation = _create_default_color_grading_curve(2);
+	}
+	if (adjustment_default_luminance_vs_saturation.is_null()) {
+		adjustment_default_luminance_vs_saturation = _create_default_color_grading_curve(3);
+	}
+
 	RS::get_singleton()->environment_set_adjustment_curves(
 			environment,
-			adjustment_hue_vs_hue.is_valid() ? adjustment_hue_vs_hue->get_rid() : RID(),
-			adjustment_hue_vs_saturation.is_valid() ? adjustment_hue_vs_saturation->get_rid() : RID(),
-			adjustment_saturation_vs_saturation.is_valid() ? adjustment_saturation_vs_saturation->get_rid() : RID(),
-			adjustment_luminance_vs_saturation.is_valid() ? adjustment_luminance_vs_saturation->get_rid() : RID());
+			adjustment_hue_vs_hue.is_valid() ? adjustment_hue_vs_hue->get_rid() : adjustment_default_hue_vs_hue->get_rid(),
+			adjustment_hue_vs_saturation.is_valid() ? adjustment_hue_vs_saturation->get_rid() : adjustment_default_hue_vs_saturation->get_rid(),
+			adjustment_saturation_vs_saturation.is_valid() ? adjustment_saturation_vs_saturation->get_rid() : adjustment_default_saturation_vs_saturation->get_rid(),
+			adjustment_luminance_vs_saturation.is_valid() ? adjustment_luminance_vs_saturation->get_rid() : adjustment_default_luminance_vs_saturation->get_rid());
 }
 
 // Private methods, constructor and destructor
