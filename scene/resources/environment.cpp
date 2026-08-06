@@ -1056,6 +1056,15 @@ bool Environment::is_adjustment_enabled() const {
 	return adjustment_enabled;
 }
 
+void Environment::set_adjustment_advance(bool p_enabled) {
+	adjustment_advance = p_enabled;
+	_update_adjustment();
+}
+
+bool Environment::is_adjustment_advance() const {
+	return adjustment_advance;
+}
+
 void Environment::set_adjustment_brightness(float p_brightness) {
 	adjustment_brightness = p_brightness;
 	_update_adjustment();
@@ -1081,6 +1090,39 @@ void Environment::set_adjustment_saturation(float p_saturation) {
 
 float Environment::get_adjustment_saturation() const {
 	return adjustment_saturation;
+}
+
+void Environment::set_adjustment_tint(float p_tint) {
+	adjustment_tint = CLAMP(p_tint, -1.0f, 1.0f);
+	_update_adjustment();
+}
+
+float Environment::get_adjustment_tint() const {
+	return adjustment_tint;
+}
+
+void Environment::set_adjustment_midtones_start(float p_midtones_start) {
+	adjustment_midtones_start = CLAMP(p_midtones_start, 0.0f, 1.0f);
+	if (adjustment_midtones_start > adjustment_midtones_end - 0.01f) {
+		adjustment_midtones_start = adjustment_midtones_end - 0.01f;
+	}
+	_update_adjustment();
+}
+
+float Environment::get_adjustment_midtones_start() const {
+	return adjustment_midtones_start;
+}
+
+void Environment::set_adjustment_midtones_end(float p_midtones_end) {
+	adjustment_midtones_end = CLAMP(p_midtones_end, 0.0f, 1.0f);
+	if (adjustment_midtones_end < adjustment_midtones_start + 0.01f) {
+		adjustment_midtones_end = adjustment_midtones_start + 0.01f;
+	}
+	_update_adjustment();
+}
+
+float Environment::get_adjustment_midtones_end() const {
+	return adjustment_midtones_end;
 }
 
 void Environment::set_adjustment_offset_color(const Color &p_color) {
@@ -1253,6 +1295,12 @@ void Environment::_update_adjustment() {
 			environment,
 			adjustment_offset_color,
 			adjustment_offset_luminance);
+	RS::get_singleton()->environment_set_adjustment_tint(environment, adjustment_tint);
+	RS::get_singleton()->environment_set_adjustment_midtones_range(
+			environment,
+			adjustment_midtones_start,
+			adjustment_midtones_end);
+	RS::get_singleton()->environment_set_adjustment_advance(environment, adjustment_advance);
 }
 
 void Environment::_update_adjustment_curves() {
@@ -1743,12 +1791,20 @@ void Environment::_bind_methods() {
 
 	ClassDB::bind_method(D_METHOD("set_adjustment_enabled", "enabled"), &Environment::set_adjustment_enabled);
 	ClassDB::bind_method(D_METHOD("is_adjustment_enabled"), &Environment::is_adjustment_enabled);
+	ClassDB::bind_method(D_METHOD("set_adjustment_advance", "enabled"), &Environment::set_adjustment_advance);
+	ClassDB::bind_method(D_METHOD("is_adjustment_advance"), &Environment::is_adjustment_advance);
 	ClassDB::bind_method(D_METHOD("set_adjustment_brightness", "brightness"), &Environment::set_adjustment_brightness);
 	ClassDB::bind_method(D_METHOD("get_adjustment_brightness"), &Environment::get_adjustment_brightness);
 	ClassDB::bind_method(D_METHOD("set_adjustment_contrast", "contrast"), &Environment::set_adjustment_contrast);
 	ClassDB::bind_method(D_METHOD("get_adjustment_contrast"), &Environment::get_adjustment_contrast);
 	ClassDB::bind_method(D_METHOD("set_adjustment_saturation", "saturation"), &Environment::set_adjustment_saturation);
 	ClassDB::bind_method(D_METHOD("get_adjustment_saturation"), &Environment::get_adjustment_saturation);
+	ClassDB::bind_method(D_METHOD("set_adjustment_tint", "tint"), &Environment::set_adjustment_tint);
+	ClassDB::bind_method(D_METHOD("get_adjustment_tint"), &Environment::get_adjustment_tint);
+	ClassDB::bind_method(D_METHOD("set_adjustment_midtones_start", "start"), &Environment::set_adjustment_midtones_start);
+	ClassDB::bind_method(D_METHOD("get_adjustment_midtones_start"), &Environment::get_adjustment_midtones_start);
+	ClassDB::bind_method(D_METHOD("set_adjustment_midtones_end", "end"), &Environment::set_adjustment_midtones_end);
+	ClassDB::bind_method(D_METHOD("get_adjustment_midtones_end"), &Environment::get_adjustment_midtones_end);
 	ClassDB::bind_method(D_METHOD("set_adjustment_offset_color", "color"), &Environment::set_adjustment_offset_color);
 	ClassDB::bind_method(D_METHOD("get_adjustment_offset_color"), &Environment::get_adjustment_offset_color);
 	ClassDB::bind_method(D_METHOD("set_adjustment_offset_luminance", "luminance"), &Environment::set_adjustment_offset_luminance);
@@ -1782,7 +1838,11 @@ void Environment::_bind_methods() {
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "adjustment_contrast", PROPERTY_HINT_RANGE, "0.75,1.25,0.005,or_less,or_greater"), "set_adjustment_contrast", "get_adjustment_contrast");
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "adjustment_saturation", PROPERTY_HINT_RANGE, "0.0,2.0,0.01,or_less,or_greater"), "set_adjustment_saturation", "get_adjustment_saturation");
 	ADD_SUBGROUP("Color Grading", "adjustment_");
+	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "adjustment_advance"), "set_adjustment_advance", "is_adjustment_advance");
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "adjustment_temperature", PROPERTY_HINT_RANGE, "1000,15000,1,suffix:k"), "set_tonemap_temperature", "get_tonemap_temperature");
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "adjustment_tint", PROPERTY_HINT_RANGE, "-1,1,0.01"), "set_adjustment_tint", "get_adjustment_tint");
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "adjustment_midtones_start", PROPERTY_HINT_RANGE, "0,1,0.001"), "set_adjustment_midtones_start", "get_adjustment_midtones_start");
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "adjustment_midtones_end", PROPERTY_HINT_RANGE, "0,1,0.001"), "set_adjustment_midtones_end", "get_adjustment_midtones_end");
 	ADD_PROPERTY(PropertyInfo(Variant::COLOR, "adjustment_offset_color", PROPERTY_HINT_COLOR_NO_ALPHA), "set_adjustment_offset_color", "get_adjustment_offset_color");
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "adjustment_offset_luminance", PROPERTY_HINT_RANGE, "0.0,2.0,0.01,or_greater"), "set_adjustment_offset_luminance", "get_adjustment_offset_luminance");
 	ADD_PROPERTY(PropertyInfo(Variant::COLOR, "adjustment_shadows_color", PROPERTY_HINT_COLOR_NO_ALPHA), "set_adjustment_shadows_color", "get_adjustment_shadows_color");

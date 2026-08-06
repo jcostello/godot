@@ -127,11 +127,12 @@ private:
 
 		float tonemapper_params[4]; //  16 - 112
 		float offset[4]; // 16 - 128
-		float shadows[4]; // 16 - 144
-		float midtones[4]; // 16 - 160
-		float highlights[4]; // 16 - 176
-		float tonemap_temperature[3]; // 12 - 172
-		float pad; // 4 - 176
+		float tint_midtones_range[4]; // 16 - 144
+		float shadows[4]; // 16 - 160
+		float midtones[4]; // 16 - 176
+		float highlights[4]; // 16 - 192
+		float tonemap_temperature[3]; // 12 - 204
+		float pad; // 4 - 208
 	};
 
 	struct TonemapPushConstantMobile {
@@ -148,12 +149,13 @@ private:
 
 		float tonemapper_params[4]; //  16 - 64
 		float offset[4]; // 16 - 80
-		float output_max_value; //  4 - 84
-		float tonemap_temperature[3]; //  12 - 96
-		float pad; //  4 - 100
-		float shadows[4]; // 16 - 116
-		float midtones[4]; // 16 - 132
-		float highlights[4]; // 16 - 148
+		float tint_midtones_range[4]; // 16 - 96
+		float output_max_value; //  4 - 100
+		float tonemap_temperature[3]; //  12 - 112
+		float pad; //  4 - 116
+		float shadows[4]; // 16 - 132
+		float midtones[4]; // 16 - 148
+		float highlights[4]; // 16 - 164
 	};
 
 	/* tonemap actually writes to a framebuffer, which is
@@ -208,6 +210,9 @@ public:
 		bool use_color_grading = false;
 		Color offset_color = Color(1, 1, 1);
 		float offset_luminance = 1.0;
+		float tint = 0.0;
+		float midtones_start = 0.45;
+		float midtones_end = 0.55;
 		Color shadows_color = Color(1, 1, 1);
 		float shadows_luminance = 1.0;
 		Color midtones_color = Color(1, 1, 1);

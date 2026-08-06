@@ -220,9 +220,13 @@ private:
 
 	// Adjustment
 	bool adjustment_enabled = false;
+	bool adjustment_advance = true;
 	float adjustment_brightness = 1.0;
 	float adjustment_contrast = 1.0;
 	float adjustment_saturation = 1.0;
+	float adjustment_tint = 0.0;
+	float adjustment_midtones_start = 0.45;
+	float adjustment_midtones_end = 0.55;
 	Color adjustment_offset_color = Color(1, 1, 1);
 	float adjustment_offset_luminance = 1.0;
 	Color adjustment_shadows_color = Color(1, 1, 1);
@@ -458,12 +462,20 @@ public:
 	// Adjustment
 	void set_adjustment_enabled(bool p_enabled);
 	bool is_adjustment_enabled() const;
+	void set_adjustment_advance(bool p_enabled);
+	bool is_adjustment_advance() const;
 	void set_adjustment_brightness(float p_brightness);
 	float get_adjustment_brightness() const;
 	void set_adjustment_contrast(float p_contrast);
 	float get_adjustment_contrast() const;
 	void set_adjustment_saturation(float p_saturation);
 	float get_adjustment_saturation() const;
+	void set_adjustment_tint(float p_tint);
+	float get_adjustment_tint() const;
+	void set_adjustment_midtones_start(float p_midtones_start);
+	float get_adjustment_midtones_start() const;
+	void set_adjustment_midtones_end(float p_midtones_end);
+	float get_adjustment_midtones_end() const;
 	void set_adjustment_offset_color(const Color &p_color);
 	Color get_adjustment_offset_color() const;
 	void set_adjustment_offset_luminance(float p_luminance);

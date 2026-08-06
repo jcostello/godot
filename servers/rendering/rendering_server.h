@@ -682,6 +682,9 @@ public:
 	virtual void environment_set_tonemap_temperature(RID p_env, float p_temperature) = 0;
 	virtual void environment_set_adjustment(RID p_env, bool p_enable, float p_brightness, float p_contrast, float p_saturation, bool p_use_1d_color_correction, RID p_color_correction, const Color &p_shadows_color, float p_shadows_luminance, const Color &p_midtones_color, float p_midtones_luminance, const Color &p_highlights_color, float p_highlights_luminance) = 0;
 	virtual void environment_set_adjustment_offset(RID p_env, const Color &p_color, float p_luminance) = 0;
+	virtual void environment_set_adjustment_tint(RID p_env, float p_tint) = 0;
+	virtual void environment_set_adjustment_midtones_range(RID p_env, float p_start, float p_end) = 0;
+	virtual void environment_set_adjustment_advance(RID p_env, bool p_enable) = 0;
 	virtual void environment_set_adjustment_curves(RID p_env, RID p_hue_vs_hue, RID p_hue_vs_saturation, RID p_saturation_vs_saturation, RID p_luminance_vs_saturation) = 0;
 
 	virtual void environment_set_ssr(RID p_env, bool p_enable, int p_max_steps, float p_fade_in, float p_fade_out, float p_depth_tolerance) = 0;
