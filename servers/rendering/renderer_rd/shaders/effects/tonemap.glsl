@@ -43,6 +43,10 @@ layout(location = 0) in vec2 uv_interp;
 #else
 #define SAMPLER_FORMAT sampler2D
 #endif
+layout(set = 3, binding = 1) uniform sampler2D hue_vs_hue_curve;
+layout(set = 3, binding = 2) uniform sampler2D hue_vs_saturation_curve;
+layout(set = 3, binding = 3) uniform sampler2D saturation_vs_saturation_curve;
+layout(set = 3, binding = 4) uniform sampler2D luminance_vs_saturation_curve;
 
 layout(set = 0, binding = 0) uniform SAMPLER_FORMAT source_color;
 layout(set = 1, binding = 0) uniform sampler2D source_auto_exposure;
@@ -62,6 +66,8 @@ layout(set = 3, binding = 0) uniform sampler3D source_color_correction;
 #define FLAG_USE_FXAA (1 << 4)
 #define FLAG_USE_8_BIT_DEBANDING (1 << 5)
 #define FLAG_CONVERT_TO_SRGB (1 << 6)
+#define FLAG_USE_COLOR_GRADING (1 << 7)
+#define FLAG_USE_COLOR_GRADING_CURVES (1 << 8)
 
 layout(push_constant, std430) uniform Params {
 	vec3 bcs;
@@ -84,6 +90,9 @@ layout(push_constant, std430) uniform Params {
 	float luminance_multiplier;
 
 	vec4 tonemapper_params;
+	vec4 shadows;
+	vec4 midtones;
+	vec4 highlights;
 }
 params;
 
@@ -465,6 +474,33 @@ vec3 apply_color_correction(vec3 color) {
 	return textureLod(source_color_correction, color, 0.0).rgb;
 }
 #endif
+
+vec3 grading_rgb_to_hsv(vec3 c) {
+	vec4 k = vec4(0.0, -1.0 / 3.0, 2.0 / 3.0, -1.0);
+	vec4 p = mix(vec4(c.bg, k.wz), vec4(c.gb, k.xy), step(c.b, c.g));
+	vec4 q = mix(vec4(p.xyw, c.r), vec4(c.r, p.yzx), step(p.x, c.r));
+	float d = q.x - min(q.w, q.y);
+	float e = 1.0e-10;
+	return vec3(abs(q.z + (q.w - q.y) / (6.0 * d + e)), d / (q.x + e), q.x);
+}
+
+vec3 grading_hsv_to_rgb(vec3 c) {
+	vec3 p = abs(fract(c.xxx + vec3(0.0, 2.0 / 3.0, 1.0 / 3.0)) * 6.0 - 3.0);
+	return c.z * mix(vec3(1.0), clamp(p - 1.0, 0.0, 1.0), c.y);
+}
+
+vec3 apply_color_grading_curves(vec3 color) {
+	float luminance = dot(color, vec3(0.2126, 0.7152, 0.0722));
+	vec3 hsv = grading_rgb_to_hsv(clamp(color, 0.0, 1.0));
+	float input_hue = hsv.x;
+	float input_saturation = hsv.y;
+	hsv.x = fract(hsv.x + texture(hue_vs_hue_curve, vec2(input_hue, 0.5)).r - 0.5);
+	hsv.y *= 2.0 * texture(hue_vs_saturation_curve, vec2(input_hue, 0.5)).r;
+	hsv.y *= 2.0 * texture(saturation_vs_saturation_curve, vec2(input_saturation, 0.5)).r;
+	hsv.y *= 2.0 * texture(luminance_vs_saturation_curve, vec2(clamp(luminance, 0.0, 1.0), 0.5)).r;
+	hsv.y = clamp(hsv.y, 0.0, 1.0);
+	return grading_hsv_to_rgb(hsv);
+}
 
 // FXAA 3.11 compact, Ported from https://github.com/kosua20/Rendu/blob/master/resources/common/shaders/screens/fxaa.frag
 ///////////////////////////////////////////////////////////////////////////////////
@@ -929,6 +965,21 @@ void main() {
 		// even weights the preceived brightness of blues are affected, but this
 		// maintains compatibility with existing projects.
 		color.rgb = mix(vec3(dot(vec3(1.0), color.rgb) * (1.0 / 3.0)), color.rgb, params.bcs.z);
+
+		if (bool(params.flags & FLAG_USE_COLOR_GRADING)) {
+			float luminance = dot(color.rgb, vec3(0.2126, 0.7152, 0.0722));
+			float shadows_weight = 1.0 - smoothstep(0.1, 0.45, luminance);
+			float highlights_weight = smoothstep(0.55, 0.9, luminance);
+			float midtones_weight = 1.0 - shadows_weight - highlights_weight;
+			vec3 grade = params.shadows.rgb * params.shadows.a * shadows_weight;
+			grade += params.midtones.rgb * params.midtones.a * midtones_weight;
+			grade += params.highlights.rgb * params.highlights.a * highlights_weight;
+			color.rgb *= grade;
+		}
+
+		if (bool(params.flags & FLAG_USE_COLOR_GRADING_CURVES)) {
+			color.rgb = apply_color_grading_curves(color.rgb);
+		}
 
 		if (bool(params.flags & FLAG_USE_COLOR_CORRECTION)) {
 			color.rgb = clamp(color.rgb, vec3(0.0), vec3(1.0));

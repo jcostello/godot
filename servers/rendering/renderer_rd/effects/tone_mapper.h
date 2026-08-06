@@ -75,6 +75,8 @@ private:
 		TONEMAP_FLAG_USE_FXAA = (1 << 4),
 		TONEMAP_FLAG_USE_8_BIT_DEBANDING = (1 << 5),
 		TONEMAP_FLAG_CONVERT_TO_SRGB = (1 << 6),
+		TONEMAP_FLAG_USE_COLOR_GRADING = (1 << 7),
+		TONEMAP_FLAG_USE_COLOR_GRADING_CURVES = (1 << 8),
 	};
 
 	enum FlagsMobile {
@@ -98,7 +100,9 @@ private:
 		TONEMAP_MOBILE_FLAG_GLOW_MODE_SOFTLIGHT = (1 << 15),
 		TONEMAP_MOBILE_FLAG_GLOW_MODE_REPLACE = (1 << 16),
 		TONEMAP_MOBILE_FLAG_GLOW_MODE_MIX = (1 << 17),
-		TONEMAP_MOBILE_ADRENO_BUG = (1 << 18), // Needs to be last so we force the pipeline cache to specify specializations for all variants.
+		TONEMAP_MOBILE_FLAG_USE_COLOR_GRADING = (1 << 18),
+		TONEMAP_MOBILE_FLAG_USE_COLOR_GRADING_CURVES = (1 << 19),
+		TONEMAP_MOBILE_ADRENO_BUG = (1 << 20), // Needs to be last so we force the pipeline cache to specify specializations for all variants.
 	};
 
 	struct TonemapPushConstant {
@@ -122,6 +126,9 @@ private:
 		float luminance_multiplier; //  4 - 96
 
 		float tonemapper_params[4]; //  16 - 112
+		float shadows[4]; // 16 - 128
+		float midtones[4]; // 16 - 144
+		float highlights[4]; // 16 - 160
 	};
 
 	struct TonemapPushConstantMobile {
@@ -139,6 +146,9 @@ private:
 		float tonemapper_params[4]; //  16 - 64
 		float output_max_value; //  4 - 68
 		float pad[3]; //  12 - 80
+		float shadows[4]; // 16 - 96
+		float midtones[4]; // 16 - 112
+		float highlights[4]; // 16 - 128
 	};
 
 	/* tonemap actually writes to a framebuffer, which is
@@ -189,6 +199,18 @@ public:
 		float brightness = 1.0;
 		float contrast = 1.0;
 		float saturation = 1.0;
+		bool use_color_grading = false;
+		Color shadows_color = Color(1, 1, 1);
+		float shadows_luminance = 1.0;
+		Color midtones_color = Color(1, 1, 1);
+		float midtones_luminance = 1.0;
+		Color highlights_color = Color(1, 1, 1);
+		float highlights_luminance = 1.0;
+		bool use_color_grading_curves = false;
+		RID hue_vs_hue_texture;
+		RID hue_vs_saturation_texture;
+		RID saturation_vs_saturation_texture;
+		RID luminance_vs_saturation_texture;
 
 		bool use_color_correction = false;
 		bool use_1d_color_correction = false;

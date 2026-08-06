@@ -48,8 +48,38 @@
 		<member name="adjustment_enabled" type="bool" setter="set_adjustment_enabled" getter="is_adjustment_enabled" default="false">
 			If [code]true[/code], enables the [code]adjustment_*[/code] properties provided by this resource. If [code]false[/code], modifications to the [code]adjustment_*[/code] properties will have no effect on the rendered scene.
 		</member>
+		<member name="adjustment_highlights_color" type="Color" setter="set_adjustment_highlights_color" getter="get_adjustment_highlights_color" default="Color(1, 1, 1, 1)">
+			Tints the brightest range of the rendered image. Effective only if [member adjustment_enabled] is [code]true[/code].
+		</member>
+		<member name="adjustment_highlights_luminance" type="float" setter="set_adjustment_highlights_luminance" getter="get_adjustment_highlights_luminance" default="1.0">
+			Multiplies the brightness of the brightest range of the rendered image. Effective only if [member adjustment_enabled] is [code]true[/code].
+		</member>
+		<member name="adjustment_hue_vs_hue" type="CurveTexture" setter="set_adjustment_hue_vs_hue" getter="get_adjustment_hue_vs_hue">
+			Shifts each input hue according to the curve. The horizontal axis is the input hue and the vertical axis is the hue offset, with [code]0.5[/code] being neutral.
+		</member>
+		<member name="adjustment_hue_vs_saturation" type="CurveTexture" setter="set_adjustment_hue_vs_saturation" getter="get_adjustment_hue_vs_saturation">
+			Adjusts saturation according to input hue. A curve value of [code]0.5[/code] is neutral.
+		</member>
+		<member name="adjustment_luminance_vs_saturation" type="CurveTexture" setter="set_adjustment_luminance_vs_saturation" getter="get_adjustment_luminance_vs_saturation">
+			Adjusts saturation according to input luminance. A curve value of [code]0.5[/code] is neutral.
+		</member>
+		<member name="adjustment_midtones_color" type="Color" setter="set_adjustment_midtones_color" getter="get_adjustment_midtones_color" default="Color(1, 1, 1, 1)">
+			Tints the mid-range luminance of the rendered image. Effective only if [member adjustment_enabled] is [code]true[/code].
+		</member>
+		<member name="adjustment_midtones_luminance" type="float" setter="set_adjustment_midtones_luminance" getter="get_adjustment_midtones_luminance" default="1.0">
+			Multiplies the brightness of the mid-range luminance of the rendered image. Effective only if [member adjustment_enabled] is [code]true[/code].
+		</member>
 		<member name="adjustment_saturation" type="float" setter="set_adjustment_saturation" getter="get_adjustment_saturation" default="1.0">
 			Applies a simple saturation adjustment to the rendered image after tonemaping. When [member adjustment_saturation] is set to [code]0.0[/code], the rendered image will be fully converted to a grayscale image. Effective only if [member adjustment_enabled] is [code]true[/code].
+		</member>
+		<member name="adjustment_saturation_vs_saturation" type="CurveTexture" setter="set_adjustment_saturation_vs_saturation" getter="get_adjustment_saturation_vs_saturation">
+			Adjusts saturation according to input saturation. A curve value of [code]0.5[/code] is neutral.
+		</member>
+		<member name="adjustment_shadows_color" type="Color" setter="set_adjustment_shadows_color" getter="get_adjustment_shadows_color" default="Color(1, 1, 1, 1)">
+			Tints the darkest range of the rendered image. Effective only if [member adjustment_enabled] is [code]true[/code].
+		</member>
+		<member name="adjustment_shadows_luminance" type="float" setter="set_adjustment_shadows_luminance" getter="get_adjustment_shadows_luminance" default="1.0">
+			Multiplies the brightness of the darkest range of the rendered image. Effective only if [member adjustment_enabled] is [code]true[/code].
 		</member>
 		<member name="ambient_light_color" type="Color" setter="set_ambient_light_color" getter="get_ambient_light_color" default="Color(0, 0, 0, 1)">
 			The ambient light's [Color]. Only effective if [member ambient_light_sky_contribution] is lower than [code]1.0[/code] (exclusive).

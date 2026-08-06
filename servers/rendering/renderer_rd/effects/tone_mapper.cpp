@@ -127,6 +127,20 @@ void ToneMapper::tonemapper(RID p_source_color, RID p_dst_framebuffer, const Ton
 	tonemap.push_constant.bcs[0] = p_settings.brightness;
 	tonemap.push_constant.bcs[1] = p_settings.contrast;
 	tonemap.push_constant.bcs[2] = p_settings.saturation;
+	tonemap.push_constant.flags |= p_settings.use_color_grading ? TONEMAP_FLAG_USE_COLOR_GRADING : 0;
+	tonemap.push_constant.flags |= p_settings.use_color_grading_curves ? TONEMAP_FLAG_USE_COLOR_GRADING_CURVES : 0;
+	tonemap.push_constant.shadows[0] = p_settings.shadows_color.r;
+	tonemap.push_constant.shadows[1] = p_settings.shadows_color.g;
+	tonemap.push_constant.shadows[2] = p_settings.shadows_color.b;
+	tonemap.push_constant.shadows[3] = p_settings.shadows_luminance;
+	tonemap.push_constant.midtones[0] = p_settings.midtones_color.r;
+	tonemap.push_constant.midtones[1] = p_settings.midtones_color.g;
+	tonemap.push_constant.midtones[2] = p_settings.midtones_color.b;
+	tonemap.push_constant.midtones[3] = p_settings.midtones_luminance;
+	tonemap.push_constant.highlights[0] = p_settings.highlights_color.r;
+	tonemap.push_constant.highlights[1] = p_settings.highlights_color.g;
+	tonemap.push_constant.highlights[2] = p_settings.highlights_color.b;
+	tonemap.push_constant.highlights[3] = p_settings.highlights_luminance;
 
 	tonemap.push_constant.flags |= p_settings.use_glow ? TONEMAP_FLAG_USE_GLOW : 0;
 	tonemap.push_constant.glow_intensity = p_settings.glow_intensity;
@@ -205,6 +219,11 @@ void ToneMapper::tonemapper(RID p_source_color, RID p_dst_framebuffer, const Ton
 	u_color_correction_texture.append_id(default_sampler);
 	u_color_correction_texture.append_id(p_settings.color_correction_texture);
 
+	RD::Uniform u_hue_vs_hue(RD::UNIFORM_TYPE_SAMPLER_WITH_TEXTURE, 1, Vector<RID>({ default_sampler, p_settings.hue_vs_hue_texture }));
+	RD::Uniform u_hue_vs_saturation(RD::UNIFORM_TYPE_SAMPLER_WITH_TEXTURE, 2, Vector<RID>({ default_sampler, p_settings.hue_vs_saturation_texture }));
+	RD::Uniform u_saturation_vs_saturation(RD::UNIFORM_TYPE_SAMPLER_WITH_TEXTURE, 3, Vector<RID>({ default_sampler, p_settings.saturation_vs_saturation_texture }));
+	RD::Uniform u_luminance_vs_saturation(RD::UNIFORM_TYPE_SAMPLER_WITH_TEXTURE, 4, Vector<RID>({ default_sampler, p_settings.luminance_vs_saturation_texture }));
+
 	RID shader = tonemap.shader.version_get_shader(tonemap.shader_version, mode);
 	ERR_FAIL_COND(shader.is_null());
 
@@ -213,7 +232,7 @@ void ToneMapper::tonemapper(RID p_source_color, RID p_dst_framebuffer, const Ton
 	RD::get_singleton()->draw_list_bind_uniform_set(draw_list, uniform_set_cache->get_cache(shader, 0, u_source_color), 0);
 	RD::get_singleton()->draw_list_bind_uniform_set(draw_list, uniform_set_cache->get_cache(shader, 1, u_exposure_texture), 1);
 	RD::get_singleton()->draw_list_bind_uniform_set(draw_list, uniform_set_cache->get_cache(shader, 2, u_glow_texture, u_glow_map), 2);
-	RD::get_singleton()->draw_list_bind_uniform_set(draw_list, uniform_set_cache->get_cache(shader, 3, u_color_correction_texture), 3);
+	RD::get_singleton()->draw_list_bind_uniform_set(draw_list, uniform_set_cache->get_cache(shader, 3, u_color_correction_texture, u_hue_vs_hue, u_hue_vs_saturation, u_saturation_vs_saturation, u_luminance_vs_saturation), 3);
 
 	RD::get_singleton()->draw_list_set_push_constant(draw_list, &tonemap.push_constant, sizeof(TonemapPushConstant));
 	RD::get_singleton()->draw_list_draw(draw_list, false, 1u, 3u);
@@ -249,6 +268,18 @@ void ToneMapper::tonemapper_mobile(RID p_source_color, RID p_dst_framebuffer, co
 	tonemap_mobile.push_constant.tonemapper_params[1] = p_settings.tonemapper_params[1];
 	tonemap_mobile.push_constant.tonemapper_params[2] = p_settings.tonemapper_params[2];
 	tonemap_mobile.push_constant.tonemapper_params[3] = p_settings.tonemapper_params[3];
+	tonemap_mobile.push_constant.shadows[0] = p_settings.shadows_color.r;
+	tonemap_mobile.push_constant.shadows[1] = p_settings.shadows_color.g;
+	tonemap_mobile.push_constant.shadows[2] = p_settings.shadows_color.b;
+	tonemap_mobile.push_constant.shadows[3] = p_settings.shadows_luminance;
+	tonemap_mobile.push_constant.midtones[0] = p_settings.midtones_color.r;
+	tonemap_mobile.push_constant.midtones[1] = p_settings.midtones_color.g;
+	tonemap_mobile.push_constant.midtones[2] = p_settings.midtones_color.b;
+	tonemap_mobile.push_constant.midtones[3] = p_settings.midtones_luminance;
+	tonemap_mobile.push_constant.highlights[0] = p_settings.highlights_color.r;
+	tonemap_mobile.push_constant.highlights[1] = p_settings.highlights_color.g;
+	tonemap_mobile.push_constant.highlights[2] = p_settings.highlights_color.b;
+	tonemap_mobile.push_constant.highlights[3] = p_settings.highlights_luminance;
 
 	uint32_t spec_constant = 0;
 	spec_constant |= p_settings.use_bcs ? TONEMAP_MOBILE_FLAG_USE_BCS : 0;
@@ -264,6 +295,8 @@ void ToneMapper::tonemapper_mobile(RID p_source_color, RID p_dst_framebuffer, co
 	spec_constant |= p_settings.tonemap_mode == RSE::ENV_TONE_MAPPER_FILMIC ? TONEMAP_MOBILE_FLAG_TONEMAPPER_FILMIC : 0;
 	spec_constant |= p_settings.tonemap_mode == RSE::ENV_TONE_MAPPER_ACES ? TONEMAP_MOBILE_FLAG_TONEMAPPER_ACES : 0;
 	spec_constant |= p_settings.tonemap_mode == RSE::ENV_TONE_MAPPER_AGX ? TONEMAP_MOBILE_FLAG_TONEMAPPER_AGX : 0;
+	spec_constant |= p_settings.use_color_grading ? TONEMAP_MOBILE_FLAG_USE_COLOR_GRADING : 0;
+	spec_constant |= p_settings.use_color_grading_curves ? TONEMAP_MOBILE_FLAG_USE_COLOR_GRADING_CURVES : 0;
 	spec_constant |= p_settings.glow_mode == RSE::ENV_GLOW_BLEND_MODE_ADDITIVE ? TONEMAP_MOBILE_FLAG_GLOW_MODE_ADD : 0;
 	spec_constant |= p_settings.glow_mode == RSE::ENV_GLOW_BLEND_MODE_SCREEN ? TONEMAP_MOBILE_FLAG_GLOW_MODE_SCREEN : 0;
 	spec_constant |= p_settings.glow_mode == RSE::ENV_GLOW_BLEND_MODE_SOFTLIGHT ? TONEMAP_MOBILE_FLAG_GLOW_MODE_SOFTLIGHT : 0;
@@ -300,13 +333,17 @@ void ToneMapper::tonemapper_mobile(RID p_source_color, RID p_dst_framebuffer, co
 	u_color_correction_texture.binding = 3;
 	u_color_correction_texture.append_id(default_sampler);
 	u_color_correction_texture.append_id(p_settings.color_correction_texture);
+	RD::Uniform u_hue_vs_hue(RD::UNIFORM_TYPE_SAMPLER_WITH_TEXTURE, 4, Vector<RID>({ default_sampler, p_settings.hue_vs_hue_texture }));
+	RD::Uniform u_hue_vs_saturation(RD::UNIFORM_TYPE_SAMPLER_WITH_TEXTURE, 5, Vector<RID>({ default_sampler, p_settings.hue_vs_saturation_texture }));
+	RD::Uniform u_saturation_vs_saturation(RD::UNIFORM_TYPE_SAMPLER_WITH_TEXTURE, 6, Vector<RID>({ default_sampler, p_settings.saturation_vs_saturation_texture }));
+	RD::Uniform u_luminance_vs_saturation(RD::UNIFORM_TYPE_SAMPLER_WITH_TEXTURE, 7, Vector<RID>({ default_sampler, p_settings.luminance_vs_saturation_texture }));
 
 	RID shader = tonemap_mobile.shader.version_get_shader(tonemap_mobile.shader_version, mode);
 	ERR_FAIL_COND(shader.is_null());
 
 	RD::DrawListID draw_list = RD::get_singleton()->draw_list_begin(p_dst_framebuffer);
 	RD::get_singleton()->draw_list_bind_render_pipeline(draw_list, tonemap_mobile.pipelines[mode].get_render_pipeline(RD::INVALID_ID, RD::get_singleton()->framebuffer_get_format(p_dst_framebuffer), false, RD::get_singleton()->draw_list_get_current_pass(), spec_constant));
-	RD::get_singleton()->draw_list_bind_uniform_set(draw_list, uniform_set_cache->get_cache(shader, 0, u_source_color, u_glow_texture, u_glow_map, u_color_correction_texture), 0);
+	RD::get_singleton()->draw_list_bind_uniform_set(draw_list, uniform_set_cache->get_cache(shader, 0, u_source_color, u_glow_texture, u_glow_map, u_color_correction_texture, u_hue_vs_hue, u_hue_vs_saturation, u_saturation_vs_saturation, u_luminance_vs_saturation), 0);
 	RD::get_singleton()->draw_list_set_push_constant(draw_list, &tonemap_mobile.push_constant, sizeof(TonemapPushConstantMobile));
 	RD::get_singleton()->draw_list_draw(draw_list, false, 1u, 3u);
 	RD::get_singleton()->draw_list_end();
@@ -340,6 +377,18 @@ void ToneMapper::tonemapper_subpass(RD::DrawListID p_subpass_draw_list, RID p_so
 	tonemap_mobile.push_constant.tonemapper_params[1] = p_settings.tonemapper_params[1];
 	tonemap_mobile.push_constant.tonemapper_params[2] = p_settings.tonemapper_params[2];
 	tonemap_mobile.push_constant.tonemapper_params[3] = p_settings.tonemapper_params[3];
+	tonemap_mobile.push_constant.shadows[0] = p_settings.shadows_color.r;
+	tonemap_mobile.push_constant.shadows[1] = p_settings.shadows_color.g;
+	tonemap_mobile.push_constant.shadows[2] = p_settings.shadows_color.b;
+	tonemap_mobile.push_constant.shadows[3] = p_settings.shadows_luminance;
+	tonemap_mobile.push_constant.midtones[0] = p_settings.midtones_color.r;
+	tonemap_mobile.push_constant.midtones[1] = p_settings.midtones_color.g;
+	tonemap_mobile.push_constant.midtones[2] = p_settings.midtones_color.b;
+	tonemap_mobile.push_constant.midtones[3] = p_settings.midtones_luminance;
+	tonemap_mobile.push_constant.highlights[0] = p_settings.highlights_color.r;
+	tonemap_mobile.push_constant.highlights[1] = p_settings.highlights_color.g;
+	tonemap_mobile.push_constant.highlights[2] = p_settings.highlights_color.b;
+	tonemap_mobile.push_constant.highlights[3] = p_settings.highlights_luminance;
 
 	uint32_t spec_constant = TONEMAP_MOBILE_ADRENO_BUG;
 	spec_constant |= p_settings.use_bcs ? TONEMAP_MOBILE_FLAG_USE_BCS : 0;
@@ -354,6 +403,8 @@ void ToneMapper::tonemapper_subpass(RD::DrawListID p_subpass_draw_list, RID p_so
 	spec_constant |= p_settings.tonemap_mode == RSE::ENV_TONE_MAPPER_FILMIC ? TONEMAP_MOBILE_FLAG_TONEMAPPER_FILMIC : 0;
 	spec_constant |= p_settings.tonemap_mode == RSE::ENV_TONE_MAPPER_ACES ? TONEMAP_MOBILE_FLAG_TONEMAPPER_ACES : 0;
 	spec_constant |= p_settings.tonemap_mode == RSE::ENV_TONE_MAPPER_AGX ? TONEMAP_MOBILE_FLAG_TONEMAPPER_AGX : 0;
+	spec_constant |= p_settings.use_color_grading ? TONEMAP_MOBILE_FLAG_USE_COLOR_GRADING : 0;
+	spec_constant |= p_settings.use_color_grading_curves ? TONEMAP_MOBILE_FLAG_USE_COLOR_GRADING_CURVES : 0;
 	//spec_constant |= p_settings.glow_mode == RSE::ENV_GLOW_BLEND_MODE_ADDITIVE ? TONEMAP_MOBILE_FLAG_GLOW_MODE_ADD : 0;
 	//spec_constant |= p_settings.glow_mode == RSE::ENV_GLOW_BLEND_MODE_SCREEN ? TONEMAP_MOBILE_FLAG_GLOW_MODE_SCREEN : 0;
 	//spec_constant |= p_settings.glow_mode == RSE::ENV_GLOW_BLEND_MODE_SOFTLIGHT ? TONEMAP_MOBILE_FLAG_GLOW_MODE_SOFTLIGHT : 0;
@@ -391,12 +442,16 @@ void ToneMapper::tonemapper_subpass(RD::DrawListID p_subpass_draw_list, RID p_so
 	u_color_correction_texture.binding = 3;
 	u_color_correction_texture.append_id(default_sampler);
 	u_color_correction_texture.append_id(p_settings.color_correction_texture);
+	RD::Uniform u_hue_vs_hue(RD::UNIFORM_TYPE_SAMPLER_WITH_TEXTURE, 4, Vector<RID>({ default_sampler, p_settings.hue_vs_hue_texture }));
+	RD::Uniform u_hue_vs_saturation(RD::UNIFORM_TYPE_SAMPLER_WITH_TEXTURE, 5, Vector<RID>({ default_sampler, p_settings.hue_vs_saturation_texture }));
+	RD::Uniform u_saturation_vs_saturation(RD::UNIFORM_TYPE_SAMPLER_WITH_TEXTURE, 6, Vector<RID>({ default_sampler, p_settings.saturation_vs_saturation_texture }));
+	RD::Uniform u_luminance_vs_saturation(RD::UNIFORM_TYPE_SAMPLER_WITH_TEXTURE, 7, Vector<RID>({ default_sampler, p_settings.luminance_vs_saturation_texture }));
 
 	RID shader = tonemap_mobile.shader.version_get_shader(tonemap_mobile.shader_version, mode);
 	ERR_FAIL_COND(shader.is_null());
 
 	RD::get_singleton()->draw_list_bind_render_pipeline(p_subpass_draw_list, tonemap_mobile.pipelines[mode].get_render_pipeline(RD::INVALID_ID, p_dst_format_id, false, RD::get_singleton()->draw_list_get_current_pass(), spec_constant));
-	RD::get_singleton()->draw_list_bind_uniform_set(p_subpass_draw_list, uniform_set_cache->get_cache(shader, 0, u_source_color, u_glow_texture, u_glow_map, u_color_correction_texture), 0);
+	RD::get_singleton()->draw_list_bind_uniform_set(p_subpass_draw_list, uniform_set_cache->get_cache(shader, 0, u_source_color, u_glow_texture, u_glow_map, u_color_correction_texture, u_hue_vs_hue, u_hue_vs_saturation, u_saturation_vs_saturation, u_luminance_vs_saturation), 0);
 	RD::get_singleton()->draw_list_set_push_constant(p_subpass_draw_list, &tonemap_mobile.push_constant, sizeof(TonemapPushConstantMobile));
 	RD::get_singleton()->draw_list_draw(p_subpass_draw_list, false, 1u, 3u);
 }

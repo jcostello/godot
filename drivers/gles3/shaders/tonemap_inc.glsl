@@ -8,6 +8,9 @@ layout(std140) uniform TonemapData { //ubo:0
 	float contrast;
 	float saturation;
 	int pad3;
+	vec4 shadows;
+	vec4 midtones;
+	vec4 highlights;
 };
 
 // This approximation expects non-negative input; negative input is undefined behavior.
