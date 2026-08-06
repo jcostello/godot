@@ -256,6 +256,14 @@ float RendererSceneRender::environment_get_white(RID p_env, bool p_limit_agx_whi
 	return environment_storage.environment_get_white(p_env, p_limit_agx_white, p_output_max_value);
 }
 
+void RendererSceneRender::environment_set_tonemap_temperature(RID p_env, float p_temperature) {
+	environment_storage.environment_set_tonemap_temperature(p_env, p_temperature);
+}
+
+float RendererSceneRender::environment_get_tonemap_temperature(RID p_env) const {
+	return environment_storage.environment_get_tonemap_temperature(p_env);
+}
+
 void RendererSceneRender::environment_set_tonemap_agx_contrast(RID p_env, float p_agx_contrast) {
 	environment_storage.environment_set_tonemap_agx_contrast(p_env, p_agx_contrast);
 }
@@ -590,6 +598,10 @@ void RendererSceneRender::environment_set_adjustment(RID p_env, bool p_enable, f
 	environment_storage.environment_set_adjustment(p_env, p_enable, p_brightness, p_contrast, p_saturation, p_use_1d_color_correction, p_color_correction, p_shadows_color, p_shadows_luminance, p_midtones_color, p_midtones_luminance, p_highlights_color, p_highlights_luminance);
 }
 
+void RendererSceneRender::environment_set_adjustment_offset(RID p_env, const Color &p_color, float p_luminance) {
+	environment_storage.environment_set_adjustment_offset(p_env, p_color, p_luminance);
+}
+
 void RendererSceneRender::environment_set_adjustment_curves(RID p_env, RID p_hue_vs_hue, RID p_hue_vs_saturation, RID p_saturation_vs_saturation, RID p_luminance_vs_saturation) {
 	environment_storage.environment_set_adjustment_curves(p_env, p_hue_vs_hue, p_hue_vs_saturation, p_saturation_vs_saturation, p_luminance_vs_saturation);
 }
@@ -608,6 +620,14 @@ float RendererSceneRender::environment_get_adjustments_contrast(RID p_env) const
 
 float RendererSceneRender::environment_get_adjustments_saturation(RID p_env) const {
 	return environment_storage.environment_get_adjustments_saturation(p_env);
+}
+
+Color RendererSceneRender::environment_get_adjustments_offset_color(RID p_env) const {
+	return environment_storage.environment_get_adjustments_offset_color(p_env);
+}
+
+float RendererSceneRender::environment_get_adjustments_offset_luminance(RID p_env) const {
+	return environment_storage.environment_get_adjustments_offset_luminance(p_env);
 }
 
 Color RendererSceneRender::environment_get_adjustments_shadows_color(RID p_env) const {

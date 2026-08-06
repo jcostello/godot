@@ -126,9 +126,12 @@ private:
 		float luminance_multiplier; //  4 - 96
 
 		float tonemapper_params[4]; //  16 - 112
-		float shadows[4]; // 16 - 128
-		float midtones[4]; // 16 - 144
-		float highlights[4]; // 16 - 160
+		float offset[4]; // 16 - 128
+		float shadows[4]; // 16 - 144
+		float midtones[4]; // 16 - 160
+		float highlights[4]; // 16 - 176
+		float tonemap_temperature[3]; // 12 - 172
+		float pad; // 4 - 176
 	};
 
 	struct TonemapPushConstantMobile {
@@ -144,11 +147,13 @@ private:
 		float white; //  4 - 48
 
 		float tonemapper_params[4]; //  16 - 64
-		float output_max_value; //  4 - 68
-		float pad[3]; //  12 - 80
-		float shadows[4]; // 16 - 96
-		float midtones[4]; // 16 - 112
-		float highlights[4]; // 16 - 128
+		float offset[4]; // 16 - 80
+		float output_max_value; //  4 - 84
+		float tonemap_temperature[3]; //  12 - 96
+		float pad; //  4 - 100
+		float shadows[4]; // 16 - 116
+		float midtones[4]; // 16 - 132
+		float highlights[4]; // 16 - 148
 	};
 
 	/* tonemap actually writes to a framebuffer, which is
@@ -186,6 +191,7 @@ public:
 
 		RSE::EnvironmentToneMapper tonemap_mode = RSE::ENV_TONE_MAPPER_LINEAR;
 		float tonemapper_params[4] = { 0.0, 0.0, 0.0, 0.0 };
+		float tonemap_temperature[3] = { 1.0, 1.0, 1.0 };
 		float exposure = 1.0;
 		float white = 1.0;
 		float max_value = 1.0;
@@ -200,6 +206,8 @@ public:
 		float contrast = 1.0;
 		float saturation = 1.0;
 		bool use_color_grading = false;
+		Color offset_color = Color(1, 1, 1);
+		float offset_luminance = 1.0;
 		Color shadows_color = Color(1, 1, 1);
 		float shadows_luminance = 1.0;
 		Color midtones_color = Color(1, 1, 1);

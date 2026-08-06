@@ -87,6 +87,7 @@ private:
 		float exposure = 1.0;
 		float white = 1.0;
 		float tonemap_agx_contrast = 1.25; // Default to approximately Blender's AgX contrast
+		float tonemap_temperature = 6500.0;
 		float max_value = 1.0;
 
 		// Fog
@@ -177,6 +178,8 @@ private:
 		float adjustments_brightness = 1.0f;
 		float adjustments_contrast = 1.0f;
 		float adjustments_saturation = 1.0f;
+		Color adjustments_offset_color = Color(1, 1, 1);
+		float adjustments_offset_luminance = 1.0f;
 		Color adjustments_shadows_color = Color(1, 1, 1);
 		float adjustments_shadows_luminance = 1.0f;
 		Color adjustments_midtones_color = Color(1, 1, 1);
@@ -239,6 +242,8 @@ public:
 	RSE::EnvironmentToneMapper environment_get_tone_mapper(RID p_env) const;
 	float environment_get_exposure(RID p_env) const;
 	float environment_get_white(RID p_env, bool p_limit_agx_white, float p_output_max_value) const;
+	void environment_set_tonemap_temperature(RID p_env, float p_temperature);
+	float environment_get_tonemap_temperature(RID p_env) const;
 	void environment_set_tonemap_agx_contrast(RID p_env, float p_agx_contrast);
 	float environment_get_tonemap_agx_contrast(RID p_env) const;
 	TonemapParameters environment_get_tonemap_parameters(RID p_env, bool p_limit_agx_white, float p_output_max_value) const;
@@ -336,11 +341,14 @@ public:
 
 	// Adjustment
 	void environment_set_adjustment(RID p_env, bool p_enable, float p_brightness, float p_contrast, float p_saturation, bool p_use_1d_color_correction, RID p_color_correction, const Color &p_shadows_color, float p_shadows_luminance, const Color &p_midtones_color, float p_midtones_luminance, const Color &p_highlights_color, float p_highlights_luminance);
+	void environment_set_adjustment_offset(RID p_env, const Color &p_color, float p_luminance);
 	void environment_set_adjustment_curves(RID p_env, RID p_hue_vs_hue, RID p_hue_vs_saturation, RID p_saturation_vs_saturation, RID p_luminance_vs_saturation);
 	bool environment_get_adjustments_enabled(RID p_env) const;
 	float environment_get_adjustments_brightness(RID p_env) const;
 	float environment_get_adjustments_contrast(RID p_env) const;
 	float environment_get_adjustments_saturation(RID p_env) const;
+	Color environment_get_adjustments_offset_color(RID p_env) const;
+	float environment_get_adjustments_offset_luminance(RID p_env) const;
 	Color environment_get_adjustments_shadows_color(RID p_env) const;
 	float environment_get_adjustments_shadows_luminance(RID p_env) const;
 	Color environment_get_adjustments_midtones_color(RID p_env) const;

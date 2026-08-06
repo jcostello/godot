@@ -13,7 +13,7 @@ class EnvironmentColorGradingEditor;
 class EnvironmentColorGradingTrackballControl : public Control {
 	GDCLASS(EnvironmentColorGradingTrackballControl, Control);
 
-	static constexpr int TRACKBALL_COUNT = 3;
+	static constexpr int TRACKBALL_COUNT = 4;
 	EnvironmentColorGradingEditor *editor = nullptr;
 	HSlider *luminance_sliders[TRACKBALL_COUNT] = {};
 	Button *reset_buttons[TRACKBALL_COUNT] = {};
@@ -41,7 +41,7 @@ class EnvironmentColorGradingEditor : public EditorProperty {
 
 	friend class EnvironmentColorGradingTrackballControl;
 
-	static constexpr int TRACKBALL_COUNT = 3;
+	static constexpr int TRACKBALL_COUNT = 4;
 	static const char *color_properties[TRACKBALL_COUNT];
 	static const char *luminance_properties[TRACKBALL_COUNT];
 	EnvironmentColorGradingTrackballControl *trackballs = nullptr;

@@ -192,10 +192,12 @@ public:
 	// Tonemap
 	virtual void environment_set_tonemap(RID p_env, RSE::EnvironmentToneMapper p_tone_mapper, float p_exposure, float p_white) = 0;
 	virtual void environment_set_tonemap_agx_contrast(RID p_env, float p_agx_contrast) = 0;
+	virtual void environment_set_tonemap_temperature(RID p_env, float p_temperature) = 0;
 
 	virtual RSE::EnvironmentToneMapper environment_get_tone_mapper(RID p_env) const = 0;
 	virtual float environment_get_exposure(RID p_env) const = 0;
 	virtual float environment_get_white(RID p_env, bool p_limit_agx_white, float p_output_max_value) const = 0;
+	virtual float environment_get_tonemap_temperature(RID p_env) const = 0;
 
 	// Fog
 	virtual void environment_set_fog(RID p_env, bool p_enable, const Color &p_light_color, float p_light_energy, float p_sun_scatter, float p_density, float p_height, float p_height_density, float p_aerial_perspective, float p_sky_affect, RSE::EnvironmentFogMode p_mode = RSE::EnvironmentFogMode::ENV_FOG_MODE_EXPONENTIAL) = 0;
@@ -316,12 +318,15 @@ public:
 	virtual void environment_set_sdfgi_frames_to_update_light(RSE::EnvironmentSDFGIFramesToUpdateLight p_update) = 0;
 
 	virtual void environment_set_adjustment(RID p_env, bool p_enable, float p_brightness, float p_contrast, float p_saturation, bool p_use_1d_color_correction, RID p_color_correction, const Color &p_shadows_color, float p_shadows_luminance, const Color &p_midtones_color, float p_midtones_luminance, const Color &p_highlights_color, float p_highlights_luminance) = 0;
+	virtual void environment_set_adjustment_offset(RID p_env, const Color &p_color, float p_luminance) = 0;
 	virtual void environment_set_adjustment_curves(RID p_env, RID p_hue_vs_hue, RID p_hue_vs_saturation, RID p_saturation_vs_saturation, RID p_luminance_vs_saturation) = 0;
 
 	virtual bool environment_get_adjustments_enabled(RID p_env) const = 0;
 	virtual float environment_get_adjustments_brightness(RID p_env) const = 0;
 	virtual float environment_get_adjustments_contrast(RID p_env) const = 0;
 	virtual float environment_get_adjustments_saturation(RID p_env) const = 0;
+	virtual Color environment_get_adjustments_offset_color(RID p_env) const = 0;
+	virtual float environment_get_adjustments_offset_luminance(RID p_env) const = 0;
 	virtual Color environment_get_adjustments_shadows_color(RID p_env) const = 0;
 	virtual float environment_get_adjustments_shadows_luminance(RID p_env) const = 0;
 	virtual Color environment_get_adjustments_midtones_color(RID p_env) const = 0;

@@ -166,12 +166,19 @@ void ToneMapper::tonemapper(RID p_source_color, RID p_dst_framebuffer, const Ton
 	tonemap.push_constant.tonemapper_params[1] = p_settings.tonemapper_params[1];
 	tonemap.push_constant.tonemapper_params[2] = p_settings.tonemapper_params[2];
 	tonemap.push_constant.tonemapper_params[3] = p_settings.tonemapper_params[3];
+	tonemap.push_constant.offset[0] = p_settings.offset_color.r;
+	tonemap.push_constant.offset[1] = p_settings.offset_color.g;
+	tonemap.push_constant.offset[2] = p_settings.offset_color.b;
+	tonemap.push_constant.offset[3] = p_settings.offset_luminance;
 	tonemap.push_constant.flags |= p_settings.use_auto_exposure ? TONEMAP_FLAG_USE_AUTO_EXPOSURE : 0;
 	tonemap.push_constant.exposure = p_settings.exposure;
 	tonemap.push_constant.white = p_settings.white;
 	tonemap.push_constant.auto_exposure_scale = p_settings.auto_exposure_scale;
 	tonemap.push_constant.luminance_multiplier = p_settings.luminance_multiplier;
 	tonemap.push_constant.output_max_value = MAX(p_settings.max_value, 1.0f);
+	tonemap.push_constant.tonemap_temperature[0] = p_settings.tonemap_temperature[0];
+	tonemap.push_constant.tonemap_temperature[1] = p_settings.tonemap_temperature[1];
+	tonemap.push_constant.tonemap_temperature[2] = p_settings.tonemap_temperature[2];
 
 	tonemap.push_constant.flags |= p_settings.use_color_correction ? TONEMAP_FLAG_USE_COLOR_CORRECTION : 0;
 
@@ -263,11 +270,18 @@ void ToneMapper::tonemapper_mobile(RID p_source_color, RID p_dst_framebuffer, co
 	tonemap_mobile.push_constant.white = p_settings.white;
 	tonemap_mobile.push_constant.luminance_multiplier = p_settings.luminance_multiplier;
 	tonemap_mobile.push_constant.output_max_value = MAX(p_settings.max_value, 1.0f);
+	tonemap_mobile.push_constant.tonemap_temperature[0] = p_settings.tonemap_temperature[0];
+	tonemap_mobile.push_constant.tonemap_temperature[1] = p_settings.tonemap_temperature[1];
+	tonemap_mobile.push_constant.tonemap_temperature[2] = p_settings.tonemap_temperature[2];
 
 	tonemap_mobile.push_constant.tonemapper_params[0] = p_settings.tonemapper_params[0];
 	tonemap_mobile.push_constant.tonemapper_params[1] = p_settings.tonemapper_params[1];
 	tonemap_mobile.push_constant.tonemapper_params[2] = p_settings.tonemapper_params[2];
 	tonemap_mobile.push_constant.tonemapper_params[3] = p_settings.tonemapper_params[3];
+	tonemap_mobile.push_constant.offset[0] = p_settings.offset_color.r;
+	tonemap_mobile.push_constant.offset[1] = p_settings.offset_color.g;
+	tonemap_mobile.push_constant.offset[2] = p_settings.offset_color.b;
+	tonemap_mobile.push_constant.offset[3] = p_settings.offset_luminance;
 	tonemap_mobile.push_constant.shadows[0] = p_settings.shadows_color.r;
 	tonemap_mobile.push_constant.shadows[1] = p_settings.shadows_color.g;
 	tonemap_mobile.push_constant.shadows[2] = p_settings.shadows_color.b;
@@ -372,11 +386,18 @@ void ToneMapper::tonemapper_subpass(RD::DrawListID p_subpass_draw_list, RID p_so
 	tonemap_mobile.push_constant.white = p_settings.white;
 	tonemap_mobile.push_constant.luminance_multiplier = p_settings.luminance_multiplier;
 	tonemap_mobile.push_constant.output_max_value = MAX(p_settings.max_value, 1.0f);
+	tonemap_mobile.push_constant.tonemap_temperature[0] = p_settings.tonemap_temperature[0];
+	tonemap_mobile.push_constant.tonemap_temperature[1] = p_settings.tonemap_temperature[1];
+	tonemap_mobile.push_constant.tonemap_temperature[2] = p_settings.tonemap_temperature[2];
 
 	tonemap_mobile.push_constant.tonemapper_params[0] = p_settings.tonemapper_params[0];
 	tonemap_mobile.push_constant.tonemapper_params[1] = p_settings.tonemapper_params[1];
 	tonemap_mobile.push_constant.tonemapper_params[2] = p_settings.tonemapper_params[2];
 	tonemap_mobile.push_constant.tonemapper_params[3] = p_settings.tonemapper_params[3];
+	tonemap_mobile.push_constant.offset[0] = p_settings.offset_color.r;
+	tonemap_mobile.push_constant.offset[1] = p_settings.offset_color.g;
+	tonemap_mobile.push_constant.offset[2] = p_settings.offset_color.b;
+	tonemap_mobile.push_constant.offset[3] = p_settings.offset_luminance;
 	tonemap_mobile.push_constant.shadows[0] = p_settings.shadows_color.r;
 	tonemap_mobile.push_constant.shadows[1] = p_settings.shadows_color.g;
 	tonemap_mobile.push_constant.shadows[2] = p_settings.shadows_color.b;

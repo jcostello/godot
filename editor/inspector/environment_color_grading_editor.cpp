@@ -9,12 +9,14 @@
 #include "scene/resources/environment.h"
 
 const char *EnvironmentColorGradingEditor::color_properties[TRACKBALL_COUNT] = {
+	"adjustment_offset_color",
 	"adjustment_shadows_color",
 	"adjustment_midtones_color",
 	"adjustment_highlights_color",
 };
 
 const char *EnvironmentColorGradingEditor::luminance_properties[TRACKBALL_COUNT] = {
+	"adjustment_offset_luminance",
 	"adjustment_shadows_luminance",
 	"adjustment_midtones_luminance",
 	"adjustment_highlights_luminance",
@@ -83,7 +85,7 @@ void EnvironmentColorGradingTrackballControl::_reset_trackball(int p_index) {
 
 void EnvironmentColorGradingTrackballControl::_notification(int p_what) {
 	if (p_what == NOTIFICATION_RESIZED) {
-		const String labels[TRACKBALL_COUNT] = { TTR("Shadows"), TTR("Midtones"), TTR("Highlights") };
+		const String labels[TRACKBALL_COUNT] = { TTR("Offset"), TTR("Shadows"), TTR("Midtones"), TTR("Highlights") };
 		Ref<Font> font = get_theme_font(SNAME("font"), SNAME("Label"));
 		int font_size = get_theme_font_size(SNAME("font_size"), SNAME("Label"));
 		const bool vertical = _is_vertical_layout();
@@ -111,7 +113,7 @@ void EnvironmentColorGradingTrackballControl::_notification(int p_what) {
 		return;
 	}
 
-	const String labels[TRACKBALL_COUNT] = { TTR("Shadows"), TTR("Midtones"), TTR("Highlights") };
+	const String labels[TRACKBALL_COUNT] = { TTR("Offset"), TTR("Shadows"), TTR("Midtones"), TTR("Highlights") };
 	Ref<Font> font = get_theme_font(SNAME("font"), SNAME("Label"));
 	int font_size = get_theme_font_size(SNAME("font_size"), SNAME("Label"));
 	Color font_color = get_theme_color(SNAME("font_color"), SNAME("Label"));
@@ -238,6 +240,8 @@ bool EditorInspectorEnvironmentColorGradingPlugin::can_handle(Object *p_object) 
 
 bool EditorInspectorEnvironmentColorGradingPlugin::parse_property(Object *p_object, const Variant::Type p_type, const String &p_path, const PropertyHint p_hint, const String &p_hint_text, const BitField<PropertyUsageFlags> p_usage, const bool p_wide) {
 	static const Vector<String> properties = {
+		"adjustment_offset_color",
+		"adjustment_offset_luminance",
 		"adjustment_shadows_color",
 		"adjustment_shadows_luminance",
 		"adjustment_midtones_color",

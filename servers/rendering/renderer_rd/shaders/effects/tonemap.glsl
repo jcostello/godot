@@ -90,9 +90,12 @@ layout(push_constant, std430) uniform Params {
 	float luminance_multiplier;
 
 	vec4 tonemapper_params;
+	vec4 offset;
 	vec4 shadows;
 	vec4 midtones;
 	vec4 highlights;
+	vec3 tonemap_temperature;
+	float tonemap_temperature_pad;
 }
 params;
 
@@ -270,6 +273,10 @@ vec3 apply_tonemapping(vec3 color) { // inputs are LINEAR
 	} else { // TONEMAPPER_AGX
 		return tonemap_agx(color);
 	}
+}
+
+vec3 apply_temperature_balance(vec3 color) {
+	return color * params.tonemap_temperature;
 }
 
 #ifdef USE_GLOW_FILTER_BICUBIC
@@ -911,8 +918,10 @@ void main() {
 		color.rgb = do_fxaa(color.rgb, exposure, uv_interp);
 	}
 
+	color.rgb = apply_temperature_balance(color.rgb);
+
 	if (bool(params.flags & FLAG_USE_GLOW) && params.glow_mode != GLOW_MODE_SOFTLIGHT) {
-		vec3 glow = gather_glow(source_glow, uv_interp) * params.glow_intensity;
+		vec3 glow = apply_temperature_balance(gather_glow(source_glow, uv_interp) * params.glow_intensity);
 		if (params.glow_map_strength > 0.001) {
 			glow = mix(glow, texture(glow_map, uv_interp).rgb * glow, params.glow_map_strength);
 		}
@@ -938,6 +947,7 @@ void main() {
 		if (params.glow_map_strength > 0.001) {
 			glow = mix(glow, texture(glow_map, uv_interp).rgb * glow, params.glow_map_strength);
 		}
+		glow = apply_temperature_balance(glow);
 		glow = apply_tonemapping(glow);
 		color.rgb = apply_glow(color.rgb, glow, params.white);
 	}
@@ -967,6 +977,8 @@ void main() {
 		color.rgb = mix(vec3(dot(vec3(1.0), color.rgb) * (1.0 / 3.0)), color.rgb, params.bcs.z);
 
 		if (bool(params.flags & FLAG_USE_COLOR_GRADING)) {
+			color.rgb *= params.offset.rgb * params.offset.a;
+
 			float luminance = dot(color.rgb, vec3(0.2126, 0.7152, 0.0722));
 			float shadows_weight = 1.0 - smoothstep(0.1, 0.45, luminance);
 			float highlights_weight = smoothstep(0.55, 0.9, luminance);
