@@ -610,8 +610,8 @@ void RendererSceneRender::environment_set_adjustment_midtones_range(RID p_env, f
 	environment_storage.environment_set_adjustment_midtones_range(p_env, p_start, p_end);
 }
 
-void RendererSceneRender::environment_set_adjustment_advance(RID p_env, bool p_enable) {
-	environment_storage.environment_set_adjustment_advance(p_env, p_enable);
+void RendererSceneRender::environment_set_adjustment_advance(RID p_env, bool p_enable, float p_intensity) {
+	environment_storage.environment_set_adjustment_advance(p_env, p_enable, p_intensity);
 }
 
 void RendererSceneRender::environment_set_adjustment_curves(RID p_env, RID p_hue_vs_hue, RID p_hue_vs_saturation, RID p_saturation_vs_saturation, RID p_luminance_vs_saturation) {
@@ -636,6 +636,10 @@ float RendererSceneRender::environment_get_adjustments_saturation(RID p_env) con
 
 bool RendererSceneRender::environment_get_adjustment_advance(RID p_env) const {
 	return environment_storage.environment_get_adjustment_advance(p_env);
+}
+
+float RendererSceneRender::environment_get_adjustment_color_grading_intensity(RID p_env) const {
+	return environment_storage.environment_get_adjustment_color_grading_intensity(p_env);
 }
 
 float RendererSceneRender::environment_get_adjustment_tint(RID p_env) const {

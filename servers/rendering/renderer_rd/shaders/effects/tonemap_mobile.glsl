@@ -101,9 +101,8 @@ layout(push_constant, std430) uniform Params {
 	vec4 offset;
 	vec4 tint_midtones_range;
 
-	float output_max_value;
 	vec3 tonemap_temperature;
-	float pad;
+	float output_max_value;
 	vec4 shadows;
 	vec4 midtones;
 	vec4 highlights;
@@ -351,32 +350,7 @@ vec3 apply_color_correction(vec3 color) {
 }
 #endif
 
-vec3 grading_rgb_to_hsv(vec3 c) {
-	vec4 k = vec4(0.0, -1.0 / 3.0, 2.0 / 3.0, -1.0);
-	vec4 p = mix(vec4(c.bg, k.wz), vec4(c.gb, k.xy), step(c.b, c.g));
-	vec4 q = mix(vec4(p.xyw, c.r), vec4(c.r, p.yzx), step(p.x, c.r));
-	float d = q.x - min(q.w, q.y);
-	float e = 1.0e-10;
-	return vec3(abs(q.z + (q.w - q.y) / (6.0 * d + e)), d / (q.x + e), q.x);
-}
-
-vec3 grading_hsv_to_rgb(vec3 c) {
-	vec3 p = abs(fract(c.xxx + vec3(0.0, 2.0 / 3.0, 1.0 / 3.0)) * 6.0 - 3.0);
-	return c.z * mix(vec3(1.0), clamp(p - 1.0, 0.0, 1.0), c.y);
-}
-
-vec3 apply_color_grading_curves(vec3 color) {
-	float luminance = dot(color, vec3(0.2126, 0.7152, 0.0722));
-	vec3 hsv = grading_rgb_to_hsv(clamp(color, 0.0, 1.0));
-	float input_hue = hsv.x;
-	float input_saturation = hsv.y;
-	hsv.x = fract(hsv.x + texture(hue_vs_hue_curve, vec2(input_hue, 0.5)).r - 0.5);
-	hsv.y *= 2.0 * texture(hue_vs_saturation_curve, vec2(input_hue, 0.5)).r;
-	hsv.y *= 2.0 * texture(saturation_vs_saturation_curve, vec2(input_saturation, 0.5)).r;
-	hsv.y *= 2.0 * texture(luminance_vs_saturation_curve, vec2(clamp(luminance, 0.0, 1.0), 0.5)).r;
-	hsv.y = clamp(hsv.y, 0.0, 1.0);
-	return grading_hsv_to_rgb(hsv);
-}
+#include "../../../shaders/color_grading_inc.glsl"
 
 #ifndef SUBPASS
 
@@ -854,10 +828,12 @@ void main() {
 		// maintains compatibility with existing projects.
 		color.rgb = mix(vec3(dot(vec3(1.0), color.rgb) * (1.0 / 3.0)), color.rgb, params.bcs.z);
 
+		vec3 color_before_grading = color.rgb;
 		if (use_color_grading) {
-			color.rgb *= params.offset.rgb * params.offset.a;
+			color.rgb += params.offset.rgb - vec3(1.0);
+			color.rgb *= params.offset.a;
 			float tint = params.tint_midtones_range.x;
-			vec3 tint_balance = vec3(1.0 - tint, 1.0 + tint, 1.0 + abs(tint));
+			vec3 tint_balance = vec3(1.0 + tint, 1.0 - tint, 1.0 + tint);
 			color.rgb *= tint_balance;
 
 			float luminance = dot(color.rgb, vec3(0.2126, 0.7152, 0.0722));
@@ -866,14 +842,22 @@ void main() {
 			float shadows_weight = 1.0 - smoothstep(0.0, midtones_start, luminance);
 			float highlights_weight = smoothstep(midtones_end, 1.0, luminance);
 			float midtones_weight = max(0.0, 1.0 - shadows_weight - highlights_weight);
-			vec3 grade = params.shadows.rgb * params.shadows.a * shadows_weight;
-			grade += params.midtones.rgb * params.midtones.a * midtones_weight;
-			grade += params.highlights.rgb * params.highlights.a * highlights_weight;
-			color.rgb *= grade;
+			vec3 wheel_color = params.shadows.rgb * shadows_weight;
+			wheel_color += params.midtones.rgb * midtones_weight;
+			wheel_color += params.highlights.rgb * highlights_weight;
+			float wheel_neutral = dot(wheel_color, vec3(0.2126, 0.7152, 0.0722));
+			color.rgb += (wheel_color - vec3(wheel_neutral)) * max(luminance, 0.01);
+			float wheel_luminance = params.shadows.a * shadows_weight;
+			wheel_luminance += params.midtones.a * midtones_weight;
+			wheel_luminance += params.highlights.a * highlights_weight;
+			color.rgb *= wheel_luminance;
 		}
 
 		if (use_color_grading_curves) {
 			color.rgb = apply_color_grading_curves(color.rgb);
+		}
+		if (use_color_grading) {
+			color.rgb = mix(color_before_grading, color.rgb, params.tint_midtones_range.w);
 		}
 
 		if (use_color_correction) {

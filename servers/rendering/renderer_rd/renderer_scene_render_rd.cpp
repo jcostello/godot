@@ -29,6 +29,7 @@
 /**************************************************************************/
 
 #include "renderer_scene_render_rd.h"
+#include "servers/rendering/storage/environment_color_grading.h"
 
 #include "core/config/project_settings.h"
 #include "core/io/image.h"
@@ -54,41 +55,6 @@ void get_vogel_disk(float *r_kernel, int p_sample_count) {
 		r_kernel[i * 4] = Math::cos(theta) * r;
 		r_kernel[i * 4 + 1] = Math::sin(theta) * r;
 	}
-}
-
-static Color tonemap_color_from_temperature(float p_temperature) {
-	float temperature = CLAMP(p_temperature, 1000.0f, 15000.0f);
-	float t2 = temperature * temperature;
-	float u = (0.860117757f + 1.54118254e-4f * temperature + 1.28641212e-7f * t2) /
-			(1.0f + 8.42420235e-4f * temperature + 7.08145163e-7f * t2);
-	float v = (0.317398726f + 4.22806245e-5f * temperature + 4.20481691e-8f * t2) /
-			(1.0f - 2.89741816e-5f * temperature + 1.61456053e-7f * t2);
-
-	float d = 1.0f / (2.0f * u - 8.0f * v + 4.0f);
-	float x = 3.0f * u * d;
-	float y = 2.0f * v * d;
-
-	float a = 1.0f / MAX(y, 1e-5f);
-	Vector3 xyz = Vector3(x * a, 1.0f, (1.0f - x - y) * a);
-
-	Vector3 linear = Vector3(3.2404542f * xyz.x - 1.5371385f * xyz.y - 0.4985314f * xyz.z,
-			-0.9692660f * xyz.x + 1.8760108f * xyz.y + 0.0415560f * xyz.z,
-			0.0556434f * xyz.x - 0.2040259f * xyz.y + 1.0572252f * xyz.z);
-	linear /= MAX(1e-5f, linear[linear.max_axis_index()]);
-
-	return Color(linear.x, linear.y, linear.z).clamp();
-}
-
-static Vector3 tonemap_temperature_balance(float p_temperature) {
-	const Color neutral = tonemap_color_from_temperature(6500.0f);
-	const Color current = tonemap_color_from_temperature(p_temperature);
-
-	Vector3 neutral_linear(MAX(neutral.r, 1e-5f), MAX(neutral.g, 1e-5f), MAX(neutral.b, 1e-5f));
-	Vector3 current_linear(current.r, current.g, current.b);
-	return Vector3(
-			current_linear.x / neutral_linear.x,
-			current_linear.y / neutral_linear.y,
-			current_linear.z / neutral_linear.z);
 }
 
 RID RendererSceneRenderRD::sky_allocate() {
@@ -778,12 +744,7 @@ void RendererSceneRenderRD::_render_buffers_post_process_and_tonemap(const Rende
 			tonemap.tonemapper_params[1] = params.tonemapper_params[1];
 			tonemap.tonemapper_params[2] = params.tonemapper_params[2];
 			tonemap.tonemapper_params[3] = params.tonemapper_params[3];
-			const bool advanced_adjustments_enabled = environment_get_adjustments_enabled(p_render_data->environment) && environment_get_adjustment_advance(p_render_data->environment);
-			Vector3 temperature_balance = advanced_adjustments_enabled ? tonemap_temperature_balance(environment_get_tonemap_temperature(p_render_data->environment)) : Vector3(1.0, 1.0, 1.0);
 			tonemap.exposure = environment_get_exposure(p_render_data->environment);
-			tonemap.tonemap_temperature[0] = temperature_balance.x;
-			tonemap.tonemap_temperature[1] = temperature_balance.y;
-			tonemap.tonemap_temperature[2] = temperature_balance.z;
 			tonemap.max_value = max_value;
 		}
 		tonemap.exposure *= manual_exposure_adjustment;
@@ -800,13 +761,20 @@ void RendererSceneRenderRD::_render_buffers_post_process_and_tonemap(const Rende
 
 		if (can_use_effects && p_render_data->environment.is_valid()) {
 			const bool adjustments_enabled = environment_get_adjustments_enabled(p_render_data->environment);
-			const bool advanced_adjustments_enabled = adjustments_enabled && environment_get_adjustment_advance(p_render_data->environment);
+			const float grading_intensity = environment_get_adjustment_color_grading_intensity(p_render_data->environment);
+			const bool advanced_adjustments_enabled = adjustments_enabled && environment_get_adjustment_advance(p_render_data->environment) && grading_intensity > 0.0f;
+			const Vector3 full_temperature_balance = advanced_adjustments_enabled ? EnvironmentColorGrading::temperature_balance(environment_get_tonemap_temperature(p_render_data->environment)) : Vector3(1.0, 1.0, 1.0);
+			const Vector3 temperature_balance = Vector3(1.0, 1.0, 1.0).lerp(full_temperature_balance, grading_intensity);
+			tonemap.tonemap_temperature[0] = temperature_balance.x;
+			tonemap.tonemap_temperature[1] = temperature_balance.y;
+			tonemap.tonemap_temperature[2] = temperature_balance.z;
 
 			tonemap.use_bcs = adjustments_enabled;
 			tonemap.brightness = environment_get_adjustments_brightness(p_render_data->environment);
 			tonemap.contrast = environment_get_adjustments_contrast(p_render_data->environment);
 			tonemap.saturation = environment_get_adjustments_saturation(p_render_data->environment);
 			tonemap.use_color_grading = advanced_adjustments_enabled;
+			tonemap.color_grading_intensity = grading_intensity;
 			tonemap.offset_color = environment_get_adjustments_offset_color(p_render_data->environment);
 			tonemap.offset_luminance = environment_get_adjustments_offset_luminance(p_render_data->environment);
 			tonemap.tint = environment_get_adjustment_tint(p_render_data->environment);
@@ -1047,13 +1015,20 @@ void RendererSceneRenderRD::_post_process_subpass(RID p_source_texture, RID p_fr
 
 	if (can_use_effects && p_render_data->environment.is_valid()) {
 		const bool adjustments_enabled = environment_get_adjustments_enabled(p_render_data->environment);
-		const bool advanced_adjustments_enabled = adjustments_enabled && environment_get_adjustment_advance(p_render_data->environment);
+		const float grading_intensity = environment_get_adjustment_color_grading_intensity(p_render_data->environment);
+		const bool advanced_adjustments_enabled = adjustments_enabled && environment_get_adjustment_advance(p_render_data->environment) && grading_intensity > 0.0f;
+		const Vector3 full_temperature_balance = advanced_adjustments_enabled ? EnvironmentColorGrading::temperature_balance(environment_get_tonemap_temperature(p_render_data->environment)) : Vector3(1.0, 1.0, 1.0);
+		const Vector3 temperature_balance = Vector3(1.0, 1.0, 1.0).lerp(full_temperature_balance, grading_intensity);
+		tonemap.tonemap_temperature[0] = temperature_balance.x;
+		tonemap.tonemap_temperature[1] = temperature_balance.y;
+		tonemap.tonemap_temperature[2] = temperature_balance.z;
 
 		tonemap.use_bcs = adjustments_enabled;
 		tonemap.brightness = environment_get_adjustments_brightness(p_render_data->environment);
 		tonemap.contrast = environment_get_adjustments_contrast(p_render_data->environment);
 		tonemap.saturation = environment_get_adjustments_saturation(p_render_data->environment);
 		tonemap.use_color_grading = advanced_adjustments_enabled;
+		tonemap.color_grading_intensity = grading_intensity;
 		tonemap.offset_color = environment_get_adjustments_offset_color(p_render_data->environment);
 		tonemap.offset_luminance = environment_get_adjustments_offset_luminance(p_render_data->environment);
 		tonemap.tint = environment_get_adjustment_tint(p_render_data->environment);

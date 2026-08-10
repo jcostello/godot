@@ -1372,7 +1372,7 @@ public:
 	PASS3(environment_set_adjustment_offset, RID, const Color &, float)
 	PASS2(environment_set_adjustment_tint, RID, float)
 	PASS3(environment_set_adjustment_midtones_range, RID, float, float)
-	PASS2(environment_set_adjustment_advance, RID, bool)
+	PASS3(environment_set_adjustment_advance, RID, bool, float)
 	PASS5(environment_set_adjustment_curves, RID, RID, RID, RID, RID)
 
 	PASS1RC(bool, environment_get_adjustments_enabled, RID)
@@ -1380,6 +1380,7 @@ public:
 	PASS1RC(float, environment_get_adjustments_contrast, RID)
 	PASS1RC(float, environment_get_adjustments_saturation, RID)
 	PASS1RC(bool, environment_get_adjustment_advance, RID)
+	PASS1RC(float, environment_get_adjustment_color_grading_intensity, RID)
 	PASS1RC(float, environment_get_adjustment_tint, RID)
 	PASS1RC(float, environment_get_adjustment_midtones_start, RID)
 	PASS1RC(float, environment_get_adjustment_midtones_end, RID)

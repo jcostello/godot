@@ -50,6 +50,7 @@
 #include "servers/rendering/rendering_server_default.h"
 #include "servers/rendering/rendering_server_globals.h"
 #include "servers/rendering/rendering_server_types.h"
+#include "servers/rendering/storage/environment_color_grading.h"
 #include "servers/rendering/storage/ltc_lut.gen.h"
 
 RasterizerSceneGLES3 *RasterizerSceneGLES3::singleton = nullptr;
@@ -2565,6 +2566,7 @@ void RasterizerSceneGLES3::render_scene(const Ref<RenderSceneBuffers> &p_render_
 		Color shadows = environment_get_adjustments_shadows_color(render_data.environment);
 		Color midtones = environment_get_adjustments_midtones_color(render_data.environment);
 		Color highlights = environment_get_adjustments_highlights_color(render_data.environment);
+		Color offset = environment_get_adjustments_offset_color(render_data.environment);
 		tonemap_ubo.shadows[0] = shadows.r;
 		tonemap_ubo.shadows[1] = shadows.g;
 		tonemap_ubo.shadows[2] = shadows.b;
@@ -2577,6 +2579,21 @@ void RasterizerSceneGLES3::render_scene(const Ref<RenderSceneBuffers> &p_render_
 		tonemap_ubo.highlights[1] = highlights.g;
 		tonemap_ubo.highlights[2] = highlights.b;
 		tonemap_ubo.highlights[3] = environment_get_adjustments_highlights_luminance(render_data.environment);
+		tonemap_ubo.offset[0] = offset.r;
+		tonemap_ubo.offset[1] = offset.g;
+		tonemap_ubo.offset[2] = offset.b;
+		tonemap_ubo.offset[3] = environment_get_adjustments_offset_luminance(render_data.environment);
+		tonemap_ubo.tint_midtones_range[0] = environment_get_adjustment_tint(render_data.environment);
+		tonemap_ubo.tint_midtones_range[1] = environment_get_adjustment_midtones_start(render_data.environment);
+		tonemap_ubo.tint_midtones_range[2] = environment_get_adjustment_midtones_end(render_data.environment);
+		tonemap_ubo.tint_midtones_range[3] = environment_get_adjustment_color_grading_intensity(render_data.environment);
+		if (environment_get_adjustments_enabled(render_data.environment) && environment_get_adjustment_advance(render_data.environment) && environment_get_adjustment_color_grading_intensity(render_data.environment) > 0.0f) {
+			const Vector3 full_temperature = EnvironmentColorGrading::temperature_balance(environment_get_tonemap_temperature(render_data.environment));
+			const Vector3 temperature = Vector3(1.0, 1.0, 1.0).lerp(full_temperature, environment_get_adjustment_color_grading_intensity(render_data.environment));
+			tonemap_ubo.tonemap_temperature[0] = temperature.x;
+			tonemap_ubo.tonemap_temperature[1] = temperature.y;
+			tonemap_ubo.tonemap_temperature[2] = temperature.z;
+		}
 	}
 	const float manual_exposure_adjustment = render_data.camera_attributes.is_valid() ? RSG::camera_attributes->camera_attributes_get_exposure_adjustment_factor(render_data.camera_attributes) : 1.0f;
 	tonemap_ubo.exposure *= manual_exposure_adjustment;
@@ -3092,10 +3109,13 @@ void RasterizerSceneGLES3::_render_post_processing(const RenderDataGLES3 *p_rend
 	uint64_t bcs_spec_constants = 0;
 	if (p_render_data->environment.is_valid()) {
 		bool use_bcs = environment_get_adjustments_enabled(p_render_data->environment);
+		bool use_advanced_adjustments = use_bcs && environment_get_adjustment_advance(p_render_data->environment) && environment_get_adjustment_color_grading_intensity(p_render_data->environment) > 0.0f;
 		RID color_correction_texture = environment_get_color_correction(p_render_data->environment);
 		if (use_bcs) {
 			bcs_spec_constants |= PostShaderGLES3::USE_BCS;
-			bcs_spec_constants |= PostShaderGLES3::USE_COLOR_GRADING;
+			if (use_advanced_adjustments) {
+				bcs_spec_constants |= PostShaderGLES3::USE_COLOR_GRADING;
+			}
 
 			RID curve_textures[4] = {
 				environment_get_adjustments_hue_vs_hue(p_render_data->environment),
@@ -3103,7 +3123,7 @@ void RasterizerSceneGLES3::_render_post_processing(const RenderDataGLES3 *p_rend
 				environment_get_adjustments_saturation_vs_saturation(p_render_data->environment),
 				environment_get_adjustments_luminance_vs_saturation(p_render_data->environment)
 			};
-			if (curve_textures[0].is_valid() && curve_textures[1].is_valid() && curve_textures[2].is_valid() && curve_textures[3].is_valid()) {
+			if (use_advanced_adjustments && curve_textures[0].is_valid() && curve_textures[1].is_valid() && curve_textures[2].is_valid() && curve_textures[3].is_valid()) {
 				bcs_spec_constants |= PostShaderGLES3::USE_COLOR_GRADING_CURVES;
 				for (int i = 0; i < 4; i++) {
 					glActiveTexture(GL_TEXTURE4 + i);

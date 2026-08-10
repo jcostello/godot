@@ -150,13 +150,13 @@ private:
 		float tonemapper_params[4]; //  16 - 64
 		float offset[4]; // 16 - 80
 		float tint_midtones_range[4]; // 16 - 96
-		float output_max_value; //  4 - 100
-		float tonemap_temperature[3]; //  12 - 112
-		float pad; //  4 - 116
-		float shadows[4]; // 16 - 132
-		float midtones[4]; // 16 - 148
-		float highlights[4]; // 16 - 164
+		float tonemap_temperature[3]; // 12 - 108
+		float output_max_value; // 4 - 112
+		float shadows[4]; // 16 - 128
+		float midtones[4]; // 16 - 144
+		float highlights[4]; // 16 - 160
 	};
+	static_assert(sizeof(TonemapPushConstantMobile) == 160, "TonemapPushConstantMobile must match the shader layout.");
 
 	/* tonemap actually writes to a framebuffer, which is
 	 * better to do using the raster pipeline rather than
@@ -208,6 +208,7 @@ public:
 		float contrast = 1.0;
 		float saturation = 1.0;
 		bool use_color_grading = false;
+		float color_grading_intensity = 1.0;
 		Color offset_color = Color(1, 1, 1);
 		float offset_luminance = 1.0;
 		float tint = 0.0;
