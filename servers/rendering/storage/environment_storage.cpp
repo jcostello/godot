@@ -30,6 +30,8 @@
 
 #include "environment_storage.h"
 
+#include "environment_color_grading.h"
+
 #ifdef DEBUG_ENABLED
 #include "core/os/os.h"
 #endif
@@ -945,20 +947,16 @@ void RendererEnvironmentStorage::environment_set_adjustment_midtones_range(RID p
 	Environment *env = environment_owner.get_or_null(p_env);
 	ERR_FAIL_NULL(env);
 
-	env->adjustments_midtones_start = CLAMP(p_start, 0.0f, 1.0f);
-	env->adjustments_midtones_end = CLAMP(p_end, 0.0f, 1.0f);
-	if (env->adjustments_midtones_start > env->adjustments_midtones_end - 0.01f) {
-		env->adjustments_midtones_start = env->adjustments_midtones_end - 0.01f;
-	}
-	if (env->adjustments_midtones_end < env->adjustments_midtones_start + 0.01f) {
-		env->adjustments_midtones_end = env->adjustments_midtones_start + 0.01f;
-	}
+	const Vector2 range = EnvironmentColorGrading::clamp_midtones_range(p_start, p_end);
+	env->adjustments_midtones_start = range.x;
+	env->adjustments_midtones_end = range.y;
 }
 
-void RendererEnvironmentStorage::environment_set_adjustment_advance(RID p_env, bool p_enable) {
+void RendererEnvironmentStorage::environment_set_adjustment_advance(RID p_env, bool p_enable, float p_intensity) {
 	Environment *env = environment_owner.get_or_null(p_env);
 	ERR_FAIL_NULL(env);
 	env->adjustments_advance = p_enable;
+	env->adjustments_color_grading_intensity = CLAMP(p_intensity, 0.0f, 1.0f);
 }
 
 void RendererEnvironmentStorage::environment_set_adjustment_curves(RID p_env, RID p_hue_vs_hue, RID p_hue_vs_saturation, RID p_saturation_vs_saturation, RID p_luminance_vs_saturation) {
@@ -998,6 +996,12 @@ bool RendererEnvironmentStorage::environment_get_adjustment_advance(RID p_env) c
 	Environment *env = environment_owner.get_or_null(p_env);
 	ERR_FAIL_NULL_V(env, true);
 	return env->adjustments_advance;
+}
+
+float RendererEnvironmentStorage::environment_get_adjustment_color_grading_intensity(RID p_env) const {
+	Environment *env = environment_owner.get_or_null(p_env);
+	ERR_FAIL_NULL_V(env, 1.0f);
+	return env->adjustments_color_grading_intensity;
 }
 
 float RendererEnvironmentStorage::environment_get_adjustment_tint(RID p_env) const {

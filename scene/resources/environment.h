@@ -221,6 +221,7 @@ private:
 	// Adjustment
 	bool adjustment_enabled = false;
 	bool adjustment_advance = true;
+	float adjustment_color_grading_intensity = 1.0;
 	float adjustment_brightness = 1.0;
 	float adjustment_contrast = 1.0;
 	float adjustment_saturation = 1.0;
@@ -468,6 +469,10 @@ public:
 	bool is_adjustment_enabled() const;
 	void set_adjustment_advance(bool p_enabled);
 	bool is_adjustment_advance() const;
+	void set_adjustment_advanced(bool p_enabled);
+	bool is_adjustment_advanced() const;
+	void set_adjustment_color_grading_intensity(float p_intensity);
+	float get_adjustment_color_grading_intensity() const;
 	void set_adjustment_brightness(float p_brightness);
 	float get_adjustment_brightness() const;
 	void set_adjustment_contrast(float p_contrast);

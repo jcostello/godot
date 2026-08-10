@@ -45,62 +45,65 @@
 		<member name="adjustment_contrast" type="float" setter="set_adjustment_contrast" getter="get_adjustment_contrast" default="1.0">
 			Increasing [member adjustment_contrast] will make dark values darker and bright values brighter. This simple adjustment is applied to the rendered image after tonemaping. When set to a value greater than [code]1.0[/code], [member adjustment_contrast] is prone to clipping colors that become too bright or too dark. Effective only if [member adjustment_enabled] is [code]true[/code].
 		</member>
-		<member name="adjustment_advance" type="bool" setter="set_adjustment_advance" getter="is_adjustment_advance" default="true">
+		<member name="adjustment_advanced" type="bool" setter="set_adjustment_advanced" getter="is_adjustment_advanced" default="true">
 			If [code]true[/code], enables advanced color grading controls under [b]Color Grading[/b]. If [code]false[/code], only basic adjustments (brightness, contrast, saturation) remain active.
 		</member>
+		<member name="adjustment_color_grading_intensity" type="float" setter="set_adjustment_color_grading_intensity" getter="get_adjustment_color_grading_intensity" default="1.0">
+			Blends between the image before advanced color grading and the fully graded image. At [code]0.0[/code], temperature, tint, tonal wheels and curves have no effect. At [code]1.0[/code], they are applied fully.
+		</member>
 		<member name="adjustment_enabled" type="bool" setter="set_adjustment_enabled" getter="is_adjustment_enabled" default="false">
-			If [code]true[/code], enables the [code]adjustment_*[/code] properties provided by this resource. If [code]false[/code], modifications to the [code]adjustment_*[/code] properties will have no effect on the rendered scene.
+			If [code]true[/code], enables the [code]adjustment_*[/code] properties provided by this resource. If [code]false[/code], modifications to the [code]adjustment_*[/code] properties will have no effect on the rendered scene. Operations are applied in this order: white balance temperature, tonemapping, brightness/contrast/saturation, advanced tonal grading, grading curves, then the color-correction LUT.
 		</member>
 		<member name="adjustment_highlights_color" type="Color" setter="set_adjustment_highlights_color" getter="get_adjustment_highlights_color" default="Color(1, 1, 1, 1)">
-			Tints the brightest range of the rendered image. Effective only if [member adjustment_enabled] and [member adjustment_advance] are [code]true[/code].
+			Tints the brightest range of the rendered image. Effective only if [member adjustment_enabled] and [member adjustment_advanced] are [code]true[/code].
 		</member>
 		<member name="adjustment_highlights_luminance" type="float" setter="set_adjustment_highlights_luminance" getter="get_adjustment_highlights_luminance" default="1.0">
-			Multiplies the brightness of the brightest range of the rendered image. Effective only if [member adjustment_enabled] and [member adjustment_advance] are [code]true[/code].
+			Multiplies the brightness of the brightest range of the rendered image. Effective only if [member adjustment_enabled] and [member adjustment_advanced] are [code]true[/code].
 		</member>
 		<member name="adjustment_hue_vs_hue" type="CurveTexture" setter="set_adjustment_hue_vs_hue" getter="get_adjustment_hue_vs_hue">
-			Shifts each input hue according to the curve. The horizontal axis is the input hue and the vertical axis is the hue offset, with [code]0.5[/code] being neutral. Effective only if [member adjustment_enabled] and [member adjustment_advance] are [code]true[/code].
+			Shifts each input hue according to the curve. The horizontal axis is the input hue and the vertical axis is the hue offset, with [code]0.5[/code] being neutral. Sampling is continuous across the red hue boundary. Effective only if [member adjustment_enabled] and [member adjustment_advanced] are [code]true[/code].
 		</member>
 		<member name="adjustment_hue_vs_saturation" type="CurveTexture" setter="set_adjustment_hue_vs_saturation" getter="get_adjustment_hue_vs_saturation">
-			Adjusts saturation according to input hue. A curve value of [code]0.5[/code] is neutral. Effective only if [member adjustment_enabled] and [member adjustment_advance] are [code]true[/code].
+			Adjusts saturation according to input hue. A curve value of [code]0.5[/code] is neutral. Effective only if [member adjustment_enabled] and [member adjustment_advanced] are [code]true[/code].
 		</member>
 		<member name="adjustment_luminance_vs_saturation" type="CurveTexture" setter="set_adjustment_luminance_vs_saturation" getter="get_adjustment_luminance_vs_saturation">
-			Adjusts saturation according to input luminance. A curve value of [code]0.5[/code] is neutral. Effective only if [member adjustment_enabled] and [member adjustment_advance] are [code]true[/code].
+			Adjusts saturation according to input luminance. A curve value of [code]0.5[/code] is neutral. Effective only if [member adjustment_enabled] and [member adjustment_advanced] are [code]true[/code].
 		</member>
 		<member name="adjustment_midtones_color" type="Color" setter="set_adjustment_midtones_color" getter="get_adjustment_midtones_color" default="Color(1, 1, 1, 1)">
-			Tints the mid-range luminance of the rendered image. Effective only if [member adjustment_enabled] and [member adjustment_advance] are [code]true[/code].
+			Tints the mid-range luminance of the rendered image while approximately preserving luminance. Effective only if [member adjustment_enabled] and [member adjustment_advanced] are [code]true[/code].
 		</member>
 		<member name="adjustment_midtones_end" type="float" setter="set_adjustment_midtones_end" getter="get_adjustment_midtones_end" default="0.55">
-			Sets where the midtones range ends and highlights begin for color grading weights. Effective only if [member adjustment_enabled] and [member adjustment_advance] are [code]true[/code].
+			Sets where the midtones range ends and highlights begin for color grading weights. Effective only if [member adjustment_enabled] and [member adjustment_advanced] are [code]true[/code].
 		</member>
 		<member name="adjustment_midtones_luminance" type="float" setter="set_adjustment_midtones_luminance" getter="get_adjustment_midtones_luminance" default="1.0">
-			Multiplies the brightness of the mid-range luminance of the rendered image. Effective only if [member adjustment_enabled] is [code]true[/code].
+			Multiplies the brightness of the mid-range luminance of the rendered image. Effective only if [member adjustment_enabled] and [member adjustment_advanced] are [code]true[/code].
 		</member>
 		<member name="adjustment_midtones_start" type="float" setter="set_adjustment_midtones_start" getter="get_adjustment_midtones_start" default="0.45">
-			Sets where the midtones range starts and shadows end for color grading weights. Effective only if [member adjustment_enabled] and [member adjustment_advance] are [code]true[/code].
+			Sets where the midtones range starts and shadows end for color grading weights. Effective only if [member adjustment_enabled] and [member adjustment_advanced] are [code]true[/code].
 		</member>
 		<member name="adjustment_offset_color" type="Color" setter="set_adjustment_offset_color" getter="get_adjustment_offset_color" default="Color(1, 1, 1, 1)">
-			Applies a global tint to the entire tonal range. Effective only if [member adjustment_enabled] and [member adjustment_advance] are [code]true[/code].
+			Applies an additive global color offset to the entire tonal range. White is neutral. Effective only if [member adjustment_enabled] and [member adjustment_advanced] are [code]true[/code].
 		</member>
 		<member name="adjustment_offset_luminance" type="float" setter="set_adjustment_offset_luminance" getter="get_adjustment_offset_luminance" default="1.0">
-			Multiplies the global color grading [member adjustment_offset_color] influence over the entire tonal range. Effective only if [member adjustment_enabled] and [member adjustment_advance] are [code]true[/code].
+			Multiplies the luminance after applying [member adjustment_offset_color]. Effective only if [member adjustment_enabled] and [member adjustment_advanced] are [code]true[/code].
 		</member>
 		<member name="adjustment_saturation" type="float" setter="set_adjustment_saturation" getter="get_adjustment_saturation" default="1.0">
 			Applies a simple saturation adjustment to the rendered image after tonemaping. When [member adjustment_saturation] is set to [code]0.0[/code], the rendered image will be fully converted to a grayscale image. Effective only if [member adjustment_enabled] is [code]true[/code].
 		</member>
 		<member name="adjustment_temperature" type="float" setter="set_tonemap_temperature" getter="get_tonemap_temperature" default="6500.0">
-			Sets the white balance temperature in Kelvin. Lower values produce warmer colors, while higher values produce cooler colors. A value of [code]6500.0[/code] is neutral. Effective only if [member adjustment_enabled] and [member adjustment_advance] are [code]true[/code].
+			Sets the white balance temperature in Kelvin. Lower values produce warmer colors, while higher values produce cooler colors. A value of [code]6500.0[/code] is neutral. Effective only if [member adjustment_enabled] and [member adjustment_advanced] are [code]true[/code].
 		</member>
 		<member name="adjustment_tint" type="float" setter="set_adjustment_tint" getter="get_adjustment_tint" default="0.0">
-			Tints the rendered image toward cyan or magenta to compensate color temperature. Positive values push toward cyan, while negative values push toward magenta. Effective only if [member adjustment_enabled] and [member adjustment_advance] are [code]true[/code].
+			Adjusts the green-magenta axis to compensate color temperature. Positive values push toward magenta, while negative values push toward green. Effective only if [member adjustment_enabled] and [member adjustment_advanced] are [code]true[/code].
 		</member>
 		<member name="adjustment_saturation_vs_saturation" type="CurveTexture" setter="set_adjustment_saturation_vs_saturation" getter="get_adjustment_saturation_vs_saturation">
-			Adjusts saturation according to input saturation. A curve value of [code]0.5[/code] is neutral. Effective only if [member adjustment_enabled] and [member adjustment_advance] are [code]true[/code].
+			Adjusts saturation according to input saturation. A curve value of [code]0.5[/code] is neutral. Effective only if [member adjustment_enabled] and [member adjustment_advanced] are [code]true[/code].
 		</member>
 		<member name="adjustment_shadows_color" type="Color" setter="set_adjustment_shadows_color" getter="get_adjustment_shadows_color" default="Color(1, 1, 1, 1)">
-			Tints the darkest range of the rendered image. Effective only if [member adjustment_enabled] and [member adjustment_advance] are [code]true[/code].
+			Tints the darkest range of the rendered image while approximately preserving luminance. Effective only if [member adjustment_enabled] and [member adjustment_advanced] are [code]true[/code].
 		</member>
 		<member name="adjustment_shadows_luminance" type="float" setter="set_adjustment_shadows_luminance" getter="get_adjustment_shadows_luminance" default="1.0">
-			Multiplies the brightness of the darkest range of the rendered image. Effective only if [member adjustment_enabled] and [member adjustment_advance] are [code]true[/code].
+			Multiplies the brightness of the darkest range of the rendered image. Effective only if [member adjustment_enabled] and [member adjustment_advanced] are [code]true[/code].
 		</member>
 		<member name="ambient_light_color" type="Color" setter="set_ambient_light_color" getter="get_ambient_light_color" default="Color(0, 0, 0, 1)">
 			The ambient light's [Color]. Only effective if [member ambient_light_sky_contribution] is lower than [code]1.0[/code] (exclusive).

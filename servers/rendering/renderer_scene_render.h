@@ -260,13 +260,14 @@ public:
 	void environment_set_adjustment_offset(RID p_env, const Color &p_color, float p_luminance);
 	void environment_set_adjustment_tint(RID p_env, float p_tint);
 	void environment_set_adjustment_midtones_range(RID p_env, float p_start, float p_end);
-	void environment_set_adjustment_advance(RID p_env, bool p_enable);
+	void environment_set_adjustment_advance(RID p_env, bool p_enable, float p_intensity);
 	void environment_set_adjustment_curves(RID p_env, RID p_hue_vs_hue, RID p_hue_vs_saturation, RID p_saturation_vs_saturation, RID p_luminance_vs_saturation);
 	bool environment_get_adjustments_enabled(RID p_env) const;
 	float environment_get_adjustments_brightness(RID p_env) const;
 	float environment_get_adjustments_contrast(RID p_env) const;
 	float environment_get_adjustments_saturation(RID p_env) const;
 	bool environment_get_adjustment_advance(RID p_env) const;
+	float environment_get_adjustment_color_grading_intensity(RID p_env) const;
 	float environment_get_adjustment_tint(RID p_env) const;
 	float environment_get_adjustment_midtones_start(RID p_env) const;
 	float environment_get_adjustment_midtones_end(RID p_env) const;

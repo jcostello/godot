@@ -11,6 +11,9 @@ layout(std140) uniform TonemapData { //ubo:0
 	vec4 shadows;
 	vec4 midtones;
 	vec4 highlights;
+	vec4 offset;
+	vec4 tint_midtones_range;
+	vec4 tonemap_temperature;
 };
 
 // This approximation expects non-negative input; negative input is undefined behavior.
