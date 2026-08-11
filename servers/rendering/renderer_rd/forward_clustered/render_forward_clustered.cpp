@@ -420,6 +420,7 @@ void RenderForwardClustered::_render_list_template(RenderingDevice::DrawListID p
 		RID xforms_uniform_set = surf->owner->transforms_uniform_set;
 
 		SceneShaderForwardClustered::ShaderSpecialization pipeline_specialization = p_params->base_specialization;
+		pipeline_specialization.use_lightmap_specular = surf->lightmap_has_specular;
 		pipeline_specialization.multimesh = bool(surf->owner->base_flags & INSTANCE_DATA_FLAG_MULTIMESH);
 		pipeline_specialization.multimesh_format_2d = bool(surf->owner->base_flags & INSTANCE_DATA_FLAG_MULTIMESH_FORMAT_2D);
 		pipeline_specialization.multimesh_has_color = bool(surf->owner->base_flags & INSTANCE_DATA_FLAG_MULTIMESH_HAS_COLOR);
@@ -877,7 +878,7 @@ void RenderForwardClustered::_fill_instance_data(RenderListType p_render_list, i
 
 		const bool cant_repeat = instance_data.flags & INSTANCE_DATA_FLAG_MULTIMESH || inst->mesh_instance.is_valid();
 
-		if (prev_surface != nullptr && !cant_repeat && prev_surface->sort.sort_key1 == surface->sort.sort_key1 && prev_surface->sort.sort_key2 == surface->sort.sort_key2 && inst->mirror == prev_surface->owner->mirror && repeats < RenderElementInfo::MAX_REPEATS) {
+		if (prev_surface != nullptr && !cant_repeat && prev_surface->sort.sort_key1 == surface->sort.sort_key1 && prev_surface->sort.sort_key2 == surface->sort.sort_key2 && prev_surface->lightmap_has_specular == surface->lightmap_has_specular && inst->mirror == prev_surface->owner->mirror && repeats < RenderElementInfo::MAX_REPEATS) {
 			//this element is the same as the previous one, count repeats to draw it using instancing
 			repeats++;
 		} else {
@@ -974,6 +975,7 @@ void RenderForwardClustered::_fill_render_list(RenderListType p_render_list, con
 			flags |= INSTANCE_DATA_FLAGS_NON_UNIFORM_SCALE;
 		}
 		bool uses_lightmap = false;
+		bool uses_lightmap_specular = false;
 		bool uses_gi = false;
 		bool uses_motion = false;
 		float fade_alpha = 1.0;
@@ -1011,6 +1013,7 @@ void RenderForwardClustered::_fill_render_list(RenderListType p_render_list, con
 						flags |= INSTANCE_DATA_FLAG_USE_SH_LIGHTMAP;
 					}
 					uses_lightmap = true;
+					uses_lightmap_specular = true;
 				} else {
 					inst->gi_offset_cache = 0xFFFFFFFF;
 				}
@@ -1132,6 +1135,7 @@ void RenderForwardClustered::_fill_render_list(RenderListType p_render_list, con
 
 			// ADD Element
 			if (p_pass_mode == PASS_MODE_COLOR) {
+				surf->lightmap_has_specular = false;
 #ifdef DEBUG_ENABLED
 				bool force_alpha = unlikely(get_debug_draw_mode() == RSE::VIEWPORT_DEBUG_DRAW_OVERDRAW);
 #else
@@ -1161,6 +1165,9 @@ void RenderForwardClustered::_fill_render_list(RenderListType p_render_list, con
 
 				if (uses_lightmap) {
 					surf->sort.uses_lightmap = 1;
+					if (uses_lightmap_specular) {
+						surf->lightmap_has_specular = scene_state.lightmap_has_specular[inst->gi_offset_cache & 0xFFFF];
+					}
 					scene_state.used_lightmap = true;
 				}
 
@@ -1215,7 +1222,6 @@ void RenderForwardClustered::_setup_lightmaps(const RenderDataRD *p_render_data,
 	RendererRD::LightStorage *light_storage = RendererRD::LightStorage::get_singleton();
 
 	scene_state.lightmaps_used = 0;
-	scene_state.lightmap_has_specular = false;
 	for (int i = 0; i < (int)p_lightmaps.size(); i++) {
 		if (i >= (int)scene_state.max_lightmaps) {
 			break;
@@ -1248,9 +1254,7 @@ void RenderForwardClustered::_setup_lightmaps(const RenderDataRD *p_render_data,
 		scene_state.lightmaps_used++;
 
 		scene_state.lightmaps[i].specular_intensity = light_storage->lightmap_get_specular_intensity(lightmap);
-		if (scene_state.lightmaps[i].specular_intensity > 0.0f) {
-			scene_state.lightmap_has_specular = true;
-		}
+		scene_state.lightmap_has_specular[i] = scene_state.lightmaps[i].specular_intensity > 0.0f;
 	}
 	if (scene_state.lightmaps_used > 0) {
 		RD::get_singleton()->buffer_update(scene_state.lightmap_buffer, 0, sizeof(LightmapData) * scene_state.lightmaps_used, scene_state.lightmaps);
@@ -2122,7 +2126,6 @@ void RenderForwardClustered::_render_scene(RenderDataRD *p_render_data, const Co
 
 	SceneShaderForwardClustered::ShaderSpecialization base_specialization = scene_shader.default_specialization;
 	base_specialization.use_depth_fog = p_render_data->environment.is_valid() && environment_get_fog_mode(p_render_data->environment) == RSE::EnvironmentFogMode::ENV_FOG_MODE_DEPTH;
-	base_specialization.use_lightmap_specular = scene_state.lightmap_has_specular;
 
 	bool using_ssao = depth_pre_pass && !is_reflection_probe && p_render_data->environment.is_valid() && environment_get_ssao_enabled(p_render_data->environment);
 

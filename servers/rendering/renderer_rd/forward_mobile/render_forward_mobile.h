@@ -291,7 +291,7 @@ private:
 		LightmapData lightmaps[MAX_LIGHTMAPS];
 		RID lightmap_ids[MAX_LIGHTMAPS];
 		bool lightmap_has_sh[MAX_LIGHTMAPS];
-		bool lightmap_has_specular = false;
+		bool lightmap_has_specular[MAX_LIGHTMAPS];
 		uint32_t lightmaps_used = 0;
 		uint32_t max_lightmaps;
 		RID lightmap_buffer;
@@ -512,6 +512,7 @@ protected:
 		RSE::PrimitiveType primitive = RSE::PRIMITIVE_MAX;
 		uint32_t flags = 0;
 		uint32_t surface_index = 0;
+		bool lightmap_has_specular = false;
 
 		void *surface = nullptr;
 		RID material_uniform_set;
