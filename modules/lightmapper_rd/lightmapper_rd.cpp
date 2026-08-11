@@ -1793,7 +1793,7 @@ LightmapperRD::BakeError LightmapperRD::_denoise_slice(RenderingDevice *p_rd, Re
 	return BAKE_OK;
 }
 
-LightmapperRD::BakeError LightmapperRD::bake(BakeQuality p_quality, bool p_use_denoiser, float p_denoiser_strength, int p_denoiser_range, int p_bounces, float p_bounce_indirect_energy, float p_bias, int p_max_texture_size, bool p_bake_sh, bool p_bake_shadowmask, bool p_texture_for_bounces, GenerateProbes p_generate_probes, const Ref<Image> &p_environment_panorama, const Basis &p_environment_transform, BakeStepFunc p_step_function, void *p_bake_userdata, float p_exposure_normalization, float p_supersampling_factor) {
+LightmapperRD::BakeError LightmapperRD::bake(BakeQuality p_quality, bool p_use_denoiser, float p_denoiser_strength, int p_denoiser_range, int p_bounces, float p_bounce_indirect_energy, float p_bias, bool p_bake_ao, float p_ao_distance, float p_ao_strength, float p_ao_light_affect, int p_ao_samples, int p_max_texture_size, bool p_bake_sh, bool p_bake_shadowmask, bool p_texture_for_bounces, GenerateProbes p_generate_probes, const Ref<Image> &p_environment_panorama, const Basis &p_environment_transform, BakeStepFunc p_step_function, void *p_bake_userdata, float p_exposure_normalization, float p_supersampling_factor) {
 	int denoiser = GLOBAL_GET("rendering/lightmapping/denoising/denoiser");
 	String oidn_path = EDITOR_GET("filesystem/tools/oidn/oidn_denoise_path");
 	static const char *oidn_devices[] = { "default", "cpu", "sycl", "cuda", "hip", "metal" };
@@ -1884,6 +1884,7 @@ LightmapperRD::BakeError LightmapperRD::bake(BakeQuality p_quality, bool p_use_d
 	RID light_source_tex;
 	RID light_accum_tex;
 	RID light_accum_tex2;
+	RID direct_light_tex;
 	RID light_environment_tex;
 	RID area_light_atlas_tex;
 	RID shadowmask_tex;
@@ -1928,6 +1929,9 @@ LightmapperRD::BakeError LightmapperRD::bake(BakeQuality p_quality, bool p_use_d
 	} \
 	if (area_light_atlas_tex.is_valid()) { \
 		rd->free_rid(area_light_atlas_tex); \
+	} \
+	if (direct_light_tex.is_valid()) { \
+		rd->free_rid(direct_light_tex); \
 	} \
 	if (p_bake_shadowmask) { \
 		if (shadowmask_tex.is_valid()) { \
@@ -1989,6 +1993,8 @@ LightmapperRD::BakeError LightmapperRD::bake(BakeQuality p_quality, bool p_use_d
 		tf.array_layers = p_bake_sh ? 4 : 1;
 		light_accum_tex = rd->texture_create(tf, RD::TextureView());
 		rd->texture_clear(light_accum_tex, Color(0, 0, 0, 0), 0, 1, 0, tf.array_layers);
+		direct_light_tex = rd->texture_create(tf, RD::TextureView());
+		rd->texture_clear(direct_light_tex, Color(0, 0, 0, 0), 0, 1, 0, tf.array_layers);
 		// Direct and indirect passes require this binding, but do not write it.
 		// Keep a one-layer placeholder until post-processing needs real scratch.
 		RD::TextureFormat placeholder_format = tf;
@@ -2128,6 +2134,9 @@ LightmapperRD::BakeError LightmapperRD::bake(BakeQuality p_quality, bool p_use_d
 	// Same number of rays for transparency regardless of quality (it's more of a retry rather than shooting new ones).
 	bake_parameters.transparency_rays = GLOBAL_GET("rendering/lightmapping/bake_performance/max_transparency_rays");
 	bake_parameters.supersampling_factor = p_supersampling_factor;
+	bake_parameters.ao_distance = p_ao_distance;
+	bake_parameters.ao_strength = p_ao_strength;
+	bake_parameters.ao_light_affect = p_ao_light_affect;
 
 	bake_parameters_buffer = rd->uniform_buffer_create(sizeof(BakeParameters));
 	rd->buffer_update(bake_parameters_buffer, 0, sizeof(BakeParameters), &bake_parameters);
@@ -2364,6 +2373,14 @@ LightmapperRD::BakeError LightmapperRD::bake(BakeQuality p_quality, bool p_use_d
 	ERR_FAIL_COND_V(compute_shader_light_probes.is_null(), BAKE_ERROR_LIGHTMAP_CANT_PRE_BAKE_MESHES); //internal check, should not happen
 	RID compute_shader_light_probes_pipeline = rd->compute_pipeline_create(compute_shader_light_probes);
 
+	RID compute_shader_ao;
+	RID compute_shader_ao_pipeline;
+	if (p_bake_ao) {
+		compute_shader_ao = rd->shader_create_from_spirv(compute_shader->get_spirv_stages("ambient_occlusion"));
+		ERR_FAIL_COND_V(compute_shader_ao.is_null(), BAKE_ERROR_LIGHTMAP_CANT_PRE_BAKE_MESHES);
+		compute_shader_ao_pipeline = rd->compute_pipeline_create(compute_shader_ao);
+	}
+
 	RID compute_base_uniform_set = rd->uniform_set_create(base_uniforms, compute_shader_primary, 0);
 	auto create_dummy_material_texture = [&](RD::DataFormat p_format) -> RID {
 		RD::TextureFormat format;
@@ -2404,7 +2421,10 @@ LightmapperRD::BakeError LightmapperRD::bake(BakeQuality p_quality, bool p_use_d
 	rd->free_rid(compute_shader_unocclude); \
 	rd->free_rid(compute_shader_primary); \
 	rd->free_rid(compute_shader_secondary); \
-	rd->free_rid(compute_shader_light_probes);
+	rd->free_rid(compute_shader_light_probes); \
+	if (p_bake_ao) { \
+		rd->free_rid(compute_shader_ao); \
+	}
 
 	const Vector3i geometry_group_size(Math::division_round_up(atlas_size.x, 8), Math::division_round_up(atlas_size.y, 8), 1);
 	rd->submit();
@@ -2500,7 +2520,11 @@ LightmapperRD::BakeError LightmapperRD::bake(BakeQuality p_quality, bool p_use_d
 	struct StagedLightFiles {
 		Vector<String> paths;
 		Vector<String> source_paths;
+		Vector<String> direct_paths;
 		~StagedLightFiles() {
+			for (const String &path : direct_paths) {
+				DirAccess::remove_absolute(path);
+			}
 			for (const String &path : paths) {
 				DirAccess::remove_absolute(path);
 			}
@@ -2518,6 +2542,12 @@ LightmapperRD::BakeError LightmapperRD::bake(BakeQuality p_quality, bool p_use_d
 	const String staged_source_prefix = EditorPaths::get_singleton()->get_cache_dir().path_join(vformat("lightmap_source_%d_", OS::get_singleton()->get_process_id()));
 	for (int slice = 0; slice < atlas_slices; slice++) {
 		staged_light_files.source_paths.write[slice] = staged_source_prefix + itos(slice);
+	}
+	if (p_bake_ao) {
+		staged_light_files.direct_paths.resize(atlas_slices * light_coefficients);
+		for (int layer = 0; layer < staged_light_files.direct_paths.size(); layer++) {
+			staged_light_files.direct_paths.write[layer] = staged_light_prefix + "direct_" + itos(layer);
+		}
 	}
 	auto store_staged_light_layer = [&](int p_layer, const Vector<uint8_t> &p_data) -> bool {
 		Ref<FileAccess> file = FileAccess::open(staged_light_files.paths[p_layer], FileAccess::WRITE);
@@ -2556,6 +2586,13 @@ LightmapperRD::BakeError LightmapperRD::bake(BakeQuality p_quality, bool p_use_d
 				u.uniform_type = RD::UNIFORM_TYPE_TEXTURE;
 				u.binding = 1;
 				u.append_id(light_accum_tex2); // Will be unused.
+				uniforms.push_back(u);
+			}
+			{
+				RD::Uniform u;
+				u.uniform_type = RD::UNIFORM_TYPE_IMAGE;
+				u.binding = 7;
+				u.append_id(direct_light_tex);
 				uniforms.push_back(u);
 			}
 			{
@@ -2663,6 +2700,21 @@ LightmapperRD::BakeError LightmapperRD::bake(BakeQuality p_quality, bool p_use_d
 					memdelete(rd);
 					memdelete(rcd);
 					return BAKE_ERROR_LIGHTMAP_CANT_PRE_BAKE_MESHES;
+				}
+			}
+			// Preserve direct lighting on disk while the reusable slice accumulates bounces.
+			if (p_bake_ao) {
+				for (int coefficient = 0; coefficient < light_coefficients; coefficient++) {
+					Ref<FileAccess> file = FileAccess::open(staged_light_files.direct_paths[s * light_coefficients + coefficient], FileAccess::WRITE);
+					if (file.is_null() || !file->store_buffer(rd->texture_get_data(direct_light_tex, coefficient))) {
+						FREE_TEXTURES
+						FREE_BUFFERS
+						FREE_RASTER_RESOURCES
+						FREE_COMPUTE_RESOURCES
+						memdelete(rd);
+						memdelete(rcd);
+						return BAKE_ERROR_LIGHTMAP_CANT_PRE_BAKE_MESHES;
+					}
 				}
 			}
 			Ref<Image> source_image = Image::create_from_data(atlas_size.width, atlas_size.height, false, Image::FORMAT_RGBAH, rd->texture_get_data(light_source_tex, 0));
@@ -3042,8 +3094,6 @@ LightmapperRD::BakeError LightmapperRD::bake(BakeQuality p_quality, bool p_use_d
 	}
 #endif
 
-	/* DENOISE */
-
 	// These stages can fail after all bake resources have been allocated.
 	auto cleanup_denoise_resources = [&]() {
 		FREE_TEXTURES
@@ -3056,6 +3106,70 @@ LightmapperRD::BakeError LightmapperRD::bake(BakeQuality p_quality, bool p_use_d
 		memdelete(rd);
 		memdelete(rcd);
 	};
+
+	/* AMBIENT OCCLUSION */
+	if (p_bake_ao) {
+		if (p_step_function && p_step_function(0.79, RTR("Baking ambient occlusion"), p_bake_userdata, true)) {
+			FREE_TEXTURES
+			FREE_BUFFERS
+			FREE_RASTER_RESOURCES
+			FREE_COMPUTE_RESOURCES
+			if (probe_positions.size() > 0) {
+				rd->free_rid(light_probe_buffer);
+			}
+			memdelete(rd);
+			memdelete(rcd);
+			return BAKE_ERROR_USER_ABORTED;
+		}
+
+		Vector<RD::Uniform> uniforms;
+		for (int binding = 0; binding < 4; binding++) {
+			RD::Uniform u;
+			u.uniform_type = binding == 0 || binding == 3 ? RD::UNIFORM_TYPE_IMAGE : RD::UNIFORM_TYPE_TEXTURE;
+			u.binding = binding;
+			u.append_id(binding == 0 ? light_accum_tex : (binding == 1 ? position_tex : (binding == 2 ? normal_tex : direct_light_tex)));
+			uniforms.push_back(u);
+		}
+		RID ao_uniform_set = rd->uniform_set_create(uniforms, compute_shader_ao, 1);
+		push_constant.ray_count = CLAMP((uint32_t)p_ao_samples, 1u, 1024u);
+		push_constant.region_ofs[0] = 0;
+		push_constant.region_ofs[1] = 0;
+		const Vector3i group_size(Math::division_round_up(atlas_size.x, 8), Math::division_round_up(atlas_size.y, 8), 1);
+		for (int s = 0; s < atlas_slices; s++) {
+			if (!load_staged_light_slice(s, light_accum_tex)) {
+				cleanup_denoise_resources();
+				return BAKE_ERROR_LIGHTMAP_CANT_PRE_BAKE_MESHES;
+			}
+			for (int coefficient = 0; coefficient < light_coefficients; coefficient++) {
+				if (rd->texture_update(direct_light_tex, coefficient, FileAccess::get_file_as_bytes(staged_light_files.direct_paths[s * light_coefficients + coefficient])) != OK) {
+					cleanup_denoise_resources();
+					return BAKE_ERROR_LIGHTMAP_CANT_PRE_BAKE_MESHES;
+				}
+			}
+			prepare_geometry_slice(s);
+			push_constant.geometry_slice = 0;
+			push_constant.output_slice = 0;
+			push_constant.atlas_slice = s;
+			RD::ComputeListID compute_list = rd->compute_list_begin();
+			rd->compute_list_bind_compute_pipeline(compute_list, compute_shader_ao_pipeline);
+			rd->compute_list_bind_uniform_set(compute_list, compute_base_uniform_set, 0);
+			rd->compute_list_bind_uniform_set(compute_list, ao_uniform_set, 1);
+			rd->compute_list_set_push_constant(compute_list, &push_constant, sizeof(PushConstant));
+			rd->compute_list_dispatch(compute_list, group_size.x, group_size.y, group_size.z);
+			rd->compute_list_end();
+			rd->submit();
+			rd->sync();
+			if (!store_staged_light_slice(s, light_accum_tex)) {
+				cleanup_denoise_resources();
+				return BAKE_ERROR_LIGHTMAP_CANT_PRE_BAKE_MESHES;
+			}
+		}
+		rd->free_rid(ao_uniform_set);
+	}
+	rd->free_rid(direct_light_tex);
+	direct_light_tex = RID();
+
+	/* DENOISE */
 
 	// Replace the placeholder with one reusable post-processing slice.
 	if (light_accum_tex2.is_valid()) {

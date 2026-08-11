@@ -196,6 +196,11 @@ private:
 	int bounces = 3;
 	float bounce_indirect_energy = 1.0;
 	float bias = 0.0005;
+	bool bake_ao = false;
+	float ao_distance = 1.0;
+	float ao_strength = 1.0;
+	float ao_light_affect = 1.0;
+	int ao_samples = 64;
 	float texel_scale = 1.0;
 	int max_texture_size = 16384;
 	bool supersampling_enabled = false;
@@ -339,6 +344,17 @@ public:
 
 	void set_bias(float p_bias);
 	float get_bias() const;
+
+	void set_bake_ao(bool p_enable);
+	bool is_baking_ao() const;
+	void set_ao_distance(float p_distance);
+	float get_ao_distance() const;
+	void set_ao_strength(float p_strength);
+	float get_ao_strength() const;
+	void set_ao_light_affect(float p_light_affect);
+	float get_ao_light_affect() const;
+	void set_ao_samples(int p_samples);
+	int get_ao_samples() const;
 
 	void set_texel_scale(float p_multiplier);
 	float get_texel_scale() const;

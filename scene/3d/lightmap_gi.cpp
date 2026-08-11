@@ -1576,7 +1576,7 @@ LightmapGI::BakeError LightmapGI::bake(Node *p_from_node, String p_image_data_pa
 	}
 
 	Lightmapper::BakeError bake_err = lightmapper->bake(Lightmapper::BakeQuality(bake_quality), use_denoiser, denoiser_strength, denoiser_range, bounces,
-			bounce_indirect_energy, bias, max_texture_size, directional, shadowmask_mode != LightmapGIData::SHADOWMASK_MODE_NONE, use_texture_for_bounces,
+			bounce_indirect_energy, bias, bake_ao, ao_distance, ao_strength, ao_light_affect, ao_samples, max_texture_size, directional, shadowmask_mode != LightmapGIData::SHADOWMASK_MODE_NONE, use_texture_for_bounces,
 			Lightmapper::GenerateProbes(gen_probes), environment_image, environment_transform, _lightmap_bake_step_function, &bsud, exposure_normalization, (supersampling_enabled ? supersampling_factor : 1));
 
 	if (bake_err == Lightmapper::BAKE_ERROR_TEXTURE_EXCEEDS_MAX_SIZE) {
@@ -2049,6 +2049,51 @@ float LightmapGI::get_bias() const {
 	return bias;
 }
 
+void LightmapGI::set_bake_ao(bool p_enable) {
+	bake_ao = p_enable;
+	notify_property_list_changed();
+}
+
+bool LightmapGI::is_baking_ao() const {
+	return bake_ao;
+}
+
+void LightmapGI::set_ao_distance(float p_distance) {
+	ERR_FAIL_COND(p_distance <= 0.0);
+	ao_distance = p_distance;
+}
+
+float LightmapGI::get_ao_distance() const {
+	return ao_distance;
+}
+
+void LightmapGI::set_ao_strength(float p_strength) {
+	ERR_FAIL_COND(p_strength < 0.0);
+	ao_strength = p_strength;
+}
+
+float LightmapGI::get_ao_strength() const {
+	return ao_strength;
+}
+
+void LightmapGI::set_ao_light_affect(float p_light_affect) {
+	ERR_FAIL_COND(p_light_affect < 0.0 || p_light_affect > 1.0);
+	ao_light_affect = p_light_affect;
+}
+
+float LightmapGI::get_ao_light_affect() const {
+	return ao_light_affect;
+}
+
+void LightmapGI::set_ao_samples(int p_samples) {
+	ERR_FAIL_COND(p_samples < 1 || p_samples > 1024);
+	ao_samples = p_samples;
+}
+
+int LightmapGI::get_ao_samples() const {
+	return ao_samples;
+}
+
 void LightmapGI::set_texel_scale(float p_multiplier) {
 	ERR_FAIL_COND(p_multiplier < (0.01 - CMP_EPSILON));
 	texel_scale = p_multiplier;
@@ -2166,6 +2211,10 @@ void LightmapGI::_validate_property(PropertyInfo &p_property) const {
 		if (!use_denoiser) {
 			p_property.usage = PROPERTY_USAGE_NO_EDITOR;
 		}
+	} else if (p_property.name == "ao_distance" || p_property.name == "ao_strength" || p_property.name == "ao_light_affect" || p_property.name == "ao_samples") {
+		if (!bake_ao) {
+			p_property.usage = PROPERTY_USAGE_NO_EDITOR;
+		}
 	}
 	if (p_property.name == "specular_intensity") {
 		if (!directional) {
@@ -2192,6 +2241,16 @@ void LightmapGI::_bind_methods() {
 
 	ClassDB::bind_method(D_METHOD("set_bias", "bias"), &LightmapGI::set_bias);
 	ClassDB::bind_method(D_METHOD("get_bias"), &LightmapGI::get_bias);
+	ClassDB::bind_method(D_METHOD("set_bake_ao", "enable"), &LightmapGI::set_bake_ao);
+	ClassDB::bind_method(D_METHOD("is_baking_ao"), &LightmapGI::is_baking_ao);
+	ClassDB::bind_method(D_METHOD("set_ao_distance", "distance"), &LightmapGI::set_ao_distance);
+	ClassDB::bind_method(D_METHOD("get_ao_distance"), &LightmapGI::get_ao_distance);
+	ClassDB::bind_method(D_METHOD("set_ao_strength", "strength"), &LightmapGI::set_ao_strength);
+	ClassDB::bind_method(D_METHOD("get_ao_strength"), &LightmapGI::get_ao_strength);
+	ClassDB::bind_method(D_METHOD("set_ao_light_affect", "light_affect"), &LightmapGI::set_ao_light_affect);
+	ClassDB::bind_method(D_METHOD("get_ao_light_affect"), &LightmapGI::get_ao_light_affect);
+	ClassDB::bind_method(D_METHOD("set_ao_samples", "samples"), &LightmapGI::set_ao_samples);
+	ClassDB::bind_method(D_METHOD("get_ao_samples"), &LightmapGI::get_ao_samples);
 
 	ClassDB::bind_method(D_METHOD("set_environment_mode", "mode"), &LightmapGI::set_environment_mode);
 	ClassDB::bind_method(D_METHOD("get_environment_mode"), &LightmapGI::get_environment_mode);
@@ -2261,6 +2320,11 @@ void LightmapGI::_bind_methods() {
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "denoiser_strength", PROPERTY_HINT_RANGE, "0.001,0.2,0.001,or_greater"), "set_denoiser_strength", "get_denoiser_strength");
 	ADD_PROPERTY(PropertyInfo(Variant::INT, "denoiser_range", PROPERTY_HINT_RANGE, "1,20"), "set_denoiser_range", "get_denoiser_range");
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "bias", PROPERTY_HINT_RANGE, "0.00001,0.1,0.00001,or_greater"), "set_bias", "get_bias");
+	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "bake_ao"), "set_bake_ao", "is_baking_ao");
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "ao_distance", PROPERTY_HINT_RANGE, "0.01,100.0,0.01,or_greater,suffix:m"), "set_ao_distance", "get_ao_distance");
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "ao_strength", PROPERTY_HINT_RANGE, "0,4,0.01,or_greater"), "set_ao_strength", "get_ao_strength");
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "ao_light_affect", PROPERTY_HINT_RANGE, "0,1,0.01"), "set_ao_light_affect", "get_ao_light_affect");
+	ADD_PROPERTY(PropertyInfo(Variant::INT, "ao_samples", PROPERTY_HINT_RANGE, "1,1024,1"), "set_ao_samples", "get_ao_samples");
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "texel_scale", PROPERTY_HINT_RANGE, "0.01,100.0,0.01"), "set_texel_scale", "get_texel_scale");
 	ADD_PROPERTY(PropertyInfo(Variant::INT, "max_texture_size", PROPERTY_HINT_RANGE, "2048,16384,1"), "set_max_texture_size", "get_max_texture_size");
 	ADD_GROUP("Environment", "environment_");
