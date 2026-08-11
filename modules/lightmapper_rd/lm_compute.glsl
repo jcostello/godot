@@ -9,6 +9,7 @@ unocclude = "#define MODE_UNOCCLUDE";
 light_probes = "#define MODE_LIGHT_PROBES";
 denoise = "#define MODE_DENOISE";
 pack_coeffs = "#define MODE_PACK_L1_COEFFS";
+ambient_occlusion = "#define MODE_AMBIENT_OCCLUSION";
 
 #[compute]
 
@@ -68,6 +69,10 @@ layout(set = 1, binding = 8) uniform texture2DArray source_geometry;
 
 #endif
 
+#ifdef MODE_DIRECT_LIGHT
+layout(rgba16f, set = 1, binding = 7) uniform restrict writeonly image2DArray direct_light;
+#endif
+
 #if defined(MODE_DIRECT_LIGHT) && defined(USE_SHADOWMASK)
 layout(rgba8, set = 1, binding = 5) uniform restrict writeonly image2DArray shadowmask;
 #elif defined(MODE_BOUNCE_LIGHT)
@@ -91,6 +96,13 @@ layout(set = 1, binding = 1) uniform texture2DArray source_light;
 #ifdef MODE_PAD_OIDN
 layout(set = 1, binding = 2) uniform texture2DArray oidn_margin_tex;
 layout(set = 1, binding = 3) uniform utexture2DArray oidn_mesh_tex;
+#endif
+
+#ifdef MODE_AMBIENT_OCCLUSION
+layout(rgba16f, set = 1, binding = 0) uniform restrict image2DArray ao_light;
+layout(set = 1, binding = 1) uniform texture2DArray ao_position;
+layout(set = 1, binding = 2) uniform texture2DArray ao_normal;
+layout(rgba16f, set = 1, binding = 3) uniform restrict readonly image2DArray ao_direct_light;
 #endif
 
 #ifdef MODE_DENOISE
@@ -1035,9 +1047,14 @@ void main() {
 	imageStore(accum_light, ivec3(atlas_pos, params.output_slice * 4 + 1), sh_accum[1]);
 	imageStore(accum_light, ivec3(atlas_pos, params.output_slice * 4 + 2), sh_accum[2]);
 	imageStore(accum_light, ivec3(atlas_pos, params.output_slice * 4 + 3), sh_accum[3]);
+	imageStore(direct_light, ivec3(atlas_pos, params.output_slice * 4 + 0), sh_accum[0]);
+	imageStore(direct_light, ivec3(atlas_pos, params.output_slice * 4 + 1), sh_accum[1]);
+	imageStore(direct_light, ivec3(atlas_pos, params.output_slice * 4 + 2), sh_accum[2]);
+	imageStore(direct_light, ivec3(atlas_pos, params.output_slice * 4 + 3), sh_accum[3]);
 #else
 	light_for_texture *= bake_params.exposure_normalization;
 	imageStore(accum_light, ivec3(atlas_pos, params.output_slice), vec4(light_for_texture, 1.0));
+	imageStore(direct_light, ivec3(atlas_pos, params.output_slice), vec4(light_for_texture, 1.0));
 #endif
 
 #ifdef USE_SHADOWMASK
@@ -1045,6 +1062,37 @@ void main() {
 #endif
 
 #endif // MODE_DIRECT_LIGHT
+
+#ifdef MODE_AMBIENT_OCCLUSION
+	vec3 normal = texelFetch(sampler2DArray(ao_normal, linear_sampler), ivec3(atlas_pos, params.geometry_slice), 0).xyz;
+	if (length(normal) < 0.5) {
+		return;
+	}
+	vec3 position = texelFetch(sampler2DArray(ao_position, linear_sampler), ivec3(atlas_pos, params.geometry_slice), 0).xyz;
+	uint noise = random_seed(ivec3(atlas_pos, 92821));
+	uint occluded = 0;
+	for (uint i = 0; i < params.ray_count; i++) {
+		vec3 ray_dir = generate_ray_dir_from_normal(normal, noise);
+		occluded += trace_ray_any_hit(position, position + ray_dir * bake_params.ao_distance) == RAY_MISS ? 0 : 1;
+	}
+	float visibility = 1.0 - float(occluded) / float(params.ray_count);
+	float ao = max(0.0, 1.0 - (1.0 - visibility) * bake_params.ao_strength);
+#ifdef USE_SH_LIGHTMAPS
+	for (int i = 0; i < 4; i++) {
+		vec4 light = imageLoad(ao_light, ivec3(atlas_pos, params.output_slice * 4 + i));
+		vec3 direct = imageLoad(ao_direct_light, ivec3(atlas_pos, params.output_slice * 4 + i)).rgb;
+		vec3 indirect = light.rgb - direct;
+		vec3 result = indirect * ao + direct * mix(1.0, ao, bake_params.ao_light_affect);
+		imageStore(ao_light, ivec3(atlas_pos, params.output_slice * 4 + i), vec4(result, light.a));
+	}
+#else
+	vec4 light = imageLoad(ao_light, ivec3(atlas_pos, params.output_slice));
+	vec3 direct = imageLoad(ao_direct_light, ivec3(atlas_pos, params.output_slice)).rgb;
+	vec3 indirect = light.rgb - direct;
+	vec3 result = indirect * ao + direct * mix(1.0, ao, bake_params.ao_light_affect);
+	imageStore(ao_light, ivec3(atlas_pos, params.output_slice), vec4(result, light.a));
+#endif
+#endif
 
 #ifdef MODE_BOUNCE_LIGHT
 
