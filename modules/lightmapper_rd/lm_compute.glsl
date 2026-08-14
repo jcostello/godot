@@ -167,18 +167,45 @@ const uint RAY_FRONT = 1;
 const uint RAY_BACK = 2;
 const uint RAY_ANY = 3;
 
-bool ray_box_test(vec3 p_from, vec3 p_inv_dir, vec3 p_box_min, vec3 p_box_max) {
+bool ray_box_test(vec3 p_from, vec3 p_inv_dir, float p_min_distance, float p_max_distance, vec3 p_box_min, vec3 p_box_max) {
 	vec3 t0 = (p_box_min - p_from) * p_inv_dir;
 	vec3 t1 = (p_box_max - p_from) * p_inv_dir;
 	vec3 tmin = min(t0, t1), tmax = max(t0, t1);
-	return max(tmin.x, max(tmin.y, tmin.z)) <= min(tmax.x, min(tmax.y, tmax.z));
+	float entry_distance = max(tmin.x, max(tmin.y, tmin.z));
+	float exit_distance = min(tmax.x, min(tmax.y, tmax.z));
+	return max(entry_distance, p_min_distance) <= min(exit_distance, p_max_distance);
 }
 
 #if CLUSTER_SIZE > 32
 #define CLUSTER_TRIANGLE_ITERATION
 #endif
 
-uint trace_ray(vec3 p_from, vec3 p_to, bool p_any_hit, out float r_distance, out vec3 r_normal, out uint r_triangle, out vec3 r_barycentric) {
+vec4 sample_triangle_albedo_alpha(uint p_triangle, vec3 p_barycentric) {
+	Triangle triangle = triangles.data[p_triangle];
+	Vertex vert0 = vertices.data[triangle.indices.x];
+	Vertex vert1 = vertices.data[triangle.indices.y];
+	Vertex vert2 = vertices.data[triangle.indices.z];
+	vec3 uvw = vec3(p_barycentric.x * vert0.uv + p_barycentric.y * vert1.uv + p_barycentric.z * vert2.uv, float(triangle.slice));
+	return textureLod(sampler2DArray(albedo_tex, linear_sampler), uvw, 0.0);
+}
+
+vec4 apply_triangle_alpha_scissor(uint p_triangle, vec4 p_albedo_alpha) {
+	float threshold = triangles.data[p_triangle].alpha_scissor_threshold;
+	if (threshold >= 0.0) {
+		// The material bake already applied the material threshold. Reconstruct
+		// its filtered binary mask with a fixed midpoint, not the original threshold.
+		p_albedo_alpha.a = p_albedo_alpha.a >= 0.5 ? 1.0 : 0.0;
+	}
+	return p_albedo_alpha;
+}
+
+bool alpha_scissor_rejects(uint p_triangle, vec3 p_barycentric) {
+	return apply_triangle_alpha_scissor(p_triangle, sample_triangle_albedo_alpha(p_triangle, p_barycentric)).a == 0.0;
+}
+
+uint trace_ray(vec3 p_from, vec3 p_to, bool p_any_hit, bool p_sample_albedo, out float r_distance, out vec3 r_normal, out uint r_triangle, out vec3 r_barycentric, out vec4 r_albedo_alpha) {
+	// Negative alpha marks an opaque/transparent material that has not been sampled yet.
+	r_albedo_alpha = vec4(0.0, 0.0, 0.0, -1.0);
 	// World coordinates.
 	vec3 rel = p_to - p_from;
 	float rel_len = length(rel);
@@ -193,18 +220,20 @@ uint trace_ray(vec3 p_from, vec3 p_to, bool p_any_hit, out float r_distance, out
 	vec3 rel_cell = to_cell - from_cell;
 	ivec3 icell = ivec3(from_cell);
 	ivec3 iendcell = ivec3(to_cell);
-	vec3 dir_cell = normalize(rel_cell);
-	// Preserve the distance between crossings, including nearly parallel rays.
+	// Keep DDA distances in world units so they can also bound the AABB tests.
+	vec3 dir_cell = dir * bake_params.to_cell_size;
 	vec3 delta = abs(1.0 / dir_cell);
 	ivec3 step = ivec3(sign(rel_cell));
 	const vec3 init_next_cell = vec3(icell) + max(vec3(0), sign(step));
-	vec3 t_max = mix(vec3(1e20), (init_next_cell - from_cell) / dir_cell, notEqual(step, vec3(0))); // Distance to next boundary.
+	vec3 t_max = mix(vec3(1e20), (init_next_cell - from_cell) / dir_cell, notEqual(step, ivec3(0))); // Distance to next boundary.
+	float cell_entry_distance = 0.0;
 
 	uint iters = 0;
 	while (all(greaterThanEqual(icell, ivec3(0))) && all(lessThan(icell, ivec3(bake_params.grid_size))) && (iters < 1000)) {
 		uvec2 cell_data = texelFetch(grid, icell, 0).xy;
 		uint triangle_count = cell_data.x;
 		if (triangle_count > 0) {
+			float cell_exit_distance = min(rel_len, min(t_max.x, min(t_max.y, t_max.z)));
 			uint hit = RAY_MISS;
 			float best_distance = 1e20;
 			uint cluster_start = cluster_indices.data[cell_data.y * 2];
@@ -220,7 +249,7 @@ uint trace_ray(vec3 p_from, vec3 p_to, bool p_any_hit, out float r_distance, out
 				for (uint i = 0; i < cluster_test_count; i++) {
 					uint cluster_index = cluster_start + cluster_base_index + i;
 					ClusterAABB cluster_aabb = cluster_aabbs.data[cluster_index];
-					if (ray_box_test(p_from, inv_dir, cluster_aabb.min_bounds, cluster_aabb.max_bounds)) {
+					if (ray_box_test(p_from, inv_dir, cell_entry_distance, min(cell_exit_distance, best_distance + bake_params.bias), cluster_aabb.min_bounds, cluster_aabb.max_bounds)) {
 						cluster_hits |= (1 << i);
 					}
 				}
@@ -235,15 +264,16 @@ uint trace_ray(vec3 p_from, vec3 p_to, bool p_any_hit, out float r_distance, out
 					// Do the same divergence execution trick with triangles as well.
 					uint triangle_base_index = 0;
 #ifdef CLUSTER_TRIANGLE_ITERATION
-					while (triangle_base_index < triangle_count)
+					while (triangle_base_index < min(CLUSTER_SIZE, triangle_count - cluster_index * CLUSTER_SIZE))
 #endif
 					{
-						uint triangle_start_index = cell_triangle_start + cluster_index * CLUSTER_SIZE + triangle_base_index;
-						uint triangle_test_count = min(CLUSTER_SIZE, triangle_count - triangle_base_index);
+						uint triangle_cluster_offset = cluster_index * CLUSTER_SIZE + triangle_base_index;
+						uint triangle_start_index = cell_triangle_start + triangle_cluster_offset;
+						uint triangle_test_count = min(32u, min(CLUSTER_SIZE - triangle_base_index, triangle_count - triangle_cluster_offset));
 						uint triangle_hits = 0;
 						for (uint i = 0; i < triangle_test_count; i++) {
 							uint triangle_index = triangle_indices.data[triangle_start_index + i];
-							if (ray_box_test(p_from, inv_dir, triangles.data[triangle_index].min_bounds, triangles.data[triangle_index].max_bounds)) {
+							if (ray_box_test(p_from, inv_dir, cell_entry_distance, min(cell_exit_distance, best_distance + bake_params.bias), triangles.data[triangle_index].min_bounds, triangles.data[triangle_index].max_bounds)) {
 								triangle_hits |= (1 << i);
 							}
 						}
@@ -260,15 +290,9 @@ uint trace_ray(vec3 p_from, vec3 p_to, bool p_any_hit, out float r_distance, out
 							vec3 vtx0 = vertices.data[triangle.indices.x].position;
 							vec3 vtx1 = vertices.data[triangle.indices.y].position;
 							vec3 vtx2 = vertices.data[triangle.indices.z].position;
-							vec3 normal = -normalize(cross((vtx0 - vtx1), (vtx0 - vtx2)));
-							bool backface = dot(normal, dir) >= 0.0;
 							float distance;
 							vec3 barycentric;
 							if (ray_hits_triangle(p_from, dir, rel_len, vtx0, vtx1, vtx2, distance, barycentric)) {
-								if (p_any_hit) {
-									// Return early if any hit was requested.
-									return RAY_ANY;
-								}
 								vec3 position = p_from + dir * distance;
 								vec3 hit_cell = (position - bake_params.to_cell_offset) * bake_params.to_cell_size;
 								if (icell != ivec3(hit_cell)) {
@@ -277,6 +301,17 @@ uint trace_ray(vec3 p_from, vec3 p_to, bool p_any_hit, out float r_distance, out
 									continue;
 								}
 
+								if (p_any_hit) {
+									if (triangle.alpha_scissor_threshold >= 0.0 && alpha_scissor_rejects(triangle_index, barycentric)) {
+										continue;
+									}
+									// Return early if any hit was requested.
+									return RAY_ANY;
+								}
+
+								// Only compute the normal after confirming an intersection in this cell.
+								vec3 normal = -cross(vtx0 - vtx1, vtx0 - vtx2);
+								bool backface = dot(normal, dir) >= 0.0;
 								if (!backface) {
 									// The case of meshes having both a front and back face in the same plane is more common than
 									// expected, so if this is a front-face, bias it closer to the ray origin, so it always wins
@@ -285,6 +320,16 @@ uint trace_ray(vec3 p_from, vec3 p_to, bool p_any_hit, out float r_distance, out
 								}
 
 								if (distance < best_distance) {
+									vec4 albedo_alpha = vec4(0.0, 0.0, 0.0, -1.0);
+									if (triangle.alpha_scissor_threshold >= 0.0) {
+										albedo_alpha = apply_triangle_alpha_scissor(triangle_index, sample_triangle_albedo_alpha(triangle_index, barycentric));
+										if (albedo_alpha.a == 0.0) {
+											continue;
+										}
+									}
+									if (p_sample_albedo) {
+										r_albedo_alpha = albedo_alpha;
+									}
 									switch (triangle.cull_mode) {
 										case CULL_DISABLED:
 											backface = false;
@@ -299,7 +344,7 @@ uint trace_ray(vec3 p_from, vec3 p_to, bool p_any_hit, out float r_distance, out
 									hit = backface ? RAY_BACK : RAY_FRONT;
 									best_distance = distance;
 									r_distance = distance;
-									r_normal = normal;
+									r_normal = normalize(normal);
 									r_triangle = triangle_index;
 									r_barycentric = barycentric;
 								}
@@ -307,7 +352,7 @@ uint trace_ray(vec3 p_from, vec3 p_to, bool p_any_hit, out float r_distance, out
 						}
 
 #ifdef CLUSTER_TRIANGLE_ITERATION
-						triangle_base_index += CLUSTER_SIZE;
+						triangle_base_index += 32;
 #endif
 					}
 				}
@@ -316,11 +361,20 @@ uint trace_ray(vec3 p_from, vec3 p_to, bool p_any_hit, out float r_distance, out
 			}
 
 			if (hit != RAY_MISS) {
+				if (p_sample_albedo && r_albedo_alpha.a < 0.0) {
+					// Alpha scissor hits already carry the sample used for the coverage test.
+					r_albedo_alpha = sample_triangle_albedo_alpha(r_triangle, r_barycentric);
+				}
 				return hit;
 			}
 		}
 
 		if (icell == iendcell) {
+			break;
+		}
+
+		cell_entry_distance = min(t_max.x, min(t_max.y, t_max.z));
+		if (cell_entry_distance > rel_len) {
 			break;
 		}
 
@@ -341,10 +395,10 @@ uint trace_ray(vec3 p_from, vec3 p_to, bool p_any_hit, out float r_distance, out
 	return RAY_MISS;
 }
 
-uint trace_ray_closest_hit_triangle(vec3 p_from, vec3 p_to, out uint r_triangle, out vec3 r_barycentric) {
+uint trace_ray_closest_hit_triangle(vec3 p_from, vec3 p_to, out uint r_triangle, out vec3 r_barycentric, out vec4 r_albedo_alpha) {
 	float distance;
 	vec3 normal;
-	return trace_ray(p_from, p_to, false, distance, normal, r_triangle, r_barycentric);
+	return trace_ray(p_from, p_to, false, true, distance, normal, r_triangle, r_barycentric, r_albedo_alpha);
 }
 
 uint trace_ray_closest_hit_triangle_albedo_alpha(vec3 p_from, vec3 p_to, out vec4 albedo_alpha, out vec3 hit_position) {
@@ -353,15 +407,12 @@ uint trace_ray_closest_hit_triangle_albedo_alpha(vec3 p_from, vec3 p_to, out vec
 	uint tidx;
 	vec3 barycentric;
 
-	uint ret = trace_ray(p_from, p_to, false, distance, normal, tidx, barycentric);
+	uint ret = trace_ray(p_from, p_to, false, true, distance, normal, tidx, barycentric, albedo_alpha);
 	if (ret != RAY_MISS) {
 		Vertex vert0 = vertices.data[triangles.data[tidx].indices.x];
 		Vertex vert1 = vertices.data[triangles.data[tidx].indices.y];
 		Vertex vert2 = vertices.data[triangles.data[tidx].indices.z];
 
-		vec3 uvw = vec3(barycentric.x * vert0.uv + barycentric.y * vert1.uv + barycentric.z * vert2.uv, float(triangles.data[tidx].slice));
-
-		albedo_alpha = textureLod(sampler2DArray(albedo_tex, linear_sampler), uvw, 0);
 		hit_position = barycentric.x * vert0.position + barycentric.y * vert1.position + barycentric.z * vert2.position;
 	}
 
@@ -371,7 +422,8 @@ uint trace_ray_closest_hit_triangle_albedo_alpha(vec3 p_from, vec3 p_to, out vec
 uint trace_ray_closest_hit_distance(vec3 p_from, vec3 p_to, out float r_distance, out vec3 r_normal) {
 	uint triangle;
 	vec3 barycentric;
-	return trace_ray(p_from, p_to, false, r_distance, r_normal, triangle, barycentric);
+	vec4 albedo_alpha;
+	return trace_ray(p_from, p_to, false, false, r_distance, r_normal, triangle, barycentric, albedo_alpha);
 }
 
 uint trace_ray_any_hit(vec3 p_from, vec3 p_to) {
@@ -379,7 +431,8 @@ uint trace_ray_any_hit(vec3 p_from, vec3 p_to) {
 	vec3 normal;
 	uint triangle;
 	vec3 barycentric;
-	return trace_ray(p_from, p_to, true, distance, normal, triangle, barycentric);
+	vec4 albedo_alpha;
+	return trace_ray(p_from, p_to, true, false, distance, normal, triangle, barycentric, albedo_alpha);
 }
 
 // https://www.reedbeta.com/blog/hash-functions-for-gpu-rendering/
@@ -704,6 +757,14 @@ void trace_direct_light(vec3 p_position, vec3 p_normal, vec3 p_geometry_normal, 
 		penumbra = aa_power / ray_count;
 		penumbra_color /= ray_count;
 	} else { // No soft shadows and anti-aliasing (disabled via parameter).
+#ifdef USE_BINARY_SHADOWS
+		// No partial transmission is possible, so the nearest blocker and its color are irrelevant.
+		penumbra = 0.0;
+		penumbra_color = light_data.color.rgb * light_texture_color;
+		if (bake_params.transparency_rays > 0 && trace_ray_any_hit(p_position + shadow_dir * bake_params.bias, light_pos) == RAY_MISS) {
+			penumbra = 1.0;
+		}
+#else
 		bool did_hit = false;
 		penumbra = 0.0;
 		penumbra_color = light_data.color.rgb * light_texture_color;
@@ -737,6 +798,7 @@ void trace_direct_light(vec3 p_position, vec3 p_normal, vec3 p_geometry_normal, 
 		}
 
 		penumbra = clamp(penumbra, 0.0, 1.0);
+#endif // USE_BINARY_SHADOWS
 	}
 
 	r_shadow = penumbra;
@@ -771,7 +833,8 @@ vec3 trace_indirect_light(vec3 p_position, vec3 p_ray_dir, inout uint r_noise, f
 		vec3 barycentric;
 		float hit_distance;
 		vec3 hit_normal;
-		uint trace_result = trace_ray(position + ray_dir * bake_params.bias, position + ray_dir * length(bake_params.world_size), false, hit_distance, hit_normal, tidx, barycentric);
+		vec4 albedo_alpha;
+		uint trace_result = trace_ray(position + ray_dir * bake_params.bias, position + ray_dir * length(bake_params.world_size), false, true, hit_distance, hit_normal, tidx, barycentric, albedo_alpha);
 		if (depth == 0 && trace_result == RAY_BACK && p_texel_size > 0.0 && hit_distance <= max(p_texel_size * 2.0, bake_params.bias * 4.0)) {
 			r_near_backface = true;
 		}
@@ -808,7 +871,6 @@ vec3 trace_indirect_light(vec3 p_position, vec3 p_ray_dir, inout uint r_noise, f
 			direct_light *= bake_params.exposure_normalization;
 #endif
 
-			vec4 albedo_alpha = textureLod(sampler2DArray(albedo_tex, linear_sampler), uvw, 0).rgba;
 			vec3 emissive = textureLod(sampler2DArray(emission_tex, linear_sampler), uvw, 0).rgb;
 			emissive *= bake_params.exposure_normalization;
 
@@ -858,9 +920,7 @@ vec3 trace_indirect_light(vec3 p_position, vec3 p_ray_dir, inout uint r_noise, f
 			vec3 uvw = vec3(barycentric.x * vert0.uv + barycentric.y * vert1.uv + barycentric.z * vert2.uv, float(triangles.data[tidx].slice));
 			position = barycentric.x * vert0.position + barycentric.y * vert1.position + barycentric.z * vert2.position;
 
-			vec4 albedo_alpha = textureLod(sampler2DArray(albedo_tex, linear_sampler), uvw, 0).rgba;
-
-			if (albedo_alpha.a > 1.0) {
+			if (albedo_alpha.a >= 1.0) {
 				break;
 			}
 

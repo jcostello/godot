@@ -45,6 +45,7 @@
 #include "scene/resources/camera_attributes.h"
 #include "scene/resources/environment.h"
 #include "scene/resources/image_texture.h"
+#include "scene/resources/material.h"
 #include "scene/resources/sky.h"
 #include "servers/rendering/rendering_server.h"
 
@@ -1268,10 +1269,15 @@ LightmapGI::BakeError LightmapGI::bake(Node *p_from_node, String p_image_data_pa
 					continue;
 				}
 				Array a = mf.mesh->surface_get_arrays(i);
-				Ref<Material> mat = mf.mesh->surface_get_material(i);
+				Ref<Material> mat = i < mf.overrides.size() && mf.overrides[i].is_valid() ? mf.overrides[i] : mf.mesh->surface_get_material(i);
 				RID mat_rid;
 				if (mat.is_valid()) {
 					mat_rid = mat->get_rid();
+				}
+				float alpha_scissor_threshold = -1.0f;
+				Ref<BaseMaterial3D> base_material = mat;
+				if (base_material.is_valid() && base_material->get_transparency() == BaseMaterial3D::TRANSPARENCY_ALPHA_SCISSOR) {
+					alpha_scissor_threshold = base_material->get_alpha_scissor_threshold();
 				}
 
 				Vector<Vector3> vertices = a[Mesh::ARRAY_VERTEX];
@@ -1299,6 +1305,7 @@ LightmapGI::BakeError LightmapGI::bake(Node *p_from_node, String p_image_data_pa
 				}
 
 				for (int j = 0; j < facecount; j++) {
+					md.alpha_scissor_threshold.push_back(alpha_scissor_threshold);
 					uint32_t vidx[3];
 
 					if (ir) {

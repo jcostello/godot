@@ -176,6 +176,8 @@ public:
 		Vector<RID> material;
 		Size2i lightmap_size;
 		int material_index = -1;
+		// One entry per triangle. Negative values identify materials that don't use alpha scissor.
+		Vector<float> alpha_scissor_threshold;
 		Ref<Image> albedo_on_uv2;
 		Ref<Image> emission_on_uv2;
 		Variant userdata;

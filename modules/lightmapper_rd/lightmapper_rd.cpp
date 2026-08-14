@@ -120,6 +120,7 @@ static RenderingDevice *_create_lightmapper_device(RenderingContextDriver *&r_co
 void LightmapperRD::add_mesh(const MeshData &p_mesh) {
 	ERR_FAIL_COND(p_mesh.lightmap_size.x <= 0 || p_mesh.lightmap_size.y <= 0);
 	ERR_FAIL_COND(p_mesh.points.is_empty());
+	ERR_FAIL_COND(!p_mesh.alpha_scissor_threshold.is_empty() && p_mesh.alpha_scissor_threshold.size() != p_mesh.points.size() / 3);
 	MeshInstance mi;
 	mi.data = p_mesh;
 	mesh_instances.push_back(mi);
@@ -720,6 +721,7 @@ void LightmapperRD::_create_acceleration_structures(RenderingDevice *rd, Size2i 
 			t.max_bounds[2] = taabb.position.z + MAX(taabb.size.z, 0.0001);
 
 			t.cull_mode = RSE::CULL_MODE_BACK;
+			t.alpha_scissor_threshold = mi.data.alpha_scissor_threshold.is_empty() ? -1.0f : mi.data.alpha_scissor_threshold[i / 3];
 
 			RID material = mi.data.material[i];
 			if (material.is_valid()) {
@@ -1819,7 +1821,8 @@ LightmapperRD::BakeError LightmapperRD::bake(BakeQuality p_quality, bool p_use_d
 	}
 	lightmap_textures.clear();
 	shadowmask_textures.clear();
-	int grid_size = 128;
+	const int requested_grid_size = CLAMP(int(GLOBAL_GET("rendering/lightmapping/bake_performance/acceleration_grid_size")), 64, 256);
+	const int grid_size = Math::nearest_power_of_2_templated(requested_grid_size);
 	RenderingContextDriver *rcd = nullptr;
 	RenderingDevice *rd = _create_lightmapper_device(rcd);
 	ERR_FAIL_NULL_V(rd, BAKE_ERROR_LIGHTMAP_CANT_PRE_BAKE_MESHES);
@@ -2327,6 +2330,29 @@ LightmapperRD::BakeError LightmapperRD::bake(BakeQuality p_quality, bool p_use_d
 	Ref<RDShaderFile> compute_shader;
 	String defines = "";
 	defines += "\n#define CLUSTER_SIZE " + uitos(cluster_size) + "\n";
+
+	// Be conservative: filtered cutout masks are binary only when every triangle uses
+	// alpha scissor. Otherwise require the entire atlas to be opaque, including padding,
+	// so filtering cannot introduce partial transmission at UV island or mesh boundaries.
+	bool binary_shadows = true;
+	for (const MeshInstance &mi : mesh_instances) {
+		if (mi.data.alpha_scissor_threshold.is_empty()) {
+			binary_shadows = false;
+			break;
+		}
+		for (float threshold : mi.data.alpha_scissor_threshold) {
+			if (threshold < 0.0f) {
+				binary_shadows = false;
+				break;
+			}
+		}
+		if (!binary_shadows) {
+			break;
+		}
+	}
+	if (binary_shadows) {
+		defines += "\n#define USE_BINARY_SHADOWS\n";
+	}
 
 	if (p_bake_sh) {
 		defines += "\n#define USE_SH_LIGHTMAPS\n";

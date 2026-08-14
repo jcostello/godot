@@ -3113,6 +3113,10 @@
 			The VoxelGI quality to use. High quality leads to more precise lighting and better reflections, but is slower to render. This setting does not affect the baked data and doesn't require baking the [VoxelGI] again to apply.
 			[b]Note:[/b] This property is only read when the project starts. To control VoxelGI quality at runtime, call [method RenderingServer.voxel_gi_set_quality] instead.
 		</member>
+		<member name="rendering/lightmapping/bake_performance/acceleration_grid_size" type="int" setter="" getter="" default="128">
+			The number of cells along each axis of the acceleration grid used when baking lightmaps with [LightmapGI]. Larger grids can reduce triangle intersection tests in dense scenes, but increase memory usage, grid construction time, and the number of cells traversed by rays. Increase this value only if it improves bake times for your scene.
+			The grid texture alone uses 2 MiB at [code]64[/code], 16 MiB at [code]128[/code], and 128 MiB at [code]256[/code], in addition to triangle and cluster buffers. The value is clamped to the range from 64 to 256 and rounded up to a power of 2.
+		</member>
 		<member name="rendering/lightmapping/bake_performance/max_rays_per_pass" type="int" setter="" getter="" default="4">
 			The maximum number of rays that can be thrown per pass when baking lightmaps with [LightmapGI]. Depending on the scene, adjusting this value may result in higher GPU utilization when baking lightmaps, leading to faster bake times.
 			[b]Note:[/b] Using a value that is too high for your system can cause crashes due to the GPU being unresponsive for long periods of time, and the graphics driver being reset by the OS.
