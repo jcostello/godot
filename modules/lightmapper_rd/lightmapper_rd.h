@@ -217,6 +217,8 @@ class LightmapperRD : public Lightmapper {
 		uint32_t cull_mode = 0;
 		float max_bounds[3] = {};
 		uint32_t mesh = 0;
+		float alpha_scissor_threshold = -1.0f;
+		uint32_t pad[3] = {};
 		bool operator<(const Triangle &p_triangle) const {
 			return slice < p_triangle.slice;
 		}

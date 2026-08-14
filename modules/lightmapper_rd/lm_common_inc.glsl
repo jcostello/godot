@@ -50,6 +50,10 @@ struct Triangle {
 	uint cull_mode;
 	vec3 max_bounds;
 	uint mesh;
+	float alpha_scissor_threshold;
+	uint pad0;
+	uint pad1;
+	uint pad2;
 };
 
 struct ClusterAABB {
