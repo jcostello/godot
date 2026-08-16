@@ -132,7 +132,11 @@ private:
 		float midtones[4]; // 16 - 176
 		float highlights[4]; // 16 - 192
 		float tonemap_temperature[3]; // 12 - 204
-		float pad; // 4 - 208
+		float vibrance; // 4 - 208
+		float local_contrast; // 4 - 212
+		float local_contrast_fine; // 4 - 216
+		float local_contrast_coarse; // 4 - 220
+		float vignette; // 4 - 224
 	};
 
 	struct TonemapPushConstantMobile {
@@ -155,8 +159,13 @@ private:
 		float shadows[4]; // 16 - 128
 		float midtones[4]; // 16 - 144
 		float highlights[4]; // 16 - 160
+		float vibrance; // 4 - 164
+		float local_contrast; // 4 - 168
+		float local_contrast_fine; // 4 - 172
+		float local_contrast_coarse; // 4 - 176
+		float vignette; // 4 - 180
 	};
-	static_assert(sizeof(TonemapPushConstantMobile) == 160, "TonemapPushConstantMobile must match the shader layout.");
+	static_assert(sizeof(TonemapPushConstantMobile) == 180, "TonemapPushConstantMobile must match the shader layout.");
 
 	/* tonemap actually writes to a framebuffer, which is
 	 * better to do using the raster pipeline rather than
@@ -241,6 +250,12 @@ public:
 		Vector2i dest_texture_size;
 		uint32_t view_count = 1;
 		bool bilinear_filtering = true;
+
+		float vibrance = 0.0;
+		float local_contrast = 0.0;
+		float local_contrast_fine = 1.0;
+		float local_contrast_coarse = 1.0;
+		float vignette = 0.0;
 
 		bool convert_to_srgb = false;
 	};

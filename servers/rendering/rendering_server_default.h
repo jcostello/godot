@@ -890,6 +890,10 @@ public:
 	FUNC3(environment_set_adjustment_midtones_range, RID, float, float)
 	FUNC3(environment_set_adjustment_advance, RID, bool, float)
 	FUNC5(environment_set_adjustment_curves, RID, RID, RID, RID, RID)
+	FUNC2(environment_set_adjustment_vibrance, RID, float)
+	FUNC2(environment_set_adjustment_local_contrast, RID, float)
+	FUNC3(environment_set_adjustment_local_contrast_scales, RID, float, float)
+	FUNC2(environment_set_adjustment_vignette, RID, float)
 
 	FUNC11(environment_set_fog, RID, bool, const Color &, float, float, float, float, float, float, float, RSE::EnvironmentFogMode)
 

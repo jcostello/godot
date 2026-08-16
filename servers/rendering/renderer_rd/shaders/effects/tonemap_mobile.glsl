@@ -106,6 +106,11 @@ layout(push_constant, std430) uniform Params {
 	vec4 shadows;
 	vec4 midtones;
 	vec4 highlights;
+	float vibrance;
+	float local_contrast;
+	float local_contrast_fine;
+	float local_contrast_coarse;
+	float vignette;
 }
 params;
 
@@ -281,6 +286,23 @@ vec3 apply_tonemapping(vec3 color) { // inputs are LINEAR
 
 vec3 apply_temperature_balance(vec3 color) {
 	return color * params.tonemap_temperature;
+}
+
+float sample_source_tonemapped_luminance(vec2 p_uv) {
+#ifdef SUBPASS
+	return 0.0;
+#else
+#ifdef USE_MULTIVIEW
+	vec3 sample_color = textureLod(source_color, vec3(p_uv, ViewIndex), 0.0).rgb;
+#else
+	vec3 sample_color = textureLod(source_color, p_uv, 0.0).rgb;
+#endif
+	sample_color *= params.luminance_multiplier;
+	sample_color *= params.exposure;
+	sample_color = apply_temperature_balance(sample_color);
+	sample_color = apply_tonemapping(sample_color);
+	return dot(sample_color, vec3(0.2126, 0.7152, 0.0722));
+#endif
 }
 
 #ifdef USE_MULTIVIEW
@@ -788,6 +810,41 @@ void main() {
 	color.rgb = apply_tonemapping(color.rgb);
 
 #ifndef SUBPASS
+	if (use_bcs && params.local_contrast > 0.001) {
+		float center_luminance = sample_source_tonemapped_luminance(uv_interp);
+		vec2 texel = params.src_pixel_size;
+		float luma_small = center_luminance;
+		luma_small += sample_source_tonemapped_luminance(clamp(uv_interp + vec2(texel.x, 0.0), vec2(0.0), vec2(1.0)));
+		luma_small += sample_source_tonemapped_luminance(clamp(uv_interp - vec2(texel.x, 0.0), vec2(0.0), vec2(1.0)));
+		luma_small += sample_source_tonemapped_luminance(clamp(uv_interp + vec2(0.0, texel.y), vec2(0.0), vec2(1.0)));
+		luma_small += sample_source_tonemapped_luminance(clamp(uv_interp - vec2(0.0, texel.y), vec2(0.0), vec2(1.0)));
+		luma_small *= 0.2;
+
+		vec2 large_texel = texel * 4.0;
+		float luma_large = center_luminance;
+		luma_large += sample_source_tonemapped_luminance(clamp(uv_interp + vec2(large_texel.x, 0.0), vec2(0.0), vec2(1.0)));
+		luma_large += sample_source_tonemapped_luminance(clamp(uv_interp - vec2(large_texel.x, 0.0), vec2(0.0), vec2(1.0)));
+		luma_large += sample_source_tonemapped_luminance(clamp(uv_interp + vec2(0.0, large_texel.y), vec2(0.0), vec2(1.0)));
+		luma_large += sample_source_tonemapped_luminance(clamp(uv_interp - vec2(0.0, large_texel.y), vec2(0.0), vec2(1.0)));
+		luma_large *= 0.2;
+
+		float diff_s = (center_luminance + 0.001) / (luma_small + 0.001);
+		diff_s = min(pow(max(diff_s, 0.0), 1.15), 1.0);
+
+		float luma_large_shaped = pow(max(luma_large, 0.0001), 0.9);
+		luma_large_shaped = mix(luma_large_shaped, 0.5, smoothstep(0.55, 0.9, luma_large_shaped));
+
+		float highlight_protection = 1.0 - smoothstep(0.6, 1.0, center_luminance);
+		float master_strength = clamp(params.local_contrast * 0.25, 0.0, 1.0) * highlight_protection;
+		float detail_strength = clamp(params.local_contrast_fine, 0.0, 3.0) * master_strength;
+		float tone_strength = clamp(params.local_contrast_coarse, 0.0, 3.0) * master_strength;
+
+		color.rgb *= mix(1.0, diff_s, clamp(detail_strength, 0.0, 1.0));
+		color.rgb *= mix(1.0, luma_large_shaped + 0.5, clamp(tone_strength * 0.35, 0.0, 1.0));
+	}
+#endif
+
+#ifndef SUBPASS
 	// Post-tonemap glow.
 
 	if (use_glow && glow_mode_softlight) {
@@ -858,6 +915,26 @@ void main() {
 		}
 		if (use_color_grading) {
 			color.rgb = mix(color_before_grading, color.rgb, params.tint_midtones_range.w);
+		}
+
+		// Apply vibrance (selective saturation boost)
+		if (abs(params.vibrance) > 0.001) {
+			vec3 hsv = grading_rgb_to_hsv(color.rgb);
+			if (params.vibrance > 0.0) {
+				hsv.y += (1.0 - hsv.y) * params.vibrance;
+			} else {
+				hsv.y *= (1.0 + params.vibrance);
+			}
+			hsv.y = clamp(hsv.y, 0.0, 1.0);
+			color.rgb = grading_hsv_to_rgb(hsv);
+		}
+
+		if (params.vignette > 0.001) {
+			vec2 vignette_uv = uv_interp * 2.0 - 1.0;
+			vignette_uv.x *= params.src_pixel_size.y / params.src_pixel_size.x;
+			float vignette_mask = smoothstep(0.2, 1.2, dot(vignette_uv, vignette_uv));
+			float vignette_strength = clamp(params.vignette * 0.5, 0.0, 1.0);
+			color.rgb *= 1.0 - vignette_strength * vignette_mask;
 		}
 
 		if (use_color_correction) {

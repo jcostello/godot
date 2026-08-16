@@ -197,6 +197,11 @@ private:
 		RID adjustments_luminance_vs_saturation;
 		bool use_1d_color_correction = false;
 		RID color_correction;
+		float adjustments_vibrance = 0.0f;
+		float adjustments_local_contrast = 0.0f;
+		float adjustments_local_contrast_fine = 1.0f;
+		float adjustments_local_contrast_coarse = 1.0f;
+		float adjustments_vignette = 0.0f;
 	};
 
 	mutable RID_Owner<Environment, true> environment_owner;
@@ -351,6 +356,10 @@ public:
 	void environment_set_adjustment_midtones_range(RID p_env, float p_start, float p_end);
 	void environment_set_adjustment_advance(RID p_env, bool p_enable, float p_intensity);
 	void environment_set_adjustment_curves(RID p_env, RID p_hue_vs_hue, RID p_hue_vs_saturation, RID p_saturation_vs_saturation, RID p_luminance_vs_saturation);
+	void environment_set_adjustment_vibrance(RID p_env, float p_vibrance);
+	void environment_set_adjustment_local_contrast(RID p_env, float p_local_contrast);
+	void environment_set_adjustment_local_contrast_scales(RID p_env, float p_local_contrast_fine, float p_local_contrast_coarse);
+	void environment_set_adjustment_vignette(RID p_env, float p_vignette);
 	bool environment_get_adjustments_enabled(RID p_env) const;
 	float environment_get_adjustments_brightness(RID p_env) const;
 	float environment_get_adjustments_contrast(RID p_env) const;
@@ -374,4 +383,9 @@ public:
 	RID environment_get_adjustments_luminance_vs_saturation(RID p_env) const;
 	bool environment_get_use_1d_color_correction(RID p_env) const;
 	RID environment_get_color_correction(RID p_env) const;
+	float environment_get_adjustment_vibrance(RID p_env) const;
+	float environment_get_adjustment_local_contrast(RID p_env) const;
+	float environment_get_adjustment_local_contrast_fine(RID p_env) const;
+	float environment_get_adjustment_local_contrast_coarse(RID p_env) const;
+	float environment_get_adjustment_vignette(RID p_env) const;
 };

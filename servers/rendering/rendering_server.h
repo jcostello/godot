@@ -686,6 +686,10 @@ public:
 	virtual void environment_set_adjustment_midtones_range(RID p_env, float p_start, float p_end) = 0;
 	virtual void environment_set_adjustment_advance(RID p_env, bool p_enable, float p_intensity = 1.0f) = 0;
 	virtual void environment_set_adjustment_curves(RID p_env, RID p_hue_vs_hue, RID p_hue_vs_saturation, RID p_saturation_vs_saturation, RID p_luminance_vs_saturation) = 0;
+	virtual void environment_set_adjustment_vibrance(RID p_env, float p_vibrance) = 0;
+	virtual void environment_set_adjustment_local_contrast(RID p_env, float p_local_contrast) = 0;
+	virtual void environment_set_adjustment_local_contrast_scales(RID p_env, float p_local_contrast_fine, float p_local_contrast_coarse) = 0;
+	virtual void environment_set_adjustment_vignette(RID p_env, float p_vignette) = 0;
 
 	virtual void environment_set_ssr(RID p_env, bool p_enable, int p_max_steps, float p_fade_in, float p_fade_out, float p_depth_tolerance) = 0;
 

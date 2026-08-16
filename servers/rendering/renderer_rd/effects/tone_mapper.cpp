@@ -183,6 +183,11 @@ void ToneMapper::tonemapper(RID p_source_color, RID p_dst_framebuffer, const Ton
 	tonemap.push_constant.tonemap_temperature[0] = p_settings.tonemap_temperature[0];
 	tonemap.push_constant.tonemap_temperature[1] = p_settings.tonemap_temperature[1];
 	tonemap.push_constant.tonemap_temperature[2] = p_settings.tonemap_temperature[2];
+	tonemap.push_constant.vibrance = p_settings.vibrance;
+	tonemap.push_constant.local_contrast = p_settings.local_contrast;
+	tonemap.push_constant.local_contrast_fine = p_settings.local_contrast_fine;
+	tonemap.push_constant.local_contrast_coarse = p_settings.local_contrast_coarse;
+	tonemap.push_constant.vignette = p_settings.vignette;
 
 	tonemap.push_constant.flags |= p_settings.use_color_correction ? TONEMAP_FLAG_USE_COLOR_CORRECTION : 0;
 
@@ -277,6 +282,11 @@ void ToneMapper::tonemapper_mobile(RID p_source_color, RID p_dst_framebuffer, co
 	tonemap_mobile.push_constant.tonemap_temperature[0] = p_settings.tonemap_temperature[0];
 	tonemap_mobile.push_constant.tonemap_temperature[1] = p_settings.tonemap_temperature[1];
 	tonemap_mobile.push_constant.tonemap_temperature[2] = p_settings.tonemap_temperature[2];
+	tonemap_mobile.push_constant.vibrance = p_settings.vibrance;
+	tonemap_mobile.push_constant.local_contrast = p_settings.local_contrast;
+	tonemap_mobile.push_constant.local_contrast_fine = p_settings.local_contrast_fine;
+	tonemap_mobile.push_constant.local_contrast_coarse = p_settings.local_contrast_coarse;
+	tonemap_mobile.push_constant.vignette = p_settings.vignette;
 
 	tonemap_mobile.push_constant.tonemapper_params[0] = p_settings.tonemapper_params[0];
 	tonemap_mobile.push_constant.tonemapper_params[1] = p_settings.tonemapper_params[1];
@@ -397,6 +407,11 @@ void ToneMapper::tonemapper_subpass(RD::DrawListID p_subpass_draw_list, RID p_so
 	tonemap_mobile.push_constant.tonemap_temperature[0] = p_settings.tonemap_temperature[0];
 	tonemap_mobile.push_constant.tonemap_temperature[1] = p_settings.tonemap_temperature[1];
 	tonemap_mobile.push_constant.tonemap_temperature[2] = p_settings.tonemap_temperature[2];
+	tonemap_mobile.push_constant.vibrance = p_settings.vibrance;
+	tonemap_mobile.push_constant.local_contrast = p_settings.local_contrast;
+	tonemap_mobile.push_constant.local_contrast_fine = p_settings.local_contrast_fine;
+	tonemap_mobile.push_constant.local_contrast_coarse = p_settings.local_contrast_coarse;
+	tonemap_mobile.push_constant.vignette = p_settings.vignette;
 
 	tonemap_mobile.push_constant.tonemapper_params[0] = p_settings.tonemapper_params[0];
 	tonemap_mobile.push_constant.tonemapper_params[1] = p_settings.tonemapper_params[1];

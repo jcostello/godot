@@ -758,6 +758,11 @@ void RendererSceneRenderRD::_render_buffers_post_process_and_tonemap(const Rende
 		tonemap.saturation_vs_saturation_texture = tonemap.hue_vs_hue_texture;
 		tonemap.luminance_vs_saturation_texture = tonemap.hue_vs_hue_texture;
 		tonemap.convert_to_srgb = !using_hdr;
+		tonemap.vibrance = 0.0f;
+		tonemap.local_contrast = 0.0f;
+		tonemap.local_contrast_fine = 1.0f;
+		tonemap.local_contrast_coarse = 1.0f;
+		tonemap.vignette = 0.0f;
 
 		if (can_use_effects && p_render_data->environment.is_valid()) {
 			const bool adjustments_enabled = environment_get_adjustments_enabled(p_render_data->environment);
@@ -802,6 +807,12 @@ void RendererSceneRenderRD::_render_buffers_post_process_and_tonemap(const Rende
 				tonemap.use_1d_color_correction = environment_get_use_1d_color_correction(p_render_data->environment);
 				tonemap.color_correction_texture = texture_storage->texture_get_rd_texture(environment_get_color_correction(p_render_data->environment), !tonemap.convert_to_srgb);
 			}
+
+			tonemap.vibrance = environment_get_adjustment_vibrance(p_render_data->environment);
+			tonemap.local_contrast = environment_get_adjustment_local_contrast(p_render_data->environment);
+			tonemap.local_contrast_fine = environment_get_adjustment_local_contrast_fine(p_render_data->environment);
+			tonemap.local_contrast_coarse = environment_get_adjustment_local_contrast_coarse(p_render_data->environment);
+			tonemap.vignette = environment_get_adjustment_vignette(p_render_data->environment);
 		}
 
 		tonemap.luminance_multiplier = rb->get_luminance_multiplier();
@@ -1012,6 +1023,11 @@ void RendererSceneRenderRD::_post_process_subpass(RID p_source_texture, RID p_fr
 	tonemap.saturation_vs_saturation_texture = tonemap.hue_vs_hue_texture;
 	tonemap.luminance_vs_saturation_texture = tonemap.hue_vs_hue_texture;
 	tonemap.convert_to_srgb = !using_hdr;
+	tonemap.vibrance = 0.0f;
+	tonemap.local_contrast = 0.0f;
+	tonemap.local_contrast_fine = 1.0f;
+	tonemap.local_contrast_coarse = 1.0f;
+	tonemap.vignette = 0.0f;
 
 	if (can_use_effects && p_render_data->environment.is_valid()) {
 		const bool adjustments_enabled = environment_get_adjustments_enabled(p_render_data->environment);
@@ -1056,6 +1072,12 @@ void RendererSceneRenderRD::_post_process_subpass(RID p_source_texture, RID p_fr
 			tonemap.use_1d_color_correction = environment_get_use_1d_color_correction(p_render_data->environment);
 			tonemap.color_correction_texture = texture_storage->texture_get_rd_texture(environment_get_color_correction(p_render_data->environment), !tonemap.convert_to_srgb);
 		}
+
+		tonemap.vibrance = environment_get_adjustment_vibrance(p_render_data->environment);
+		tonemap.local_contrast = environment_get_adjustment_local_contrast(p_render_data->environment);
+		tonemap.local_contrast_fine = environment_get_adjustment_local_contrast_fine(p_render_data->environment);
+		tonemap.local_contrast_coarse = environment_get_adjustment_local_contrast_coarse(p_render_data->environment);
+		tonemap.vignette = environment_get_adjustment_vignette(p_render_data->environment);
 	}
 
 	tonemap.texture_size = Vector2i(target_size.x, target_size.y);
