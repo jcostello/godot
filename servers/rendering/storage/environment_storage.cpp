@@ -968,6 +968,31 @@ void RendererEnvironmentStorage::environment_set_adjustment_curves(RID p_env, RI
 	env->adjustments_luminance_vs_saturation = p_luminance_vs_saturation;
 }
 
+void RendererEnvironmentStorage::environment_set_adjustment_vibrance(RID p_env, float p_vibrance) {
+	Environment *env = environment_owner.get_or_null(p_env);
+	ERR_FAIL_NULL(env);
+	env->adjustments_vibrance = CLAMP(p_vibrance, -1.0f, 1.0f);
+}
+
+void RendererEnvironmentStorage::environment_set_adjustment_local_contrast(RID p_env, float p_local_contrast) {
+	Environment *env = environment_owner.get_or_null(p_env);
+	ERR_FAIL_NULL(env);
+	env->adjustments_local_contrast = CLAMP(p_local_contrast, 0.0f, 4.0f);
+}
+
+void RendererEnvironmentStorage::environment_set_adjustment_local_contrast_scales(RID p_env, float p_local_contrast_fine, float p_local_contrast_coarse) {
+	Environment *env = environment_owner.get_or_null(p_env);
+	ERR_FAIL_NULL(env);
+	env->adjustments_local_contrast_fine = CLAMP(p_local_contrast_fine, 0.0f, 3.0f);
+	env->adjustments_local_contrast_coarse = CLAMP(p_local_contrast_coarse, 0.0f, 3.0f);
+}
+
+void RendererEnvironmentStorage::environment_set_adjustment_vignette(RID p_env, float p_vignette) {
+	Environment *env = environment_owner.get_or_null(p_env);
+	ERR_FAIL_NULL(env);
+	env->adjustments_vignette = CLAMP(p_vignette, 0.0f, 2.0f);
+}
+
 bool RendererEnvironmentStorage::environment_get_adjustments_enabled(RID p_env) const {
 	Environment *env = environment_owner.get_or_null(p_env);
 	ERR_FAIL_NULL_V(env, false);
@@ -1104,4 +1129,34 @@ RID RendererEnvironmentStorage::environment_get_color_correction(RID p_env) cons
 	Environment *env = environment_owner.get_or_null(p_env);
 	ERR_FAIL_NULL_V(env, RID());
 	return env->color_correction;
+}
+
+float RendererEnvironmentStorage::environment_get_adjustment_vibrance(RID p_env) const {
+	Environment *env = environment_owner.get_or_null(p_env);
+	ERR_FAIL_NULL_V(env, 0.0f);
+	return env->adjustments_vibrance;
+}
+
+float RendererEnvironmentStorage::environment_get_adjustment_local_contrast(RID p_env) const {
+	Environment *env = environment_owner.get_or_null(p_env);
+	ERR_FAIL_NULL_V(env, 0.0f);
+	return env->adjustments_local_contrast;
+}
+
+float RendererEnvironmentStorage::environment_get_adjustment_local_contrast_fine(RID p_env) const {
+	Environment *env = environment_owner.get_or_null(p_env);
+	ERR_FAIL_NULL_V(env, 1.0f);
+	return env->adjustments_local_contrast_fine;
+}
+
+float RendererEnvironmentStorage::environment_get_adjustment_local_contrast_coarse(RID p_env) const {
+	Environment *env = environment_owner.get_or_null(p_env);
+	ERR_FAIL_NULL_V(env, 1.0f);
+	return env->adjustments_local_contrast_coarse;
+}
+
+float RendererEnvironmentStorage::environment_get_adjustment_vignette(RID p_env) const {
+	Environment *env = environment_owner.get_or_null(p_env);
+	ERR_FAIL_NULL_V(env, 0.0f);
+	return env->adjustments_vignette;
 }

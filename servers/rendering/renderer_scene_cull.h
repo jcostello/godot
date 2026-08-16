@@ -1374,6 +1374,10 @@ public:
 	PASS3(environment_set_adjustment_midtones_range, RID, float, float)
 	PASS3(environment_set_adjustment_advance, RID, bool, float)
 	PASS5(environment_set_adjustment_curves, RID, RID, RID, RID, RID)
+	PASS2(environment_set_adjustment_vibrance, RID, float)
+	PASS2(environment_set_adjustment_local_contrast, RID, float)
+	PASS3(environment_set_adjustment_local_contrast_scales, RID, float, float)
+	PASS2(environment_set_adjustment_vignette, RID, float)
 
 	PASS1RC(bool, environment_get_adjustments_enabled, RID)
 	PASS1RC(float, environment_get_adjustments_brightness, RID)
@@ -1398,6 +1402,11 @@ public:
 	PASS1RC(RID, environment_get_adjustments_luminance_vs_saturation, RID)
 	PASS1RC(bool, environment_get_use_1d_color_correction, RID)
 	PASS1RC(RID, environment_get_color_correction, RID)
+	PASS1RC(float, environment_get_adjustment_vibrance, RID)
+	PASS1RC(float, environment_get_adjustment_local_contrast, RID)
+	PASS1RC(float, environment_get_adjustment_local_contrast_fine, RID)
+	PASS1RC(float, environment_get_adjustment_local_contrast_coarse, RID)
+	PASS1RC(float, environment_get_adjustment_vignette, RID)
 
 	PASS3R(Ref<Image>, environment_bake_panorama, RID, bool, const Size2i &)
 

@@ -618,6 +618,22 @@ void RendererSceneRender::environment_set_adjustment_curves(RID p_env, RID p_hue
 	environment_storage.environment_set_adjustment_curves(p_env, p_hue_vs_hue, p_hue_vs_saturation, p_saturation_vs_saturation, p_luminance_vs_saturation);
 }
 
+void RendererSceneRender::environment_set_adjustment_vibrance(RID p_env, float p_vibrance) {
+	environment_storage.environment_set_adjustment_vibrance(p_env, p_vibrance);
+}
+
+void RendererSceneRender::environment_set_adjustment_local_contrast(RID p_env, float p_local_contrast) {
+	environment_storage.environment_set_adjustment_local_contrast(p_env, p_local_contrast);
+}
+
+void RendererSceneRender::environment_set_adjustment_local_contrast_scales(RID p_env, float p_local_contrast_fine, float p_local_contrast_coarse) {
+	environment_storage.environment_set_adjustment_local_contrast_scales(p_env, p_local_contrast_fine, p_local_contrast_coarse);
+}
+
+void RendererSceneRender::environment_set_adjustment_vignette(RID p_env, float p_vignette) {
+	environment_storage.environment_set_adjustment_vignette(p_env, p_vignette);
+}
+
 bool RendererSceneRender::environment_get_adjustments_enabled(RID p_env) const {
 	return environment_storage.environment_get_adjustments_enabled(p_env);
 }
@@ -708,4 +724,24 @@ bool RendererSceneRender::environment_get_use_1d_color_correction(RID p_env) con
 
 RID RendererSceneRender::environment_get_color_correction(RID p_env) const {
 	return environment_storage.environment_get_color_correction(p_env);
+}
+
+float RendererSceneRender::environment_get_adjustment_vibrance(RID p_env) const {
+	return environment_storage.environment_get_adjustment_vibrance(p_env);
+}
+
+float RendererSceneRender::environment_get_adjustment_local_contrast(RID p_env) const {
+	return environment_storage.environment_get_adjustment_local_contrast(p_env);
+}
+
+float RendererSceneRender::environment_get_adjustment_local_contrast_fine(RID p_env) const {
+	return environment_storage.environment_get_adjustment_local_contrast_fine(p_env);
+}
+
+float RendererSceneRender::environment_get_adjustment_local_contrast_coarse(RID p_env) const {
+	return environment_storage.environment_get_adjustment_local_contrast_coarse(p_env);
+}
+
+float RendererSceneRender::environment_get_adjustment_vignette(RID p_env) const {
+	return environment_storage.environment_get_adjustment_vignette(p_env);
 }

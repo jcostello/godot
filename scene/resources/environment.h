@@ -246,6 +246,11 @@ private:
 	Ref<CurveTexture> adjustment_default_luminance_vs_saturation;
 	bool use_1d_color_correction = true;
 	Ref<Texture> adjustment_color_correction;
+	float adjustment_vibrance = 0.0;
+	float adjustment_local_contrast = 0.0;
+	float adjustment_local_contrast_fine = 1.0;
+	float adjustment_local_contrast_coarse = 1.0;
+	float adjustment_vignette = 0.0;
 	void _update_adjustment();
 	void _update_adjustment_curves();
 
@@ -511,6 +516,16 @@ public:
 	Ref<CurveTexture> get_adjustment_luminance_vs_saturation() const;
 	void set_adjustment_color_correction(Ref<Texture> p_color_correction);
 	Ref<Texture> get_adjustment_color_correction() const;
+	void set_adjustment_vibrance(float p_vibrance);
+	float get_adjustment_vibrance() const;
+	void set_adjustment_local_contrast(float p_local_contrast);
+	float get_adjustment_local_contrast() const;
+	void set_adjustment_local_contrast_fine(float p_local_contrast_fine);
+	float get_adjustment_local_contrast_fine() const;
+	void set_adjustment_local_contrast_coarse(float p_local_contrast_coarse);
+	float get_adjustment_local_contrast_coarse() const;
+	void set_adjustment_vignette(float p_vignette);
+	float get_adjustment_vignette() const;
 
 	Environment();
 	~Environment();
