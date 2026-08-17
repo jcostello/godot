@@ -943,13 +943,24 @@ void RendererEnvironmentStorage::environment_set_adjustment_tint(RID p_env, floa
 	env->adjustments_tint = CLAMP(p_tint, -1.0f, 1.0f);
 }
 
-void RendererEnvironmentStorage::environment_set_adjustment_midtones_range(RID p_env, float p_start, float p_end) {
+void RendererEnvironmentStorage::environment_set_adjustment_midtones_range(RID p_env, float p_shadows_start, float p_shadows_end, float p_midtones_start, float p_midtones_end, float p_highlights_start, float p_highlights_end) {
 	Environment *env = environment_owner.get_or_null(p_env);
 	ERR_FAIL_NULL(env);
 
-	const Vector2 range = EnvironmentColorGrading::clamp_midtones_range(p_start, p_end);
-	env->adjustments_midtones_start = range.x;
-	env->adjustments_midtones_end = range.y;
+	const EnvironmentColorGrading::TonalRanges ranges = EnvironmentColorGrading::clamp_tonal_ranges(
+			p_shadows_start,
+			p_shadows_end,
+			p_midtones_start,
+			p_midtones_end,
+			p_highlights_start,
+			p_highlights_end);
+
+	env->adjustments_shadows_start = ranges.shadows_start;
+	env->adjustments_shadows_end = ranges.shadows_end;
+	env->adjustments_midtones_start = ranges.midtones_start;
+	env->adjustments_midtones_end = ranges.midtones_end;
+	env->adjustments_highlights_start = ranges.highlights_start;
+	env->adjustments_highlights_end = ranges.highlights_end;
 }
 
 void RendererEnvironmentStorage::environment_set_adjustment_advance(RID p_env, bool p_enable, float p_intensity) {
@@ -980,17 +991,19 @@ void RendererEnvironmentStorage::environment_set_adjustment_local_contrast(RID p
 	env->adjustments_local_contrast = CLAMP(p_local_contrast, 0.0f, 4.0f);
 }
 
-void RendererEnvironmentStorage::environment_set_adjustment_local_contrast_scales(RID p_env, float p_local_contrast_fine, float p_local_contrast_coarse) {
+void RendererEnvironmentStorage::environment_set_adjustment_local_contrast_fine(RID p_env, float p_local_contrast_fine) {
 	Environment *env = environment_owner.get_or_null(p_env);
 	ERR_FAIL_NULL(env);
 	env->adjustments_local_contrast_fine = CLAMP(p_local_contrast_fine, 0.0f, 3.0f);
-	env->adjustments_local_contrast_coarse = CLAMP(p_local_contrast_coarse, 0.0f, 3.0f);
 }
 
-void RendererEnvironmentStorage::environment_set_adjustment_vignette(RID p_env, float p_vignette) {
+void RendererEnvironmentStorage::environment_set_adjustment_vignette(RID p_env, float p_vignette, float p_start, float p_end) {
 	Environment *env = environment_owner.get_or_null(p_env);
 	ERR_FAIL_NULL(env);
 	env->adjustments_vignette = CLAMP(p_vignette, 0.0f, 2.0f);
+	const Vector2 range = EnvironmentColorGrading::clamp_vignette_range(p_start, p_end);
+	env->adjustments_vignette_start = range.x;
+	env->adjustments_vignette_end = range.y;
 }
 
 bool RendererEnvironmentStorage::environment_get_adjustments_enabled(RID p_env) const {
@@ -1035,6 +1048,18 @@ float RendererEnvironmentStorage::environment_get_adjustment_tint(RID p_env) con
 	return env->adjustments_tint;
 }
 
+float RendererEnvironmentStorage::environment_get_adjustment_shadows_start(RID p_env) const {
+	Environment *env = environment_owner.get_or_null(p_env);
+	ERR_FAIL_NULL_V(env, 0.0f);
+	return env->adjustments_shadows_start;
+}
+
+float RendererEnvironmentStorage::environment_get_adjustment_shadows_end(RID p_env) const {
+	Environment *env = environment_owner.get_or_null(p_env);
+	ERR_FAIL_NULL_V(env, 0.45f);
+	return env->adjustments_shadows_end;
+}
+
 float RendererEnvironmentStorage::environment_get_adjustment_midtones_start(RID p_env) const {
 	Environment *env = environment_owner.get_or_null(p_env);
 	ERR_FAIL_NULL_V(env, 0.45f);
@@ -1045,6 +1070,18 @@ float RendererEnvironmentStorage::environment_get_adjustment_midtones_end(RID p_
 	Environment *env = environment_owner.get_or_null(p_env);
 	ERR_FAIL_NULL_V(env, 0.55f);
 	return env->adjustments_midtones_end;
+}
+
+float RendererEnvironmentStorage::environment_get_adjustment_highlights_start(RID p_env) const {
+	Environment *env = environment_owner.get_or_null(p_env);
+	ERR_FAIL_NULL_V(env, 0.55f);
+	return env->adjustments_highlights_start;
+}
+
+float RendererEnvironmentStorage::environment_get_adjustment_highlights_end(RID p_env) const {
+	Environment *env = environment_owner.get_or_null(p_env);
+	ERR_FAIL_NULL_V(env, 1.0f);
+	return env->adjustments_highlights_end;
 }
 
 Color RendererEnvironmentStorage::environment_get_adjustments_offset_color(RID p_env) const {
@@ -1149,14 +1186,20 @@ float RendererEnvironmentStorage::environment_get_adjustment_local_contrast_fine
 	return env->adjustments_local_contrast_fine;
 }
 
-float RendererEnvironmentStorage::environment_get_adjustment_local_contrast_coarse(RID p_env) const {
-	Environment *env = environment_owner.get_or_null(p_env);
-	ERR_FAIL_NULL_V(env, 1.0f);
-	return env->adjustments_local_contrast_coarse;
-}
-
 float RendererEnvironmentStorage::environment_get_adjustment_vignette(RID p_env) const {
 	Environment *env = environment_owner.get_or_null(p_env);
 	ERR_FAIL_NULL_V(env, 0.0f);
 	return env->adjustments_vignette;
+}
+
+float RendererEnvironmentStorage::environment_get_adjustment_vignette_start(RID p_env) const {
+	Environment *env = environment_owner.get_or_null(p_env);
+	ERR_FAIL_NULL_V(env, 0.2f);
+	return env->adjustments_vignette_start;
+}
+
+float RendererEnvironmentStorage::environment_get_adjustment_vignette_end(RID p_env) const {
+	Environment *env = environment_owner.get_or_null(p_env);
+	ERR_FAIL_NULL_V(env, 1.2f);
+	return env->adjustments_vignette_end;
 }

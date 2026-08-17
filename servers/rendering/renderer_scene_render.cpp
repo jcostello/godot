@@ -606,8 +606,8 @@ void RendererSceneRender::environment_set_adjustment_tint(RID p_env, float p_tin
 	environment_storage.environment_set_adjustment_tint(p_env, p_tint);
 }
 
-void RendererSceneRender::environment_set_adjustment_midtones_range(RID p_env, float p_start, float p_end) {
-	environment_storage.environment_set_adjustment_midtones_range(p_env, p_start, p_end);
+void RendererSceneRender::environment_set_adjustment_midtones_range(RID p_env, float p_shadows_start, float p_shadows_end, float p_midtones_start, float p_midtones_end, float p_highlights_start, float p_highlights_end) {
+	environment_storage.environment_set_adjustment_midtones_range(p_env, p_shadows_start, p_shadows_end, p_midtones_start, p_midtones_end, p_highlights_start, p_highlights_end);
 }
 
 void RendererSceneRender::environment_set_adjustment_advance(RID p_env, bool p_enable, float p_intensity) {
@@ -626,12 +626,12 @@ void RendererSceneRender::environment_set_adjustment_local_contrast(RID p_env, f
 	environment_storage.environment_set_adjustment_local_contrast(p_env, p_local_contrast);
 }
 
-void RendererSceneRender::environment_set_adjustment_local_contrast_scales(RID p_env, float p_local_contrast_fine, float p_local_contrast_coarse) {
-	environment_storage.environment_set_adjustment_local_contrast_scales(p_env, p_local_contrast_fine, p_local_contrast_coarse);
+void RendererSceneRender::environment_set_adjustment_local_contrast_fine(RID p_env, float p_local_contrast_fine) {
+	environment_storage.environment_set_adjustment_local_contrast_fine(p_env, p_local_contrast_fine);
 }
 
-void RendererSceneRender::environment_set_adjustment_vignette(RID p_env, float p_vignette) {
-	environment_storage.environment_set_adjustment_vignette(p_env, p_vignette);
+void RendererSceneRender::environment_set_adjustment_vignette(RID p_env, float p_vignette, float p_start, float p_end) {
+	environment_storage.environment_set_adjustment_vignette(p_env, p_vignette, p_start, p_end);
 }
 
 bool RendererSceneRender::environment_get_adjustments_enabled(RID p_env) const {
@@ -662,12 +662,28 @@ float RendererSceneRender::environment_get_adjustment_tint(RID p_env) const {
 	return environment_storage.environment_get_adjustment_tint(p_env);
 }
 
+float RendererSceneRender::environment_get_adjustment_shadows_start(RID p_env) const {
+	return environment_storage.environment_get_adjustment_shadows_start(p_env);
+}
+
+float RendererSceneRender::environment_get_adjustment_shadows_end(RID p_env) const {
+	return environment_storage.environment_get_adjustment_shadows_end(p_env);
+}
+
 float RendererSceneRender::environment_get_adjustment_midtones_start(RID p_env) const {
 	return environment_storage.environment_get_adjustment_midtones_start(p_env);
 }
 
 float RendererSceneRender::environment_get_adjustment_midtones_end(RID p_env) const {
 	return environment_storage.environment_get_adjustment_midtones_end(p_env);
+}
+
+float RendererSceneRender::environment_get_adjustment_highlights_start(RID p_env) const {
+	return environment_storage.environment_get_adjustment_highlights_start(p_env);
+}
+
+float RendererSceneRender::environment_get_adjustment_highlights_end(RID p_env) const {
+	return environment_storage.environment_get_adjustment_highlights_end(p_env);
 }
 
 Color RendererSceneRender::environment_get_adjustments_offset_color(RID p_env) const {
@@ -738,10 +754,14 @@ float RendererSceneRender::environment_get_adjustment_local_contrast_fine(RID p_
 	return environment_storage.environment_get_adjustment_local_contrast_fine(p_env);
 }
 
-float RendererSceneRender::environment_get_adjustment_local_contrast_coarse(RID p_env) const {
-	return environment_storage.environment_get_adjustment_local_contrast_coarse(p_env);
-}
-
 float RendererSceneRender::environment_get_adjustment_vignette(RID p_env) const {
 	return environment_storage.environment_get_adjustment_vignette(p_env);
+}
+
+float RendererSceneRender::environment_get_adjustment_vignette_start(RID p_env) const {
+	return environment_storage.environment_get_adjustment_vignette_start(p_env);
+}
+
+float RendererSceneRender::environment_get_adjustment_vignette_end(RID p_env) const {
+	return environment_storage.environment_get_adjustment_vignette_end(p_env);
 }

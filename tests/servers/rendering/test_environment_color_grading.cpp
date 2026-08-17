@@ -53,4 +53,32 @@ TEST_CASE("[Rendering][Environment] Color grading midtones stay ordered") {
 	CHECK(high_range.y == doctest::Approx(1.0f));
 }
 
+TEST_CASE("[Rendering][Environment] Color grading tonal ranges stay integrated") {
+	const EnvironmentColorGrading::TonalRanges low_ranges = EnvironmentColorGrading::clamp_tonal_ranges(-1.0f, 1.0f, 0.2f, 0.4f, 0.1f, 2.0f);
+	CHECK(low_ranges.shadows_start == doctest::Approx(0.0f));
+	CHECK(low_ranges.shadows_end == doctest::Approx(0.2f));
+	CHECK(low_ranges.midtones_start == doctest::Approx(0.2f));
+	CHECK(low_ranges.midtones_end == doctest::Approx(0.4f));
+	CHECK(low_ranges.highlights_start == doctest::Approx(0.4f));
+	CHECK(low_ranges.highlights_end == doctest::Approx(1.0f));
+
+	const EnvironmentColorGrading::TonalRanges high_ranges = EnvironmentColorGrading::clamp_tonal_ranges(0.8f, 0.9f, 0.6f, 0.7f, 0.8f, 0.6f);
+	CHECK(high_ranges.shadows_start == doctest::Approx(0.6f));
+	CHECK(high_ranges.shadows_end == doctest::Approx(0.6f));
+	CHECK(high_ranges.midtones_start == doctest::Approx(0.6f));
+	CHECK(high_ranges.midtones_end == doctest::Approx(0.7f));
+	CHECK(high_ranges.highlights_start == doctest::Approx(0.8f));
+	CHECK(high_ranges.highlights_end == doctest::Approx(0.8f));
+}
+
+TEST_CASE("[Rendering][Environment] Vignette range stays ordered") {
+	const Vector2 low_range = EnvironmentColorGrading::clamp_vignette_range(-1.0f, -1.0f);
+	CHECK(low_range.x == doctest::Approx(0.0f));
+	CHECK(low_range.y == doctest::Approx(0.001f));
+
+	const Vector2 high_range = EnvironmentColorGrading::clamp_vignette_range(5.0f, 5.0f);
+	CHECK(high_range.x == doctest::Approx(0.999f));
+	CHECK(high_range.y == doctest::Approx(1.0f));
+}
+
 } // namespace TestEnvironmentColorGrading

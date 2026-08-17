@@ -92,6 +92,7 @@ layout(push_constant, std430) uniform Params {
 	vec4 tonemapper_params;
 	vec4 offset;
 	vec4 tint_midtones_range;
+	vec4 tonal_ranges;
 	vec4 shadows;
 	vec4 midtones;
 	vec4 highlights;
@@ -99,8 +100,8 @@ layout(push_constant, std430) uniform Params {
 	float vibrance;
 	float local_contrast;
 	float local_contrast_fine;
-	float local_contrast_coarse;
 	float vignette;
+	vec2 vignette_range;
 }
 params;
 
@@ -940,27 +941,22 @@ void main() {
 		luma_small += sample_source_tonemapped_luminance(clamp(uv_interp - vec2(0.0, texel.y), vec2(0.0), vec2(1.0)), exposure);
 		luma_small *= 0.2;
 
-		vec2 large_texel = texel * 4.0;
-		float luma_large = center_luminance;
-		luma_large += sample_source_tonemapped_luminance(clamp(uv_interp + vec2(large_texel.x, 0.0), vec2(0.0), vec2(1.0)), exposure);
-		luma_large += sample_source_tonemapped_luminance(clamp(uv_interp - vec2(large_texel.x, 0.0), vec2(0.0), vec2(1.0)), exposure);
-		luma_large += sample_source_tonemapped_luminance(clamp(uv_interp + vec2(0.0, large_texel.y), vec2(0.0), vec2(1.0)), exposure);
-		luma_large += sample_source_tonemapped_luminance(clamp(uv_interp - vec2(0.0, large_texel.y), vec2(0.0), vec2(1.0)), exposure);
-		luma_large *= 0.2;
+		// Measure local differences in stops so the response remains perceptually
+		// consistent across dark and bright regions.
+		float log_center = log2(center_luminance + 0.001);
+		float log_small = log2(luma_small + 0.001);
+		float fine_detail = log_center - log_small;
 
-		float diff_s = (center_luminance + 0.001) / (luma_small + 0.001);
-		diff_s = min(pow(max(diff_s, 0.0), 1.15), 1.0);
+		// Avoid amplifying noise near black and clipping detail near display white.
+		float shadow_protection = smoothstep(0.01, 0.08, center_luminance);
+		float highlight_protection = 1.0 - smoothstep(0.75, 1.0, center_luminance);
+		float tonal_protection = shadow_protection * highlight_protection;
+		fine_detail *= mix(0.5, 1.0, tonal_protection);
 
-		float luma_large_shaped = pow(max(luma_large, 0.0001), 0.9);
-		luma_large_shaped = mix(luma_large_shaped, 0.5, smoothstep(0.55, 0.9, luma_large_shaped));
-
-		float highlight_protection = 1.0 - smoothstep(0.6, 1.0, center_luminance);
-		float master_strength = clamp(params.local_contrast * 0.25, 0.0, 1.0) * highlight_protection;
-		float detail_strength = clamp(params.local_contrast_fine, 0.0, 3.0) * master_strength;
-		float tone_strength = clamp(params.local_contrast_coarse, 0.0, 3.0) * master_strength;
-
-		color.rgb *= mix(1.0, diff_s, clamp(detail_strength, 0.0, 1.0));
-		color.rgb *= mix(1.0, luma_large_shaped + 0.5, clamp(tone_strength * 0.35, 0.0, 1.0));
+		float master_strength = 1.0 - exp2(-max(params.local_contrast, 0.0));
+		float contrast_delta = fine_detail * clamp(params.local_contrast_fine, 0.0, 3.0);
+		float local_contrast_multiplier = exp2(clamp(contrast_delta * master_strength, -0.75, 0.75));
+		color.rgb *= local_contrast_multiplier;
 	}
 
 	// Post-tonemap glow.
@@ -1013,9 +1009,25 @@ void main() {
 			float luminance = dot(color.rgb, vec3(0.2126, 0.7152, 0.0722));
 			float midtones_start = clamp(params.tint_midtones_range.y, 0.0, 0.99);
 			float midtones_end = clamp(params.tint_midtones_range.z, midtones_start + 0.01, 1.0);
-			float shadows_weight = 1.0 - smoothstep(0.0, midtones_start, luminance);
-			float highlights_weight = smoothstep(midtones_end, 1.0, luminance);
-			float midtones_weight = max(0.0, 1.0 - shadows_weight - highlights_weight);
+			float shadows_start = clamp(params.tonal_ranges.x, 0.0, midtones_start);
+			float shadows_end = clamp(params.tonal_ranges.y, shadows_start, midtones_start);
+			float highlights_start = clamp(params.tonal_ranges.z, midtones_end, 1.0);
+			float highlights_end = clamp(params.tonal_ranges.w, highlights_start, 1.0);
+
+			// Build three independent masks so every range handle has a visual effect.
+			// Explicit divisions keep coincident handles well-defined.
+			float shadows_t = clamp((luminance - shadows_start) / max(shadows_end - shadows_start, 0.0001), 0.0, 1.0);
+			float shadows_weight = 1.0 - shadows_t * shadows_t * (3.0 - 2.0 * shadows_t);
+			float midtones_in_t = clamp((luminance - shadows_start) / max(midtones_start - shadows_start, 0.0001), 0.0, 1.0);
+			float midtones_out_t = clamp((luminance - midtones_end) / max(highlights_end - midtones_end, 0.0001), 0.0, 1.0);
+			float midtones_weight = midtones_in_t * midtones_in_t * (3.0 - 2.0 * midtones_in_t);
+			midtones_weight *= 1.0 - midtones_out_t * midtones_out_t * (3.0 - 2.0 * midtones_out_t);
+			float highlights_t = clamp((luminance - highlights_start) / max(highlights_end - highlights_start, 0.0001), 0.0, 1.0);
+			float highlights_weight = highlights_t * highlights_t * (3.0 - 2.0 * highlights_t);
+			float weight_sum = max(shadows_weight + midtones_weight + highlights_weight, 0.0001);
+			shadows_weight /= weight_sum;
+			midtones_weight /= weight_sum;
+			highlights_weight /= weight_sum;
 			vec3 wheel_color = params.shadows.rgb * shadows_weight;
 			wheel_color += params.midtones.rgb * midtones_weight;
 			wheel_color += params.highlights.rgb * highlights_weight;
@@ -1038,7 +1050,9 @@ void main() {
 		if (abs(params.vibrance) > 0.001) {
 			vec3 hsv = grading_rgb_to_hsv(color.rgb);
 			if (params.vibrance > 0.0) {
-				hsv.y += (1.0 - hsv.y) * params.vibrance;
+				// Emphasize moderately saturated colors without tinting neutrals or
+				// pushing already saturated colors disproportionately.
+				hsv.y += hsv.y * (1.0 - hsv.y) * params.vibrance;
 			} else {
 				hsv.y *= (1.0 + params.vibrance);
 			}
@@ -1048,8 +1062,14 @@ void main() {
 
 		if (params.vignette > 0.001) {
 			vec2 vignette_uv = uv_interp * 2.0 - 1.0;
-			vignette_uv.x *= params.pixel_size.y / params.pixel_size.x;
-			float vignette_mask = smoothstep(0.2, 1.2, dot(vignette_uv, vignette_uv));
+			float aspect = params.pixel_size.y / params.pixel_size.x;
+			vignette_uv.x *= aspect;
+			float vignette_radius = length(vignette_uv);
+			float vignette_max_radius = length(vec2(aspect, 1.0));
+			float vignette_t = vignette_radius / max(vignette_max_radius, 0.00001);
+			float vignette_start = clamp(params.vignette_range.x, 0.0, 0.999);
+			float vignette_end = clamp(params.vignette_range.y, vignette_start + 0.001, 1.0);
+			float vignette_mask = smoothstep(vignette_start, vignette_end, vignette_t);
 			float vignette_strength = clamp(params.vignette * 0.5, 0.0, 1.0);
 			color.rgb *= 1.0 - vignette_strength * vignette_mask;
 		}

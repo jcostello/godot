@@ -174,6 +174,10 @@ void ToneMapper::tonemapper(RID p_source_color, RID p_dst_framebuffer, const Ton
 	tonemap.push_constant.tint_midtones_range[1] = p_settings.midtones_start;
 	tonemap.push_constant.tint_midtones_range[2] = p_settings.midtones_end;
 	tonemap.push_constant.tint_midtones_range[3] = p_settings.color_grading_intensity;
+	tonemap.push_constant.tonal_ranges[0] = p_settings.shadows_start;
+	tonemap.push_constant.tonal_ranges[1] = p_settings.shadows_end;
+	tonemap.push_constant.tonal_ranges[2] = p_settings.highlights_start;
+	tonemap.push_constant.tonal_ranges[3] = p_settings.highlights_end;
 	tonemap.push_constant.flags |= p_settings.use_auto_exposure ? TONEMAP_FLAG_USE_AUTO_EXPOSURE : 0;
 	tonemap.push_constant.exposure = p_settings.exposure;
 	tonemap.push_constant.white = p_settings.white;
@@ -186,8 +190,9 @@ void ToneMapper::tonemapper(RID p_source_color, RID p_dst_framebuffer, const Ton
 	tonemap.push_constant.vibrance = p_settings.vibrance;
 	tonemap.push_constant.local_contrast = p_settings.local_contrast;
 	tonemap.push_constant.local_contrast_fine = p_settings.local_contrast_fine;
-	tonemap.push_constant.local_contrast_coarse = p_settings.local_contrast_coarse;
 	tonemap.push_constant.vignette = p_settings.vignette;
+	tonemap.push_constant.vignette_range[0] = p_settings.vignette_start;
+	tonemap.push_constant.vignette_range[1] = p_settings.vignette_end;
 
 	tonemap.push_constant.flags |= p_settings.use_color_correction ? TONEMAP_FLAG_USE_COLOR_CORRECTION : 0;
 
@@ -285,7 +290,6 @@ void ToneMapper::tonemapper_mobile(RID p_source_color, RID p_dst_framebuffer, co
 	tonemap_mobile.push_constant.vibrance = p_settings.vibrance;
 	tonemap_mobile.push_constant.local_contrast = p_settings.local_contrast;
 	tonemap_mobile.push_constant.local_contrast_fine = p_settings.local_contrast_fine;
-	tonemap_mobile.push_constant.local_contrast_coarse = p_settings.local_contrast_coarse;
 	tonemap_mobile.push_constant.vignette = p_settings.vignette;
 
 	tonemap_mobile.push_constant.tonemapper_params[0] = p_settings.tonemapper_params[0];
@@ -300,6 +304,10 @@ void ToneMapper::tonemapper_mobile(RID p_source_color, RID p_dst_framebuffer, co
 	tonemap_mobile.push_constant.tint_midtones_range[1] = p_settings.midtones_start;
 	tonemap_mobile.push_constant.tint_midtones_range[2] = p_settings.midtones_end;
 	tonemap_mobile.push_constant.tint_midtones_range[3] = p_settings.color_grading_intensity;
+	tonemap_mobile.push_constant.tonal_ranges[0] = p_settings.shadows_start;
+	tonemap_mobile.push_constant.tonal_ranges[1] = p_settings.shadows_end;
+	tonemap_mobile.push_constant.tonal_ranges[2] = p_settings.highlights_start;
+	tonemap_mobile.push_constant.tonal_ranges[3] = p_settings.highlights_end;
 	tonemap_mobile.push_constant.shadows[0] = p_settings.shadows_color.r;
 	tonemap_mobile.push_constant.shadows[1] = p_settings.shadows_color.g;
 	tonemap_mobile.push_constant.shadows[2] = p_settings.shadows_color.b;
@@ -410,8 +418,9 @@ void ToneMapper::tonemapper_subpass(RD::DrawListID p_subpass_draw_list, RID p_so
 	tonemap_mobile.push_constant.vibrance = p_settings.vibrance;
 	tonemap_mobile.push_constant.local_contrast = p_settings.local_contrast;
 	tonemap_mobile.push_constant.local_contrast_fine = p_settings.local_contrast_fine;
-	tonemap_mobile.push_constant.local_contrast_coarse = p_settings.local_contrast_coarse;
 	tonemap_mobile.push_constant.vignette = p_settings.vignette;
+	tonemap_mobile.push_constant.vignette_range[0] = p_settings.vignette_start;
+	tonemap_mobile.push_constant.vignette_range[1] = p_settings.vignette_end;
 
 	tonemap_mobile.push_constant.tonemapper_params[0] = p_settings.tonemapper_params[0];
 	tonemap_mobile.push_constant.tonemapper_params[1] = p_settings.tonemapper_params[1];

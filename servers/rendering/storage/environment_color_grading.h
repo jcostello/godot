@@ -36,9 +36,38 @@
 
 namespace EnvironmentColorGrading {
 
+struct TonalRanges {
+	float shadows_start = 0.0f;
+	float shadows_end = 0.45f;
+	float midtones_start = 0.45f;
+	float midtones_end = 0.55f;
+	float highlights_start = 0.55f;
+	float highlights_end = 1.0f;
+};
+
 inline Vector2 clamp_midtones_range(float p_start, float p_end) {
 	const float start = CLAMP(p_start, 0.0f, 0.99f);
 	return Vector2(start, CLAMP(p_end, start + 0.01f, 1.0f));
+}
+
+inline TonalRanges clamp_tonal_ranges(float p_shadows_start, float p_shadows_end, float p_midtones_start, float p_midtones_end, float p_highlights_start, float p_highlights_end) {
+	TonalRanges ranges;
+	const Vector2 midtones_range = clamp_midtones_range(p_midtones_start, p_midtones_end);
+	ranges.midtones_start = midtones_range.x;
+	ranges.midtones_end = midtones_range.y;
+
+	ranges.shadows_start = CLAMP(p_shadows_start, 0.0f, ranges.midtones_start);
+	ranges.shadows_end = CLAMP(p_shadows_end, ranges.shadows_start, ranges.midtones_start);
+
+	ranges.highlights_start = CLAMP(p_highlights_start, ranges.midtones_end, 1.0f);
+	ranges.highlights_end = CLAMP(p_highlights_end, ranges.highlights_start, 1.0f);
+
+	return ranges;
+}
+
+inline Vector2 clamp_vignette_range(float p_start, float p_end) {
+	const float start = CLAMP(p_start, 0.0f, 0.999f);
+	return Vector2(start, CLAMP(p_end, start + 0.001f, 1.0f));
 }
 
 inline Color color_from_temperature(float p_temperature) {
