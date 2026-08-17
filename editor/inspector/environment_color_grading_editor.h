@@ -9,6 +9,7 @@
 #include "scene/gui/slider.h"
 
 class EnvironmentColorGradingEditor;
+class EnvironmentTonalRangesEditor;
 
 class EnvironmentColorGradingTrackballControl : public Control {
 	GDCLASS(EnvironmentColorGradingTrackballControl, Control);
@@ -51,6 +52,41 @@ public:
 	void set_trackball_color(int p_index, const Color &p_color, bool p_changing);
 	void set_trackball_luminance(int p_index, float p_luminance);
 	EnvironmentColorGradingEditor();
+};
+
+class EnvironmentTonalRangesControl : public Control {
+	GDCLASS(EnvironmentTonalRangesControl, Control);
+
+	EnvironmentTonalRangesEditor *editor = nullptr;
+	float midtones_start = 0.45f;
+	float midtones_end = 0.55f;
+	int dragging_handle = -1;
+
+	float _value_to_x(float p_value) const;
+	float _x_to_value(float p_x) const;
+	Rect2 _bar_rect() const;
+	void _set_handles_from_position(int p_handle, const Vector2 &p_position, bool p_changing);
+
+protected:
+	void _notification(int p_what);
+	void gui_input(const Ref<InputEvent> &p_event) override;
+
+public:
+	void set_values(float p_midtones_start, float p_midtones_end);
+	EnvironmentTonalRangesControl(EnvironmentTonalRangesEditor *p_editor);
+};
+
+class EnvironmentTonalRangesEditor : public EditorProperty {
+	GDCLASS(EnvironmentTonalRangesEditor, EditorProperty);
+
+	friend class EnvironmentTonalRangesControl;
+
+	EnvironmentTonalRangesControl *ranges_control = nullptr;
+
+public:
+	void update_property() override;
+	void set_tonal_ranges(float p_midtones_start, float p_midtones_end, bool p_changing);
+	EnvironmentTonalRangesEditor();
 };
 
 class EditorInspectorEnvironmentColorGradingPlugin : public EditorInspectorPlugin {

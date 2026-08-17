@@ -128,15 +128,17 @@ private:
 		float tonemapper_params[4]; //  16 - 112
 		float offset[4]; // 16 - 128
 		float tint_midtones_range[4]; // 16 - 144
-		float shadows[4]; // 16 - 160
-		float midtones[4]; // 16 - 176
-		float highlights[4]; // 16 - 192
-		float tonemap_temperature[3]; // 12 - 204
-		float vibrance; // 4 - 208
-		float local_contrast; // 4 - 212
-		float local_contrast_fine; // 4 - 216
-		float local_contrast_coarse; // 4 - 220
-		float vignette; // 4 - 224
+		float tonal_ranges[4]; // 16 - 160
+		float shadows[4]; // 16 - 176
+		float midtones[4]; // 16 - 192
+		float highlights[4]; // 16 - 208
+		float tonemap_temperature[3]; // 12 - 220
+		float vibrance; // 4 - 224
+		float local_contrast; // 4 - 228
+		float local_contrast_fine; // 4 - 232
+		float vignette; // 4 - 236
+		float pad; // 4 - 240
+		float vignette_range[2]; // 8 - 248
 	};
 
 	struct TonemapPushConstantMobile {
@@ -154,18 +156,19 @@ private:
 		float tonemapper_params[4]; //  16 - 64
 		float offset[4]; // 16 - 80
 		float tint_midtones_range[4]; // 16 - 96
-		float tonemap_temperature[3]; // 12 - 108
-		float output_max_value; // 4 - 112
-		float shadows[4]; // 16 - 128
-		float midtones[4]; // 16 - 144
-		float highlights[4]; // 16 - 160
-		float vibrance; // 4 - 164
-		float local_contrast; // 4 - 168
-		float local_contrast_fine; // 4 - 172
-		float local_contrast_coarse; // 4 - 176
-		float vignette; // 4 - 180
+		float tonal_ranges[4]; // 16 - 112
+		float tonemap_temperature[3]; // 12 - 124
+		float output_max_value; // 4 - 128
+		float shadows[4]; // 16 - 144
+		float midtones[4]; // 16 - 160
+		float highlights[4]; // 16 - 176
+		float vibrance; // 4 - 180
+		float local_contrast; // 4 - 184
+		float local_contrast_fine; // 4 - 188
+		float vignette; // 4 - 192
+		float vignette_range[2]; // 8 - 200
 	};
-	static_assert(sizeof(TonemapPushConstantMobile) == 180, "TonemapPushConstantMobile must match the shader layout.");
+	static_assert(sizeof(TonemapPushConstantMobile) == 200, "TonemapPushConstantMobile must match the shader layout.");
 
 	/* tonemap actually writes to a framebuffer, which is
 	 * better to do using the raster pipeline rather than
@@ -221,8 +224,12 @@ public:
 		Color offset_color = Color(1, 1, 1);
 		float offset_luminance = 1.0;
 		float tint = 0.0;
+		float shadows_start = 0.0;
+		float shadows_end = 0.45;
 		float midtones_start = 0.45;
 		float midtones_end = 0.55;
+		float highlights_start = 0.55;
+		float highlights_end = 1.0;
 		Color shadows_color = Color(1, 1, 1);
 		float shadows_luminance = 1.0;
 		Color midtones_color = Color(1, 1, 1);
@@ -254,8 +261,9 @@ public:
 		float vibrance = 0.0;
 		float local_contrast = 0.0;
 		float local_contrast_fine = 1.0;
-		float local_contrast_coarse = 1.0;
 		float vignette = 0.0;
+		float vignette_start = 0.6;
+		float vignette_end = 1.0;
 
 		bool convert_to_srgb = false;
 	};

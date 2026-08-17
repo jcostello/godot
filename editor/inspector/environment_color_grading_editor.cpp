@@ -238,6 +238,133 @@ bool EditorInspectorEnvironmentColorGradingPlugin::can_handle(Object *p_object) 
 	return Object::cast_to<Environment>(p_object) != nullptr;
 }
 
+float EnvironmentTonalRangesControl::_value_to_x(float p_value) const {
+	Rect2 bar = _bar_rect();
+	return bar.position.x + CLAMP(p_value, 0.0f, 1.0f) * bar.size.x;
+}
+
+float EnvironmentTonalRangesControl::_x_to_value(float p_x) const {
+	Rect2 bar = _bar_rect();
+	if (bar.size.x <= 0.0f) {
+		return 0.0f;
+	}
+	return CLAMP((p_x - bar.position.x) / bar.size.x, 0.0f, 1.0f);
+}
+
+Rect2 EnvironmentTonalRangesControl::_bar_rect() const {
+	const float margin = 10.0f * EDSCALE;
+	const float bar_height = 20.0f * EDSCALE;
+	return Rect2(margin, 16.0f * EDSCALE, MAX(1.0f, get_size().x - margin * 2.0f), bar_height);
+}
+
+void EnvironmentTonalRangesControl::_set_handles_from_position(int p_handle, const Vector2 &p_position, bool p_changing) {
+	float value = _x_to_value(p_position.x);
+	if (p_handle == 0) {
+		midtones_start = MIN(value, midtones_end - 0.01f);
+	} else {
+		midtones_end = MAX(value, midtones_start + 0.01f);
+	}
+	editor->set_tonal_ranges(midtones_start, midtones_end, p_changing);
+	queue_redraw();
+}
+
+void EnvironmentTonalRangesControl::_notification(int p_what) {
+	if (p_what == NOTIFICATION_RESIZED) {
+		set_custom_minimum_size(Size2(0, 62.0f * EDSCALE));
+		return;
+	}
+	if (p_what != NOTIFICATION_DRAW) {
+		return;
+	}
+
+	Rect2 bar = _bar_rect();
+	const float handle_radius = 7.0f * EDSCALE;
+	const float x0 = _value_to_x(0.0f);
+	const float x1 = _value_to_x(midtones_start);
+	const float x2 = _value_to_x(midtones_end);
+	const float x3 = _value_to_x(1.0f);
+
+	draw_rect(Rect2(x0, bar.position.y, x1 - x0, bar.size.y), Color(0.30, 0.34, 0.42));
+	draw_rect(Rect2(x1, bar.position.y, x2 - x1, bar.size.y), Color(0.48, 0.49, 0.52));
+	draw_rect(Rect2(x2, bar.position.y, x3 - x2, bar.size.y), Color(0.77, 0.73, 0.61));
+	draw_rect(bar, Color(0.92, 0.92, 0.92, 0.3), false, 1.0f * EDSCALE);
+
+	Vector2 h1(x1, bar.get_center().y);
+	Vector2 h2(x2, bar.get_center().y);
+	draw_circle(h1, handle_radius, Color(0.14, 0.14, 0.14));
+	draw_circle(h1, handle_radius - 2.0f * EDSCALE, Color(0.95, 0.95, 0.95));
+	draw_circle(h2, handle_radius, Color(0.14, 0.14, 0.14));
+	draw_circle(h2, handle_radius - 2.0f * EDSCALE, Color(0.95, 0.95, 0.95));
+
+	Ref<Font> font = get_theme_font(SNAME("font"), SNAME("Label"));
+	int font_size = get_theme_font_size(SNAME("font_size"), SNAME("Label"));
+	Color font_color = get_theme_color(SNAME("font_color"), SNAME("Label"));
+	const String label = vformat(TTR("Shadows %.3f  |  Middle %.3f-%.3f  |  Highlights %.3f"), midtones_start, midtones_start, midtones_end, midtones_end);
+	draw_string(font, Vector2(bar.position.x, bar.position.y + bar.size.y + 18.0f * EDSCALE), label, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, font_color);
+}
+
+void EnvironmentTonalRangesControl::gui_input(const Ref<InputEvent> &p_event) {
+	Ref<InputEventMouseButton> button = p_event;
+	if (button.is_valid() && button->get_button_index() == MouseButton::LEFT) {
+		if (button->is_pressed()) {
+			Rect2 bar = _bar_rect();
+			Vector2 h1(_value_to_x(midtones_start), bar.get_center().y);
+			Vector2 h2(_value_to_x(midtones_end), bar.get_center().y);
+			float d1 = h1.distance_to(button->get_position());
+			float d2 = h2.distance_to(button->get_position());
+			dragging_handle = d1 <= d2 ? 0 : 1;
+			_set_handles_from_position(dragging_handle, button->get_position(), true);
+			accept_event();
+		} else if (dragging_handle >= 0) {
+			_set_handles_from_position(dragging_handle, button->get_position(), false);
+			dragging_handle = -1;
+			accept_event();
+		}
+	}
+
+	Ref<InputEventMouseMotion> motion = p_event;
+	if (motion.is_valid() && dragging_handle >= 0) {
+		_set_handles_from_position(dragging_handle, motion->get_position(), true);
+		accept_event();
+	}
+}
+
+void EnvironmentTonalRangesControl::set_values(float p_midtones_start, float p_midtones_end) {
+	midtones_start = p_midtones_start;
+	midtones_end = p_midtones_end;
+	queue_redraw();
+}
+
+EnvironmentTonalRangesControl::EnvironmentTonalRangesControl(EnvironmentTonalRangesEditor *p_editor) {
+	editor = p_editor;
+	set_custom_minimum_size(Size2(0, 62.0f * EDSCALE));
+	set_h_size_flags(SIZE_EXPAND_FILL);
+	set_mouse_filter(MOUSE_FILTER_STOP);
+}
+
+void EnvironmentTonalRangesEditor::update_property() {
+	Object *edited_object = get_edited_object();
+	ERR_FAIL_NULL(edited_object);
+	const float start = edited_object->get("adjustment_midtones_start");
+	const float end = edited_object->get("adjustment_midtones_end");
+	ranges_control->set_values(start, end);
+}
+
+void EnvironmentTonalRangesEditor::set_tonal_ranges(float p_midtones_start, float p_midtones_end, bool p_changing) {
+	emit_changed("adjustment_shadows_end", p_midtones_start, StringName(), p_changing);
+	emit_changed("adjustment_midtones_start", p_midtones_start, StringName(), p_changing);
+	emit_changed("adjustment_midtones_end", p_midtones_end, StringName(), p_changing);
+	emit_changed("adjustment_highlights_start", p_midtones_end, StringName(), p_changing);
+}
+
+EnvironmentTonalRangesEditor::EnvironmentTonalRangesEditor() {
+	set_draw_label(true);
+	set_label(TTR("Shadows/Middle/Highlights"));
+	ranges_control = memnew(EnvironmentTonalRangesControl(this));
+	add_child(ranges_control);
+	set_bottom_editor(ranges_control);
+}
+
 bool EditorInspectorEnvironmentColorGradingPlugin::parse_property(Object *p_object, const Variant::Type p_type, const String &p_path, const PropertyHint p_hint, const String &p_hint_text, const BitField<PropertyUsageFlags> p_usage, const bool p_wide) {
 	static const Vector<String> properties = {
 		"adjustment_offset_color",
@@ -249,9 +376,21 @@ bool EditorInspectorEnvironmentColorGradingPlugin::parse_property(Object *p_obje
 		"adjustment_highlights_color",
 		"adjustment_highlights_luminance",
 	};
+	static const Vector<String> tonal_properties = {
+		"adjustment_shadows_start",
+		"adjustment_shadows_end",
+		"adjustment_midtones_start",
+		"adjustment_midtones_end",
+		"adjustment_highlights_start",
+		"adjustment_highlights_end",
+	};
 	if (p_path == properties[0]) {
 		add_property_editor_for_multiple_properties(String(), properties, memnew(EnvironmentColorGradingEditor));
 		return true;
 	}
-	return properties.has(p_path);
+	if (p_path == tonal_properties[0]) {
+		add_property_editor_for_multiple_properties(String(), tonal_properties, memnew(EnvironmentTonalRangesEditor));
+		return true;
+	}
+	return properties.has(p_path) || tonal_properties.has(p_path);
 }

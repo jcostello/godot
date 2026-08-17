@@ -226,8 +226,12 @@ private:
 	float adjustment_contrast = 1.0;
 	float adjustment_saturation = 1.0;
 	float adjustment_tint = 0.0;
+	float adjustment_shadows_start = 0.0;
+	float adjustment_shadows_end = 0.45;
 	float adjustment_midtones_start = 0.45;
 	float adjustment_midtones_end = 0.55;
+	float adjustment_highlights_start = 0.55;
+	float adjustment_highlights_end = 1.0;
 	Color adjustment_offset_color = Color(1, 1, 1);
 	float adjustment_offset_luminance = 1.0;
 	Color adjustment_shadows_color = Color(1, 1, 1);
@@ -249,8 +253,9 @@ private:
 	float adjustment_vibrance = 0.0;
 	float adjustment_local_contrast = 0.0;
 	float adjustment_local_contrast_fine = 1.0;
-	float adjustment_local_contrast_coarse = 1.0;
 	float adjustment_vignette = 0.0;
+	float adjustment_vignette_start = 0.6;
+	float adjustment_vignette_end = 1.0;
 	void _update_adjustment();
 	void _update_adjustment_curves();
 
@@ -486,10 +491,18 @@ public:
 	float get_adjustment_saturation() const;
 	void set_adjustment_tint(float p_tint);
 	float get_adjustment_tint() const;
+	void set_adjustment_shadows_start(float p_shadows_start);
+	float get_adjustment_shadows_start() const;
+	void set_adjustment_shadows_end(float p_shadows_end);
+	float get_adjustment_shadows_end() const;
 	void set_adjustment_midtones_start(float p_midtones_start);
 	float get_adjustment_midtones_start() const;
 	void set_adjustment_midtones_end(float p_midtones_end);
 	float get_adjustment_midtones_end() const;
+	void set_adjustment_highlights_start(float p_highlights_start);
+	float get_adjustment_highlights_start() const;
+	void set_adjustment_highlights_end(float p_highlights_end);
+	float get_adjustment_highlights_end() const;
 	void set_adjustment_offset_color(const Color &p_color);
 	Color get_adjustment_offset_color() const;
 	void set_adjustment_offset_luminance(float p_luminance);
@@ -522,10 +535,12 @@ public:
 	float get_adjustment_local_contrast() const;
 	void set_adjustment_local_contrast_fine(float p_local_contrast_fine);
 	float get_adjustment_local_contrast_fine() const;
-	void set_adjustment_local_contrast_coarse(float p_local_contrast_coarse);
-	float get_adjustment_local_contrast_coarse() const;
 	void set_adjustment_vignette(float p_vignette);
 	float get_adjustment_vignette() const;
+	void set_adjustment_vignette_start(float p_start);
+	float get_adjustment_vignette_start() const;
+	void set_adjustment_vignette_end(float p_end);
+	float get_adjustment_vignette_end() const;
 
 	Environment();
 	~Environment();

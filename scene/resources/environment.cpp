@@ -38,6 +38,7 @@
 #include "scene/resources/gradient_texture.h"
 #include "scene/resources/sky.h"
 #include "servers/rendering/rendering_server.h"
+#include "servers/rendering/storage/environment_color_grading.h"
 
 RID Environment::get_rid() const {
 	return environment;
@@ -1119,9 +1120,45 @@ float Environment::get_adjustment_tint() const {
 	return adjustment_tint;
 }
 
+static void _clamp_environment_tonal_ranges(float &r_shadows_start, float &r_shadows_end, float &r_midtones_start, float &r_midtones_end, float &r_highlights_start, float &r_highlights_end) {
+	const EnvironmentColorGrading::TonalRanges ranges = EnvironmentColorGrading::clamp_tonal_ranges(
+			r_shadows_start,
+			r_shadows_end,
+			r_midtones_start,
+			r_midtones_end,
+			r_highlights_start,
+			r_highlights_end);
+	r_shadows_start = ranges.shadows_start;
+	r_shadows_end = ranges.shadows_end;
+	r_midtones_start = ranges.midtones_start;
+	r_midtones_end = ranges.midtones_end;
+	r_highlights_start = ranges.highlights_start;
+	r_highlights_end = ranges.highlights_end;
+}
+
+void Environment::set_adjustment_shadows_start(float p_shadows_start) {
+	adjustment_shadows_start = p_shadows_start;
+	_clamp_environment_tonal_ranges(adjustment_shadows_start, adjustment_shadows_end, adjustment_midtones_start, adjustment_midtones_end, adjustment_highlights_start, adjustment_highlights_end);
+	_update_adjustment();
+}
+
+float Environment::get_adjustment_shadows_start() const {
+	return adjustment_shadows_start;
+}
+
+void Environment::set_adjustment_shadows_end(float p_shadows_end) {
+	adjustment_shadows_end = p_shadows_end;
+	_clamp_environment_tonal_ranges(adjustment_shadows_start, adjustment_shadows_end, adjustment_midtones_start, adjustment_midtones_end, adjustment_highlights_start, adjustment_highlights_end);
+	_update_adjustment();
+}
+
+float Environment::get_adjustment_shadows_end() const {
+	return adjustment_shadows_end;
+}
+
 void Environment::set_adjustment_midtones_start(float p_midtones_start) {
-	adjustment_midtones_end = CLAMP(adjustment_midtones_end, 0.01f, 1.0f);
-	adjustment_midtones_start = CLAMP(p_midtones_start, 0.0f, adjustment_midtones_end - 0.01f);
+	adjustment_midtones_start = p_midtones_start;
+	_clamp_environment_tonal_ranges(adjustment_shadows_start, adjustment_shadows_end, adjustment_midtones_start, adjustment_midtones_end, adjustment_highlights_start, adjustment_highlights_end);
 	_update_adjustment();
 }
 
@@ -1130,13 +1167,33 @@ float Environment::get_adjustment_midtones_start() const {
 }
 
 void Environment::set_adjustment_midtones_end(float p_midtones_end) {
-	adjustment_midtones_start = CLAMP(adjustment_midtones_start, 0.0f, 0.99f);
-	adjustment_midtones_end = CLAMP(p_midtones_end, adjustment_midtones_start + 0.01f, 1.0f);
+	adjustment_midtones_end = p_midtones_end;
+	_clamp_environment_tonal_ranges(adjustment_shadows_start, adjustment_shadows_end, adjustment_midtones_start, adjustment_midtones_end, adjustment_highlights_start, adjustment_highlights_end);
 	_update_adjustment();
 }
 
 float Environment::get_adjustment_midtones_end() const {
 	return adjustment_midtones_end;
+}
+
+void Environment::set_adjustment_highlights_start(float p_highlights_start) {
+	adjustment_highlights_start = p_highlights_start;
+	_clamp_environment_tonal_ranges(adjustment_shadows_start, adjustment_shadows_end, adjustment_midtones_start, adjustment_midtones_end, adjustment_highlights_start, adjustment_highlights_end);
+	_update_adjustment();
+}
+
+float Environment::get_adjustment_highlights_start() const {
+	return adjustment_highlights_start;
+}
+
+void Environment::set_adjustment_highlights_end(float p_highlights_end) {
+	adjustment_highlights_end = p_highlights_end;
+	_clamp_environment_tonal_ranges(adjustment_shadows_start, adjustment_shadows_end, adjustment_midtones_start, adjustment_midtones_end, adjustment_highlights_start, adjustment_highlights_end);
+	_update_adjustment();
+}
+
+float Environment::get_adjustment_highlights_end() const {
+	return adjustment_highlights_end;
 }
 
 void Environment::set_adjustment_offset_color(const Color &p_color) {
@@ -1368,15 +1425,6 @@ float Environment::get_adjustment_local_contrast_fine() const {
 	return adjustment_local_contrast_fine;
 }
 
-void Environment::set_adjustment_local_contrast_coarse(float p_local_contrast_coarse) {
-	adjustment_local_contrast_coarse = CLAMP(p_local_contrast_coarse, 0.0f, 3.0f);
-	_update_adjustment();
-}
-
-float Environment::get_adjustment_local_contrast_coarse() const {
-	return adjustment_local_contrast_coarse;
-}
-
 void Environment::set_adjustment_vignette(float p_vignette) {
 	adjustment_vignette = CLAMP(p_vignette, 0.0f, 2.0f);
 	_update_adjustment();
@@ -1384,6 +1432,28 @@ void Environment::set_adjustment_vignette(float p_vignette) {
 
 float Environment::get_adjustment_vignette() const {
 	return adjustment_vignette;
+}
+
+void Environment::set_adjustment_vignette_start(float p_start) {
+	const Vector2 range = EnvironmentColorGrading::clamp_vignette_range(p_start, adjustment_vignette_end);
+	adjustment_vignette_start = range.x;
+	adjustment_vignette_end = range.y;
+	_update_adjustment();
+}
+
+float Environment::get_adjustment_vignette_start() const {
+	return adjustment_vignette_start;
+}
+
+void Environment::set_adjustment_vignette_end(float p_end) {
+	const Vector2 range = EnvironmentColorGrading::clamp_vignette_range(adjustment_vignette_start, p_end);
+	adjustment_vignette_start = range.x;
+	adjustment_vignette_end = range.y;
+	_update_adjustment();
+}
+
+float Environment::get_adjustment_vignette_end() const {
+	return adjustment_vignette_end;
 }
 
 void Environment::_update_adjustment() {
@@ -1410,13 +1480,17 @@ void Environment::_update_adjustment() {
 	RS::get_singleton()->environment_set_adjustment_tint(environment, adjustment_tint);
 	RS::get_singleton()->environment_set_adjustment_midtones_range(
 			environment,
+			adjustment_shadows_start,
+			adjustment_shadows_end,
 			adjustment_midtones_start,
-			adjustment_midtones_end);
+			adjustment_midtones_end,
+			adjustment_highlights_start,
+			adjustment_highlights_end);
 	RS::get_singleton()->environment_set_adjustment_advance(environment, adjustment_advance, adjustment_color_grading_intensity);
 	RS::get_singleton()->environment_set_adjustment_vibrance(environment, adjustment_vibrance);
 	RS::get_singleton()->environment_set_adjustment_local_contrast(environment, adjustment_local_contrast);
-	RS::get_singleton()->environment_set_adjustment_local_contrast_scales(environment, adjustment_local_contrast_fine, adjustment_local_contrast_coarse);
-	RS::get_singleton()->environment_set_adjustment_vignette(environment, adjustment_vignette);
+	RS::get_singleton()->environment_set_adjustment_local_contrast_fine(environment, adjustment_local_contrast_fine);
+	RS::get_singleton()->environment_set_adjustment_vignette(environment, adjustment_vignette, adjustment_vignette_start, adjustment_vignette_end);
 }
 
 void Environment::_update_adjustment_curves() {
@@ -1453,7 +1527,7 @@ void Environment::_validate_property(PropertyInfo &p_property) const {
 	if (!Engine::get_singleton()->is_editor_hint()) {
 		return;
 	}
-	const bool advanced_adjustment_property = p_property.name == "adjustment_color_grading_intensity" || p_property.name == "adjustment_temperature" || p_property.name == "adjustment_tint" || p_property.name == "adjustment_vibrance" || p_property.name == "adjustment_local_contrast" || p_property.name == "adjustment_local_contrast_fine" || p_property.name == "adjustment_local_contrast_coarse" || p_property.name == "adjustment_vignette" || p_property.name.begins_with("adjustment_midtones_") || p_property.name.begins_with("adjustment_offset_") || p_property.name.begins_with("adjustment_shadows_") || p_property.name.begins_with("adjustment_highlights_") || p_property.name.begins_with("adjustment_hue_vs_") || p_property.name == "adjustment_saturation_vs_saturation" || p_property.name == "adjustment_luminance_vs_saturation";
+	const bool advanced_adjustment_property = p_property.name == "adjustment_color_grading_intensity" || p_property.name == "adjustment_temperature" || p_property.name == "adjustment_tint" || p_property.name == "adjustment_vibrance" || p_property.name == "adjustment_local_contrast" || p_property.name == "adjustment_local_contrast_fine" || p_property.name.begins_with("adjustment_vignette") || p_property.name.begins_with("adjustment_midtones_") || p_property.name.begins_with("adjustment_offset_") || p_property.name.begins_with("adjustment_shadows_") || p_property.name.begins_with("adjustment_highlights_") || p_property.name.begins_with("adjustment_hue_vs_") || p_property.name == "adjustment_saturation_vs_saturation" || p_property.name == "adjustment_luminance_vs_saturation";
 	if (!adjustment_advance && advanced_adjustment_property) {
 		p_property.usage = PROPERTY_USAGE_NO_EDITOR;
 		return;
@@ -1945,10 +2019,18 @@ void Environment::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("get_adjustment_saturation"), &Environment::get_adjustment_saturation);
 	ClassDB::bind_method(D_METHOD("set_adjustment_tint", "tint"), &Environment::set_adjustment_tint);
 	ClassDB::bind_method(D_METHOD("get_adjustment_tint"), &Environment::get_adjustment_tint);
+	ClassDB::bind_method(D_METHOD("set_adjustment_shadows_start", "start"), &Environment::set_adjustment_shadows_start);
+	ClassDB::bind_method(D_METHOD("get_adjustment_shadows_start"), &Environment::get_adjustment_shadows_start);
+	ClassDB::bind_method(D_METHOD("set_adjustment_shadows_end", "end"), &Environment::set_adjustment_shadows_end);
+	ClassDB::bind_method(D_METHOD("get_adjustment_shadows_end"), &Environment::get_adjustment_shadows_end);
 	ClassDB::bind_method(D_METHOD("set_adjustment_midtones_start", "start"), &Environment::set_adjustment_midtones_start);
 	ClassDB::bind_method(D_METHOD("get_adjustment_midtones_start"), &Environment::get_adjustment_midtones_start);
 	ClassDB::bind_method(D_METHOD("set_adjustment_midtones_end", "end"), &Environment::set_adjustment_midtones_end);
 	ClassDB::bind_method(D_METHOD("get_adjustment_midtones_end"), &Environment::get_adjustment_midtones_end);
+	ClassDB::bind_method(D_METHOD("set_adjustment_highlights_start", "start"), &Environment::set_adjustment_highlights_start);
+	ClassDB::bind_method(D_METHOD("get_adjustment_highlights_start"), &Environment::get_adjustment_highlights_start);
+	ClassDB::bind_method(D_METHOD("set_adjustment_highlights_end", "end"), &Environment::set_adjustment_highlights_end);
+	ClassDB::bind_method(D_METHOD("get_adjustment_highlights_end"), &Environment::get_adjustment_highlights_end);
 	ClassDB::bind_method(D_METHOD("set_adjustment_offset_color", "color"), &Environment::set_adjustment_offset_color);
 	ClassDB::bind_method(D_METHOD("get_adjustment_offset_color"), &Environment::get_adjustment_offset_color);
 	ClassDB::bind_method(D_METHOD("set_adjustment_offset_luminance", "luminance"), &Environment::set_adjustment_offset_luminance);
@@ -1981,10 +2063,12 @@ void Environment::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("get_adjustment_local_contrast"), &Environment::get_adjustment_local_contrast);
 	ClassDB::bind_method(D_METHOD("set_adjustment_local_contrast_fine", "local_contrast_fine"), &Environment::set_adjustment_local_contrast_fine);
 	ClassDB::bind_method(D_METHOD("get_adjustment_local_contrast_fine"), &Environment::get_adjustment_local_contrast_fine);
-	ClassDB::bind_method(D_METHOD("set_adjustment_local_contrast_coarse", "local_contrast_coarse"), &Environment::set_adjustment_local_contrast_coarse);
-	ClassDB::bind_method(D_METHOD("get_adjustment_local_contrast_coarse"), &Environment::get_adjustment_local_contrast_coarse);
 	ClassDB::bind_method(D_METHOD("set_adjustment_vignette", "vignette"), &Environment::set_adjustment_vignette);
 	ClassDB::bind_method(D_METHOD("get_adjustment_vignette"), &Environment::get_adjustment_vignette);
+	ClassDB::bind_method(D_METHOD("set_adjustment_vignette_start", "start"), &Environment::set_adjustment_vignette_start);
+	ClassDB::bind_method(D_METHOD("get_adjustment_vignette_start"), &Environment::get_adjustment_vignette_start);
+	ClassDB::bind_method(D_METHOD("set_adjustment_vignette_end", "end"), &Environment::set_adjustment_vignette_end);
+	ClassDB::bind_method(D_METHOD("get_adjustment_vignette_end"), &Environment::get_adjustment_vignette_end);
 
 	ADD_GROUP("Adjustments", "adjustment_");
 	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "adjustment_enabled", PROPERTY_HINT_GROUP_ENABLE), "set_adjustment_enabled", "is_adjustment_enabled");
@@ -2000,10 +2084,15 @@ void Environment::_bind_methods() {
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "adjustment_vibrance", PROPERTY_HINT_RANGE, "-1,1,0.01"), "set_adjustment_vibrance", "get_adjustment_vibrance");
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "adjustment_local_contrast", PROPERTY_HINT_RANGE, "0,4,0.01"), "set_adjustment_local_contrast", "get_adjustment_local_contrast");
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "adjustment_local_contrast_fine", PROPERTY_HINT_RANGE, "0,3,0.01"), "set_adjustment_local_contrast_fine", "get_adjustment_local_contrast_fine");
-	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "adjustment_local_contrast_coarse", PROPERTY_HINT_RANGE, "0,3,0.01"), "set_adjustment_local_contrast_coarse", "get_adjustment_local_contrast_coarse");
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "adjustment_vignette", PROPERTY_HINT_RANGE, "0,2,0.01"), "set_adjustment_vignette", "get_adjustment_vignette");
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "adjustment_vignette_start", PROPERTY_HINT_RANGE, "0,1,0.001"), "set_adjustment_vignette_start", "get_adjustment_vignette_start");
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "adjustment_vignette_end", PROPERTY_HINT_RANGE, "0,1,0.001"), "set_adjustment_vignette_end", "get_adjustment_vignette_end");
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "adjustment_shadows_start", PROPERTY_HINT_RANGE, "0,1,0.001"), "set_adjustment_shadows_start", "get_adjustment_shadows_start");
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "adjustment_shadows_end", PROPERTY_HINT_RANGE, "0,1,0.001"), "set_adjustment_shadows_end", "get_adjustment_shadows_end");
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "adjustment_midtones_start", PROPERTY_HINT_RANGE, "0,1,0.001"), "set_adjustment_midtones_start", "get_adjustment_midtones_start");
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "adjustment_midtones_end", PROPERTY_HINT_RANGE, "0,1,0.001"), "set_adjustment_midtones_end", "get_adjustment_midtones_end");
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "adjustment_highlights_start", PROPERTY_HINT_RANGE, "0,1,0.001"), "set_adjustment_highlights_start", "get_adjustment_highlights_start");
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "adjustment_highlights_end", PROPERTY_HINT_RANGE, "0,1,0.001"), "set_adjustment_highlights_end", "get_adjustment_highlights_end");
 	ADD_PROPERTY(PropertyInfo(Variant::COLOR, "adjustment_offset_color", PROPERTY_HINT_COLOR_NO_ALPHA), "set_adjustment_offset_color", "get_adjustment_offset_color");
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "adjustment_offset_luminance", PROPERTY_HINT_RANGE, "0.0,2.0,0.01,or_greater"), "set_adjustment_offset_luminance", "get_adjustment_offset_luminance");
 	ADD_PROPERTY(PropertyInfo(Variant::COLOR, "adjustment_shadows_color", PROPERTY_HINT_COLOR_NO_ALPHA), "set_adjustment_shadows_color", "get_adjustment_shadows_color");
