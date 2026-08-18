@@ -117,10 +117,6 @@ bool sc_use_lightmap_bicubic_filter() {
 	return ((sc_packed_0() >> 10) & 1U) != 0;
 }
 
-bool sc_use_lightmap_specular() {
-	return ((sc_packed_1() >> 31) & 1U) != 0;
-}
-
 bool sc_use_material_debanding() {
 	return ((sc_packed_0() >> 11) & 1U) != 0;
 }
@@ -221,6 +217,10 @@ bool sc_directional_light_blend_split(uint i) {
 	return ((sc_packed_1() >> (23 + i)) & 1U) != 0;
 }
 
+bool sc_use_lightmap_specular() {
+	return ((sc_packed_1() >> 31) & 1U) != 0;
+}
+
 half sc_luminance_multiplier() {
 	return half(sc_packed_2());
 }
@@ -301,7 +301,9 @@ struct Lightmap {
 	float exposure_normalization;
 	float specular_intensity;
 	uint flags;
-	float pad[3];
+	uint pad1;
+	uint pad2;
+	uint pad3;
 };
 
 layout(set = 0, binding = 8, std140) restrict readonly buffer Lightmaps {

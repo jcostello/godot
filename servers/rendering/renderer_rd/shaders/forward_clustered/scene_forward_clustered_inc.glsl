@@ -237,7 +237,9 @@ struct Lightmap {
 	float exposure_normalization;
 	float specular_intensity;
 	uint flags;
-	float pad[3];
+	uint pad1;
+	uint pad2;
+	uint pad3;
 };
 
 layout(set = 0, binding = 8, std140) restrict readonly buffer Lightmaps {

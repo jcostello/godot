@@ -191,7 +191,7 @@ private:
 		float exposure_normalization;
 		float specular_intensity;
 		uint32_t flags;
-		float pad[3];
+		uint32_t pad[3];
 	};
 
 	struct LightmapCaptureData {
@@ -405,7 +405,8 @@ private:
 			struct {
 				uint32_t lod_index : 8;
 				uint32_t uses_lightmap : 1;
-				uint32_t reserved : 23;
+				uint32_t uses_lightmap_specular : 1;
+				uint32_t reserved : 22;
 			};
 			uint32_t value;
 		};
@@ -493,7 +494,8 @@ protected:
 				// Needs to be grouped together to be used in RenderElementInfo, as the value is masked directly.
 				uint64_t lod_index : 8;
 				uint64_t uses_lightmap : 1;
-				uint64_t pad : 3;
+				uint64_t uses_lightmap_specular : 1;
+				uint64_t pad : 2;
 
 				// Sorted based on optimal order for respecting priority and reducing the amount of rebinding of shaders, materials,
 				// and geometry. This current order was found to be the most optimal in large projects. If you wish to measure
@@ -512,7 +514,6 @@ protected:
 		RSE::PrimitiveType primitive = RSE::PRIMITIVE_MAX;
 		uint32_t flags = 0;
 		uint32_t surface_index = 0;
-		bool lightmap_has_specular = false;
 
 		void *surface = nullptr;
 		RID material_uniform_set;

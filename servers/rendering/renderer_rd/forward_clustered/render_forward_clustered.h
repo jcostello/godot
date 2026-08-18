@@ -264,7 +264,7 @@ private:
 		float exposure_normalization;
 		float specular_intensity;
 		uint32_t flags;
-		float pad[3];
+		uint32_t pad[3];
 	};
 
 	struct LightmapCaptureData {
@@ -463,6 +463,9 @@ private:
 				uint32_t uses_projector : 1;
 				uint32_t uses_forward_gi : 1;
 				uint32_t uses_lightmap : 1;
+
+				// This value is not part of the sort key as there are no more available bits.
+				uint32_t uses_lightmap_specular : 1;
 			};
 			uint32_t value;
 		};
@@ -519,6 +522,7 @@ private:
 				uint64_t uses_projector : 1;
 				uint64_t uses_forward_gi : 1;
 				uint64_t uses_lightmap : 1;
+				// "uses_lightmap_specular" is excluded as there are no more available bits.
 
 				// Sorted based on optimal order for respecting priority and reducing the amount of rebinding of shaders, materials,
 				// and geometry. This current order was found to be the most optimal in large projects. If you wish to measure
@@ -537,7 +541,7 @@ private:
 		RSE::PrimitiveType primitive = RSE::PRIMITIVE_MAX;
 		uint32_t flags = 0;
 		uint32_t surface_index = 0;
-		bool lightmap_has_specular = false;
+		bool uses_lightmap_specular = false;
 		uint32_t color_pass_inclusion_mask = 0;
 
 		void *surface = nullptr;

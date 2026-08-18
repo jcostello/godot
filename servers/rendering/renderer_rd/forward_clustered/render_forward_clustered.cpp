@@ -420,7 +420,6 @@ void RenderForwardClustered::_render_list_template(RenderingDevice::DrawListID p
 		RID xforms_uniform_set = surf->owner->transforms_uniform_set;
 
 		SceneShaderForwardClustered::ShaderSpecialization pipeline_specialization = p_params->base_specialization;
-		pipeline_specialization.use_lightmap_specular = surf->lightmap_has_specular;
 		pipeline_specialization.multimesh = bool(surf->owner->base_flags & INSTANCE_DATA_FLAG_MULTIMESH);
 		pipeline_specialization.multimesh_format_2d = bool(surf->owner->base_flags & INSTANCE_DATA_FLAG_MULTIMESH_FORMAT_2D);
 		pipeline_specialization.multimesh_has_color = bool(surf->owner->base_flags & INSTANCE_DATA_FLAG_MULTIMESH_HAS_COLOR);
@@ -430,6 +429,7 @@ void RenderForwardClustered::_render_list_template(RenderingDevice::DrawListID p
 			pipeline_specialization.use_light_soft_shadows = element_info.uses_softshadow;
 			pipeline_specialization.use_light_projector = element_info.uses_projector;
 			pipeline_specialization.use_directional_soft_shadows = p_params->use_directional_soft_shadow;
+			pipeline_specialization.use_lightmap_specular = element_info.uses_lightmap_specular;
 		}
 
 		pipeline_key.color_pass_flags = 0;
@@ -878,7 +878,7 @@ void RenderForwardClustered::_fill_instance_data(RenderListType p_render_list, i
 
 		const bool cant_repeat = instance_data.flags & INSTANCE_DATA_FLAG_MULTIMESH || inst->mesh_instance.is_valid();
 
-		if (prev_surface != nullptr && !cant_repeat && prev_surface->sort.sort_key1 == surface->sort.sort_key1 && prev_surface->sort.sort_key2 == surface->sort.sort_key2 && prev_surface->lightmap_has_specular == surface->lightmap_has_specular && inst->mirror == prev_surface->owner->mirror && repeats < RenderElementInfo::MAX_REPEATS) {
+		if (prev_surface != nullptr && !cant_repeat && prev_surface->sort.sort_key1 == surface->sort.sort_key1 && prev_surface->sort.sort_key2 == surface->sort.sort_key2 && prev_surface->uses_lightmap_specular == surface->uses_lightmap_specular && inst->mirror == prev_surface->owner->mirror && repeats < RenderElementInfo::MAX_REPEATS) {
 			//this element is the same as the previous one, count repeats to draw it using instancing
 			repeats++;
 		} else {
@@ -896,6 +896,7 @@ void RenderForwardClustered::_fill_instance_data(RenderListType p_render_list, i
 		RenderElementInfo &element_info = rl->element_info[p_offset + i];
 
 		element_info.value = uint32_t(surface->sort.sort_key1 & 0xFFF);
+		element_info.uses_lightmap_specular = surface->uses_lightmap_specular;
 
 		if (cant_repeat) {
 			prev_surface = nullptr;
@@ -1011,9 +1012,9 @@ void RenderForwardClustered::_fill_render_list(RenderListType p_render_list, con
 					flags |= INSTANCE_DATA_FLAG_USE_LIGHTMAP;
 					if (scene_state.lightmap_has_sh[lightmap_cull_index]) {
 						flags |= INSTANCE_DATA_FLAG_USE_SH_LIGHTMAP;
+						uses_lightmap_specular = scene_state.lightmap_has_specular[lightmap_cull_index];
 					}
 					uses_lightmap = true;
-					uses_lightmap_specular = true;
 				} else {
 					inst->gi_offset_cache = 0xFFFFFFFF;
 				}
@@ -1105,6 +1106,7 @@ void RenderForwardClustered::_fill_render_list(RenderListType p_render_list, con
 		while (surf) {
 			surf->sort.uses_forward_gi = 0;
 			surf->sort.uses_lightmap = 0;
+			surf->uses_lightmap_specular = false;
 
 			// LOD
 			if (p_render_data->scene_data->screen_mesh_lod_threshold > 0.0 && mesh_storage->mesh_surface_has_lod(surf->surface)) {
@@ -1135,7 +1137,6 @@ void RenderForwardClustered::_fill_render_list(RenderListType p_render_list, con
 
 			// ADD Element
 			if (p_pass_mode == PASS_MODE_COLOR) {
-				surf->lightmap_has_specular = false;
 #ifdef DEBUG_ENABLED
 				bool force_alpha = unlikely(get_debug_draw_mode() == RSE::VIEWPORT_DEBUG_DRAW_OVERDRAW);
 #else
@@ -1165,9 +1166,7 @@ void RenderForwardClustered::_fill_render_list(RenderListType p_render_list, con
 
 				if (uses_lightmap) {
 					surf->sort.uses_lightmap = 1;
-					if (uses_lightmap_specular) {
-						surf->lightmap_has_specular = scene_state.lightmap_has_specular[inst->gi_offset_cache & 0xFFFF];
-					}
+					surf->uses_lightmap_specular = uses_lightmap_specular;
 					scene_state.used_lightmap = true;
 				}
 
@@ -1251,10 +1250,10 @@ void RenderForwardClustered::_setup_lightmaps(const RenderDataRD *p_render_data,
 		scene_state.lightmap_ids[i] = p_lightmaps[i];
 		scene_state.lightmap_has_sh[i] = light_storage->lightmap_uses_spherical_harmonics(lightmap);
 
-		scene_state.lightmaps_used++;
-
 		scene_state.lightmaps[i].specular_intensity = light_storage->lightmap_get_specular_intensity(lightmap);
-		scene_state.lightmap_has_specular[i] = scene_state.lightmaps[i].specular_intensity > 0.0f;
+		scene_state.lightmap_has_specular[i] = scene_state.lightmap_has_sh[i] && (scene_state.lightmaps[i].specular_intensity > 0.0f);
+
+		scene_state.lightmaps_used++;
 	}
 	if (scene_state.lightmaps_used > 0) {
 		RD::get_singleton()->buffer_update(scene_state.lightmap_buffer, 0, sizeof(LightmapData) * scene_state.lightmaps_used, scene_state.lightmaps);
