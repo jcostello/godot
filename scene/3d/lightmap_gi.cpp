@@ -1567,17 +1567,30 @@ LightmapGI::BakeError LightmapGI::bake(Node *p_from_node, String p_image_data_pa
 		}
 	}
 
-	float exposure_normalization = 1.0;
-	if (camera_attributes.is_valid()) {
-		exposure_normalization = camera_attributes->get_exposure_multiplier();
-		if (use_physical_light_units) {
-			exposure_normalization = camera_attributes->calculate_exposure_normalization();
+	const float reference_exposure_normalization = use_physical_light_units ? RS::CAMERA_EXPOSURE_NORMALIZATION_REFERENCE : 1.0f;
+	// LightmapGI camera attributes override the scene attributes for baking.
+	Ref<CameraAttributes> bake_camera_attributes = camera_attributes;
+	if (bake_camera_attributes.is_null()) {
+		Ref<World3D> world = get_world_3d();
+		if (world.is_valid()) {
+			bake_camera_attributes = world->get_camera_attributes();
 		}
 	}
 
+	float exposure_normalization = reference_exposure_normalization;
+	if (bake_camera_attributes.is_valid()) {
+		exposure_normalization = bake_camera_attributes->get_exposure_multiplier();
+		if (use_physical_light_units) {
+			exposure_normalization *= bake_camera_attributes->calculate_exposure_normalization();
+		}
+	}
+	// The panorama is generated at the renderer's reference exposure, while
+	// direct and emissive lighting use the selected bake exposure.
+	const float environment_exposure_multiplier = exposure_normalization / reference_exposure_normalization;
+
 	Lightmapper::BakeError bake_err = lightmapper->bake(Lightmapper::BakeQuality(bake_quality), use_denoiser, denoiser_strength, denoiser_range, bounces,
 			bounce_indirect_energy, bias, bake_ao, ao_distance, ao_strength, ao_light_affect, ao_samples, max_texture_size, directional, shadowmask_mode != LightmapGIData::SHADOWMASK_MODE_NONE, use_texture_for_bounces,
-			Lightmapper::GenerateProbes(gen_probes), environment_image, environment_transform, _lightmap_bake_step_function, &bsud, exposure_normalization, (supersampling_enabled ? supersampling_factor : 1));
+			Lightmapper::GenerateProbes(gen_probes), environment_image, environment_transform, _lightmap_bake_step_function, &bsud, exposure_normalization, environment_exposure_multiplier, (supersampling_enabled ? supersampling_factor : 1));
 
 	if (bake_err == Lightmapper::BAKE_ERROR_TEXTURE_EXCEEDS_MAX_SIZE) {
 		return BAKE_ERROR_TEXTURE_SIZE_TOO_SMALL;

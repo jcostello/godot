@@ -49,6 +49,7 @@ float CameraAttributes::get_exposure_multiplier() const {
 void CameraAttributes::set_exposure_sensitivity(float p_sensitivity) {
 	exposure_sensitivity = p_sensitivity;
 	_update_exposure();
+	_update_auto_exposure();
 	emit_changed();
 }
 
@@ -226,7 +227,7 @@ void CameraAttributesPractical::_update_dof_blur() {
 }
 
 float CameraAttributesPractical::calculate_exposure_normalization() const {
-	return exposure_sensitivity / 3072007.0; // Matches exposure normalization for default CameraAttributesPhysical at ISO 100.
+	return RS::CAMERA_EXPOSURE_NORMALIZATION_REFERENCE * (exposure_sensitivity / 100.0f); // Matches default CameraAttributesPhysical at ISO 100.
 }
 
 void CameraAttributesPractical::set_auto_exposure_min_sensitivity(float p_min) {

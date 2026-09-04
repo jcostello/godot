@@ -30,6 +30,9 @@
 
 #include "camera_attributes_storage.h"
 
+#include "core/config/project_settings.h"
+#include "servers/rendering/rendering_server.h"
+
 #ifdef DEBUG_ENABLED
 #include "core/os/os.h"
 #endif
@@ -132,6 +135,10 @@ void RendererCameraAttributes::camera_attributes_set_exposure(RID p_camera_attri
 	ERR_FAIL_NULL(cam_attributes);
 	cam_attributes->exposure_multiplier = p_multiplier;
 	cam_attributes->exposure_normalization = p_exposure_normalization;
+	// Editor previews explicitly provide a physical normalization even when the
+	// project itself does not use physical light units.
+	const bool uses_physical_normalization = GLOBAL_GET_CACHED(bool, "rendering/lights_and_shadows/use_physical_light_units") || !Math::is_equal_approx(p_exposure_normalization, 1.0f);
+	cam_attributes->render_exposure_normalization = uses_physical_normalization ? RenderingServer::CAMERA_EXPOSURE_NORMALIZATION_REFERENCE : 1.0f;
 }
 
 float RendererCameraAttributes::camera_attributes_get_exposure_normalization_factor(RID p_camera_attributes) {
@@ -139,6 +146,20 @@ float RendererCameraAttributes::camera_attributes_get_exposure_normalization_fac
 	ERR_FAIL_NULL_V(cam_attributes, 1.0);
 
 	return cam_attributes->exposure_multiplier * cam_attributes->exposure_normalization;
+}
+
+float RendererCameraAttributes::camera_attributes_get_render_exposure_normalization_factor(RID p_camera_attributes) {
+	CameraAttributes *cam_attributes = camera_attributes_owner.get_or_null(p_camera_attributes);
+	ERR_FAIL_NULL_V(cam_attributes, 1.0);
+
+	return cam_attributes->render_exposure_normalization;
+}
+
+float RendererCameraAttributes::camera_attributes_get_exposure_adjustment_factor(RID p_camera_attributes) {
+	CameraAttributes *cam_attributes = camera_attributes_owner.get_or_null(p_camera_attributes);
+	ERR_FAIL_NULL_V(cam_attributes, 1.0);
+
+	return cam_attributes->exposure_multiplier * cam_attributes->exposure_normalization / cam_attributes->render_exposure_normalization;
 }
 
 void RendererCameraAttributes::camera_attributes_set_auto_exposure(RID p_camera_attributes, bool p_enable, float p_min_sensitivity, float p_max_sensitivity, float p_speed, float p_scale) {

@@ -779,7 +779,7 @@ void LightStorage::update_light_buffers(RenderDataRD *p_render_data, const Paged
 				}
 
 				if (p_render_data->camera_attributes.is_valid()) {
-					light_data.energy *= RSG::camera_attributes->camera_attributes_get_exposure_normalization_factor(p_render_data->camera_attributes);
+					light_data.energy *= RSG::camera_attributes->camera_attributes_get_render_exposure_normalization_factor(p_render_data->camera_attributes);
 				}
 
 				Color linear_col = light->color.srgb_to_linear();
@@ -1065,7 +1065,7 @@ void LightStorage::update_light_buffers(RenderDataRD *p_render_data, const Paged
 		}
 
 		if (p_render_data->camera_attributes.is_valid()) {
-			energy *= RSG::camera_attributes->camera_attributes_get_exposure_normalization_factor(p_render_data->camera_attributes);
+			energy *= RSG::camera_attributes->camera_attributes_get_render_exposure_normalization_factor(p_render_data->camera_attributes);
 		}
 
 		light_data.color[0] = linear_col.r * energy;
@@ -2038,7 +2038,7 @@ void LightStorage::update_reflection_probe_buffer(RenderDataRD *p_render_data, c
 		reflection_ubo.exposure_normalization = 1.0;
 
 		if (p_render_data->camera_attributes.is_valid()) {
-			float exposure = RSG::camera_attributes->camera_attributes_get_exposure_normalization_factor(p_render_data->camera_attributes);
+			float exposure = RSG::camera_attributes->camera_attributes_get_render_exposure_normalization_factor(p_render_data->camera_attributes);
 			reflection_ubo.exposure_normalization = exposure / probe->baked_exposure;
 		}
 
