@@ -754,7 +754,7 @@ vec3 trace_environment_color(vec3 ray_dir) {
 		st.x += PI * 2.0;
 	}
 
-	return textureLod(sampler2D(environment, linear_sampler), st / vec2(PI * 2.0, PI), 0.0).rgb;
+	return textureLod(sampler2D(environment, linear_sampler), st / vec2(PI * 2.0, PI), 0.0).rgb * bake_params.environment_exposure_multiplier;
 }
 
 vec3 trace_indirect_light(vec3 p_position, vec3 p_ray_dir, inout uint r_noise, float p_texel_size, out bool r_near_backface) {

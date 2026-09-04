@@ -23,7 +23,7 @@ layout(set = 0, binding = 0) uniform BakeParameters {
 	float ao_distance;
 	float ao_strength;
 	float ao_light_affect;
-	uint pad;
+	float environment_exposure_multiplier;
 }
 bake_params;
 

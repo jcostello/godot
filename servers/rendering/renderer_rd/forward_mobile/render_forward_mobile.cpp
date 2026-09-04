@@ -773,8 +773,8 @@ void RenderForwardMobile::_setup_lightmaps(const RenderDataRD *p_render_data, co
 		scene_state.lightmaps[i].flags = light_storage->lightmap_get_shadowmask_mode(lightmap);
 		if (p_render_data->camera_attributes.is_valid()) {
 			float baked_exposure = light_storage->lightmap_get_baked_exposure_normalization(lightmap);
-			float enf = RSG::camera_attributes->camera_attributes_get_exposure_normalization_factor(p_render_data->camera_attributes);
-			scene_state.lightmaps[i].exposure_normalization = enf / baked_exposure;
+			float enf = RSG::camera_attributes->camera_attributes_get_render_exposure_normalization_factor(p_render_data->camera_attributes);
+			scene_state.lightmaps[i].exposure_normalization = enf / MAX(1e-20f, baked_exposure);
 		}
 
 		scene_state.lightmap_ids[i] = p_lightmaps[i];
@@ -1111,7 +1111,7 @@ void RenderForwardMobile::_render_scene(RenderDataRD *p_render_data, const Color
 		use_reflection_color = (reflection_source == RSE::ENV_REFLECTION_SOURCE_BG && bg_mode == RSE::ENV_BG_COLOR) || (reflection_source == RSE::ENV_REFLECTION_SOURCE_BG && bg_mode == RSE::ENV_BG_CLEAR_COLOR);
 
 		if (p_render_data->camera_attributes.is_valid()) {
-			bg_energy_multiplier *= RSG::camera_attributes->camera_attributes_get_exposure_normalization_factor(p_render_data->camera_attributes);
+			bg_energy_multiplier *= RSG::camera_attributes->camera_attributes_get_render_exposure_normalization_factor(p_render_data->camera_attributes);
 		}
 
 		switch (bg_mode) {

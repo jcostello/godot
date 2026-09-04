@@ -1793,7 +1793,7 @@ LightmapperRD::BakeError LightmapperRD::_denoise_slice(RenderingDevice *p_rd, Re
 	return BAKE_OK;
 }
 
-LightmapperRD::BakeError LightmapperRD::bake(BakeQuality p_quality, bool p_use_denoiser, float p_denoiser_strength, int p_denoiser_range, int p_bounces, float p_bounce_indirect_energy, float p_bias, bool p_bake_ao, float p_ao_distance, float p_ao_strength, float p_ao_light_affect, int p_ao_samples, int p_max_texture_size, bool p_bake_sh, bool p_bake_shadowmask, bool p_texture_for_bounces, GenerateProbes p_generate_probes, const Ref<Image> &p_environment_panorama, const Basis &p_environment_transform, BakeStepFunc p_step_function, void *p_bake_userdata, float p_exposure_normalization, float p_supersampling_factor) {
+LightmapperRD::BakeError LightmapperRD::bake(BakeQuality p_quality, bool p_use_denoiser, float p_denoiser_strength, int p_denoiser_range, int p_bounces, float p_bounce_indirect_energy, float p_bias, bool p_bake_ao, float p_ao_distance, float p_ao_strength, float p_ao_light_affect, int p_ao_samples, int p_max_texture_size, bool p_bake_sh, bool p_bake_shadowmask, bool p_texture_for_bounces, GenerateProbes p_generate_probes, const Ref<Image> &p_environment_panorama, const Basis &p_environment_transform, BakeStepFunc p_step_function, void *p_bake_userdata, float p_exposure_normalization, float p_environment_exposure_multiplier, float p_supersampling_factor) {
 	int denoiser = GLOBAL_GET("rendering/lightmapping/denoising/denoiser");
 	String oidn_path = EDITOR_GET("filesystem/tools/oidn/oidn_denoise_path");
 	static const char *oidn_devices[] = { "default", "cpu", "sycl", "cuda", "hip", "metal" };
@@ -2137,6 +2137,7 @@ LightmapperRD::BakeError LightmapperRD::bake(BakeQuality p_quality, bool p_use_d
 	bake_parameters.ao_distance = p_ao_distance;
 	bake_parameters.ao_strength = p_ao_strength;
 	bake_parameters.ao_light_affect = p_ao_light_affect;
+	bake_parameters.environment_exposure_multiplier = p_environment_exposure_multiplier;
 
 	bake_parameters_buffer = rd->uniform_buffer_create(sizeof(BakeParameters));
 	rd->buffer_update(bake_parameters_buffer, 0, sizeof(BakeParameters), &bake_parameters);

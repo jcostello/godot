@@ -673,12 +673,13 @@ Ref<Image> SkyRD::Sky::bake_panorama(float p_energy, int p_roughness_layers, boo
 		RD::get_singleton()->free_rid(rad_tex);
 
 		Ref<Image> img = Image::create_from_data(p_size.width, p_size.height, false, Image::FORMAT_RGBAF, data);
+		const float energy_multiplier = p_energy / MAX(1e-20f, baked_exposure);
 		for (int i = 0; i < p_size.width; i++) {
 			for (int j = 0; j < p_size.height; j++) {
 				Color c = img->get_pixel(i, j);
-				c.r *= p_energy;
-				c.g *= p_energy;
-				c.b *= p_energy;
+				c.r *= energy_multiplier;
+				c.g *= energy_multiplier;
+				c.b *= energy_multiplier;
 				img->set_pixel(i, j, c);
 			}
 		}
@@ -1131,10 +1132,7 @@ void SkyRD::setup_sky(const RenderDataRD *p_render_data, const Size2i p_screen_s
 
 				if (RendererSceneRenderRD::get_singleton()->is_using_physical_light_units()) {
 					sky_light_data.energy *= light_storage->light_get_param(base, RSE::LIGHT_PARAM_INTENSITY);
-				}
-
-				if (p_render_data->camera_attributes.is_valid()) {
-					sky_light_data.energy *= RSG::camera_attributes->camera_attributes_get_exposure_normalization_factor(p_render_data->camera_attributes);
+					sky_light_data.energy *= RenderingServer::CAMERA_EXPOSURE_NORMALIZATION_REFERENCE;
 				}
 
 				Color linear_col = light_storage->light_get_color(base).srgb_to_linear();
@@ -1383,7 +1381,8 @@ void SkyRD::update_radiance_buffers(Ref<RenderSceneBuffersRD> p_render_buffers, 
 			}
 			sky->processing_layer = 1;
 		}
-		sky->baked_exposure = p_luminance_multiplier;
+		// Both multipliers are baked into the radiance texture.
+		sky->baked_exposure = p_luminance_multiplier * p_brightness_multiplier;
 		sky->reflection.dirty = false;
 
 	} else {

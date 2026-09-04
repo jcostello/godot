@@ -104,6 +104,10 @@ protected:
 #endif
 
 public:
+	// Reference pre-exposure used to keep physically based lighting values in a
+	// practical range independently of the active camera settings.
+	static constexpr float CAMERA_EXPOSURE_NORMALIZATION_REFERENCE = 1.0f / 30720.0f;
+
 	static RenderingServer *get_singleton();
 	static RenderingServer *create();
 

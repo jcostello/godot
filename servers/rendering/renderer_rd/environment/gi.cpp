@@ -1899,7 +1899,7 @@ void GI::SDFGI::pre_process_gi(const Transform3D &p_transform, RenderDataRD *p_r
 		c.to_cell = 1.0 / cascades[i].cell_size;
 		c.exposure_normalization = 1.0;
 		if (p_render_data->camera_attributes.is_valid()) {
-			float exposure_normalization = RSG::camera_attributes->camera_attributes_get_exposure_normalization_factor(p_render_data->camera_attributes);
+			float exposure_normalization = RSG::camera_attributes->camera_attributes_get_render_exposure_normalization_factor(p_render_data->camera_attributes);
 			c.exposure_normalization = exposure_normalization / cascades[i].baked_exposure_normalization;
 		}
 	}
@@ -1946,7 +1946,7 @@ void GI::SDFGI::pre_process_gi(const Transform3D &p_transform, RenderDataRD *p_r
 			}
 
 			if (p_render_data->camera_attributes.is_valid()) {
-				lights[idx].energy *= RSG::camera_attributes->camera_attributes_get_exposure_normalization_factor(p_render_data->camera_attributes);
+				lights[idx].energy *= RSG::camera_attributes->camera_attributes_get_render_exposure_normalization_factor(p_render_data->camera_attributes);
 			}
 
 			lights[idx].has_shadow = RSG::light_storage->light_has_shadow(light);
@@ -2014,7 +2014,7 @@ void GI::SDFGI::pre_process_gi(const Transform3D &p_transform, RenderDataRD *p_r
 			}
 
 			if (p_render_data->camera_attributes.is_valid()) {
-				lights[idx].energy *= RSG::camera_attributes->camera_attributes_get_exposure_normalization_factor(p_render_data->camera_attributes);
+				lights[idx].energy *= RSG::camera_attributes->camera_attributes_get_render_exposure_normalization_factor(p_render_data->camera_attributes);
 			}
 
 			lights[idx].has_shadow = RSG::light_storage->light_has_shadow(light);
@@ -2505,7 +2505,7 @@ void GI::SDFGI::render_static_lights(RenderDataRD *p_render_data, Ref<RenderScen
 				}
 
 				if (p_render_data->camera_attributes.is_valid()) {
-					lights[idx].energy *= RSG::camera_attributes->camera_attributes_get_exposure_normalization_factor(p_render_data->camera_attributes);
+					lights[idx].energy *= RSG::camera_attributes->camera_attributes_get_render_exposure_normalization_factor(p_render_data->camera_attributes);
 				}
 
 				lights[idx].has_shadow = RSG::light_storage->light_has_shadow(light);
@@ -3899,7 +3899,7 @@ void GI::setup_voxel_gi_instances(RenderDataRD *p_render_data, Ref<RenderSceneBu
 				gipd.mipmaps = gipi->mipmaps.size();
 				gipd.exposure_normalization = 1.0;
 				if (p_render_data->camera_attributes.is_valid()) {
-					float exposure_normalization = RSG::camera_attributes->camera_attributes_get_exposure_normalization_factor(p_render_data->camera_attributes);
+					float exposure_normalization = RSG::camera_attributes->camera_attributes_get_render_exposure_normalization_factor(p_render_data->camera_attributes);
 					gipd.exposure_normalization = exposure_normalization / voxel_gi_get_baked_exposure_normalization(base_probe);
 				}
 			}
