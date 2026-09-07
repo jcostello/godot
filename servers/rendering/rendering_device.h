@@ -1953,6 +1953,7 @@ public:
 	};
 
 	uint64_t get_memory_usage(MemoryType p_type) const;
+	uint64_t get_memory_budget() const;
 
 	RenderingDevice *create_local_device();
 

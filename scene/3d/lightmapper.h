@@ -155,6 +155,18 @@ public:
 protected:
 public:
 	typedef bool (*BakeStepFunc)(float, const String &, void *, bool); //step index, step total, step description, userdata
+	typedef BakeError (*BakeMaterialFunc)(int, const Size2i &, Ref<Image> &, Ref<Image> &, void *);
+
+protected:
+	BakeMaterialFunc bake_material_func = nullptr;
+	void *bake_material_userdata = nullptr;
+
+public:
+	void set_bake_material_func(BakeMaterialFunc p_func, void *p_userdata) {
+		bake_material_func = p_func;
+		bake_material_userdata = p_userdata;
+	}
+	virtual bool supports_bake_material_func() const { return false; }
 
 	struct MeshData {
 		//triangle data
@@ -162,6 +174,8 @@ public:
 		Vector<Vector2> uv2;
 		Vector<Vector3> normal;
 		Vector<RID> material;
+		Size2i lightmap_size;
+		int material_index = -1;
 		Ref<Image> albedo_on_uv2;
 		Ref<Image> emission_on_uv2;
 		Variant userdata;

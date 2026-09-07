@@ -848,7 +848,9 @@ LightmapGI::BakeError LightmapGI::_save_and_reimport_atlas_textures(const Ref<Li
 	const int slice_height = images[0]->get_height();
 	const int slice_pixels = slice_width * slice_height;
 
-	const int slices_per_texture = Image::MAX_PIXELS / slice_pixels;
+	// Stacked slices must fit both the image dimension and total pixel limits.
+	const int slices_per_texture = MIN(Image::MAX_HEIGHT / slice_height, Image::MAX_PIXELS / slice_pixels);
+	ERR_FAIL_COND_V(slices_per_texture == 0, LightmapGI::BAKE_ERROR_CANT_CREATE_IMAGE);
 	const int texture_count = Math::ceil(slice_count / (float)slices_per_texture);
 	const int last_count = slice_count % slices_per_texture;
 
@@ -1062,6 +1064,59 @@ void LightmapGI::_build_area_light_texture_atlas(const Vector<LightmapGI::Lights
 	}
 }
 
+Lightmapper::BakeError LightmapGI::_bake_material(int p_mesh_index, const Size2i &p_size, Ref<Image> &r_albedo, Ref<Image> &r_emission, void *p_userdata) {
+	BakeMaterialsUD *ud = static_cast<BakeMaterialsUD *>(p_userdata);
+	ERR_FAIL_NULL_V(ud, Lightmapper::BAKE_ERROR_LIGHTMAP_CANT_PRE_BAKE_MESHES);
+	ERR_FAIL_NULL_V(ud->meshes, Lightmapper::BAKE_ERROR_LIGHTMAP_CANT_PRE_BAKE_MESHES);
+	ERR_FAIL_INDEX_V(p_mesh_index, ud->meshes->size(), Lightmapper::BAKE_ERROR_LIGHTMAP_CANT_PRE_BAKE_MESHES);
+
+	MeshesFound &mf = ud->meshes->write[p_mesh_index];
+	TypedArray<RID> overrides;
+	overrides.resize(mf.overrides.size());
+	for (int i = 0; i < mf.overrides.size(); i++) {
+		if (mf.overrides[i].is_valid()) {
+			overrides[i] = mf.overrides[i]->get_rid();
+		}
+	}
+
+	TypedArray<Image> images = RS::get_singleton()->bake_render_uv2(mf.mesh->get_rid(), overrides, p_size);
+	ERR_FAIL_COND_V(images.size() <= RSE::BAKE_CHANNEL_EMISSION, Lightmapper::BAKE_ERROR_LIGHTMAP_CANT_PRE_BAKE_MESHES);
+
+	Ref<Image> albedo = images[RSE::BAKE_CHANNEL_ALBEDO_ALPHA];
+	Ref<Image> orm = images[RSE::BAKE_CHANNEL_ORM];
+	r_emission = images[RSE::BAKE_CHANNEL_EMISSION];
+	images.clear();
+	ERR_FAIL_COND_V(albedo.is_null() || orm.is_null() || r_emission.is_null(), Lightmapper::BAKE_ERROR_LIGHTMAP_CANT_PRE_BAKE_MESHES);
+	if (albedo->get_format() != Image::FORMAT_RGBA8) {
+		albedo->convert(Image::FORMAT_RGBA8);
+	}
+	if (orm->get_format() != Image::FORMAT_RGBA8) {
+		orm->convert(Image::FORMAT_RGBA8);
+	}
+
+	Vector<uint8_t> albedo_alpha = albedo->get_data();
+	Vector<uint8_t> orm_data = orm->get_data();
+	ERR_FAIL_COND_V(albedo_alpha.size() != orm_data.size(), Lightmapper::BAKE_ERROR_LIGHTMAP_CANT_PRE_BAKE_MESHES);
+	Vector<uint8_t> diffuse_albedo;
+	const uint32_t data_size = albedo_alpha.size();
+	diffuse_albedo.resize(data_size);
+	const uint8_t *r_albedo_alpha = albedo_alpha.ptr();
+	const uint8_t *r_orm = orm_data.ptr();
+	uint8_t *w_diffuse_albedo = diffuse_albedo.ptrw();
+	for (uint32_t i = 0; i < data_size; i += 4) {
+		w_diffuse_albedo[i + 0] = uint8_t(CLAMP(float(r_albedo_alpha[i + 0]) * (1.0 - float(r_orm[i + 2] / 255.0)), 0, 255));
+		w_diffuse_albedo[i + 1] = uint8_t(CLAMP(float(r_albedo_alpha[i + 1]) * (1.0 - float(r_orm[i + 2] / 255.0)), 0, 255));
+		w_diffuse_albedo[i + 2] = uint8_t(CLAMP(float(r_albedo_alpha[i + 2]) * (1.0 - float(r_orm[i + 2] / 255.0)), 0, 255));
+		w_diffuse_albedo[i + 3] = r_albedo_alpha[i + 3];
+	}
+
+	r_albedo = Image::create_from_data(p_size.x, p_size.y, false, Image::FORMAT_RGBA8, diffuse_albedo);
+	if (r_emission->get_format() != Image::FORMAT_RGBAH) {
+		r_emission->convert(Image::FORMAT_RGBAH);
+	}
+	return Lightmapper::BAKE_OK;
+}
+
 LightmapGI::BakeError LightmapGI::bake(Node *p_from_node, String p_image_data_path, Lightmapper::BakeStepFunc p_bake_step, void *p_bake_userdata) {
 	if (p_image_data_path.is_empty()) {
 		if (get_light_data().is_null()) {
@@ -1077,6 +1132,76 @@ LightmapGI::BakeError LightmapGI::bake(Node *p_from_node, String p_image_data_pa
 	Ref<Lightmapper> lightmapper = Lightmapper::create();
 	ERR_FAIL_COND_V(lightmapper.is_null(), BAKE_ERROR_NO_LIGHTMAPPER);
 
+	struct PreviousLightmapRestore {
+		LightmapGI *owner = nullptr;
+		Ref<LightmapGIData> data;
+		Vector<String> light_texture_paths;
+		Vector<String> shadow_texture_paths;
+		bool restore = true;
+
+		void restore_if_needed() {
+			if (!restore || data.is_null()) {
+				return;
+			}
+			TypedArray<TextureLayered> light_textures;
+			for (const String &path : light_texture_paths) {
+				Ref<TextureLayered> texture = ResourceLoader::load(path);
+				if (texture.is_valid()) {
+					light_textures.push_back(texture);
+				}
+			}
+			TypedArray<TextureLayered> shadow_textures;
+			for (const String &path : shadow_texture_paths) {
+				Ref<TextureLayered> texture = ResourceLoader::load(path);
+				if (texture.is_valid()) {
+					shadow_textures.push_back(texture);
+				}
+			}
+			data->set_lightmap_textures(light_textures);
+			data->set_shadowmask_textures(shadow_textures);
+			owner->set_light_data(data);
+			restore = false;
+		}
+
+		~PreviousLightmapRestore() {
+			restore_if_needed();
+		}
+	} previous_lightmap;
+
+	previous_lightmap.owner = this;
+	previous_lightmap.data = get_light_data();
+	if (previous_lightmap.data.is_valid()) {
+		const TypedArray<TextureLayered> light_textures = previous_lightmap.data->get_lightmap_textures();
+		const TypedArray<TextureLayered> shadow_textures = previous_lightmap.data->get_shadowmask_textures();
+		bool can_unload = true;
+		for (int i = 0; i < light_textures.size(); i++) {
+			Ref<TextureLayered> texture = light_textures[i];
+			if (texture.is_null() || texture->get_path().is_empty()) {
+				can_unload = false;
+				break;
+			}
+			previous_lightmap.light_texture_paths.push_back(texture->get_path());
+		}
+		for (int i = 0; can_unload && i < shadow_textures.size(); i++) {
+			Ref<TextureLayered> texture = shadow_textures[i];
+			if (texture.is_null() || texture->get_path().is_empty()) {
+				can_unload = false;
+				break;
+			}
+			previous_lightmap.shadow_texture_paths.push_back(texture->get_path());
+		}
+		if (can_unload) {
+			set_light_data(Ref<LightmapGIData>());
+			previous_lightmap.data->set_lightmap_textures(TypedArray<TextureLayered>());
+			previous_lightmap.data->set_shadowmask_textures(TypedArray<TextureLayered>());
+			RenderingServer::get_singleton()->sync();
+		} else {
+			previous_lightmap.data = Ref<LightmapGIData>();
+			previous_lightmap.light_texture_paths.clear();
+			previous_lightmap.shadow_texture_paths.clear();
+		}
+	}
+
 	BakeStepUD bsud;
 	bsud.func = p_bake_step;
 	bsud.ud = p_bake_userdata;
@@ -1088,11 +1213,13 @@ LightmapGI::BakeError LightmapGI::bake(Node *p_from_node, String p_image_data_pa
 	}
 	/* STEP 1, FIND MESHES, LIGHTS AND PROBES */
 	Vector<Lightmapper::MeshData> mesh_data;
+	Vector<MeshesFound> meshes_found;
+	BakeMaterialsUD bake_materials_ud;
+	bake_materials_ud.meshes = &meshes_found;
 	Vector<LightsFound> lights_found;
 	Vector<Vector3> probes_found;
 	AABB bounds;
 	{
-		Vector<MeshesFound> meshes_found;
 		_find_meshes_and_lights(p_from_node ? p_from_node : get_parent(), meshes_found, lights_found, probes_found);
 
 		if (meshes_found.is_empty()) {
@@ -1119,23 +1246,9 @@ LightmapGI::BakeError LightmapGI::bake(Node *p_from_node, String p_image_data_pa
 			Size2i lightmap_size = Size2i(Size2(mesh_lightmap_size) * mf.lightmap_scale * texel_scale) * (supersampling_enabled ? supersampling_factor : 1.0);
 			ERR_FAIL_COND_V(lightmap_size.x == 0 || lightmap_size.y == 0, BAKE_ERROR_LIGHTMAP_TOO_SMALL);
 
-			TypedArray<RID> overrides;
-			overrides.resize(mf.overrides.size());
-			for (int i = 0; i < mf.overrides.size(); i++) {
-				if (mf.overrides[i].is_valid()) {
-					overrides[i] = mf.overrides[i]->get_rid();
-				}
-			}
-			TypedArray<Image> images = RS::get_singleton()->bake_render_uv2(mf.mesh->get_rid(), overrides, lightmap_size);
-
-			ERR_FAIL_COND_V(images.is_empty(), BAKE_ERROR_CANT_CREATE_IMAGE);
-
-			Ref<Image> albedo = images[RSE::BAKE_CHANNEL_ALBEDO_ALPHA];
-			Ref<Image> orm = images[RSE::BAKE_CHANNEL_ORM];
-
-			//multiply albedo by metal
-
 			Lightmapper::MeshData md;
+			md.lightmap_size = lightmap_size;
+			md.material_index = m_i;
 
 			{
 				Dictionary d;
@@ -1144,39 +1257,6 @@ LightmapGI::BakeError LightmapGI::bake(Node *p_from_node, String p_image_data_pa
 					d["subindex"] = mf.subindex;
 				}
 				md.userdata = d;
-			}
-
-			{
-				if (albedo->get_format() != Image::FORMAT_RGBA8) {
-					albedo->convert(Image::FORMAT_RGBA8);
-				}
-				if (orm->get_format() != Image::FORMAT_RGBA8) {
-					orm->convert(Image::FORMAT_RGBA8);
-				}
-				Vector<uint8_t> albedo_alpha = albedo->get_data();
-				Vector<uint8_t> orm_data = orm->get_data();
-
-				Vector<uint8_t> albedom;
-				uint32_t len = albedo_alpha.size();
-				albedom.resize(len);
-				const uint8_t *r_aa = albedo_alpha.ptr();
-				const uint8_t *r_orm = orm_data.ptr();
-				uint8_t *w_albedo = albedom.ptrw();
-
-				for (uint32_t i = 0; i < len; i += 4) {
-					w_albedo[i + 0] = uint8_t(CLAMP(float(r_aa[i + 0]) * (1.0 - float(r_orm[i + 2] / 255.0)), 0, 255));
-					w_albedo[i + 1] = uint8_t(CLAMP(float(r_aa[i + 1]) * (1.0 - float(r_orm[i + 2] / 255.0)), 0, 255));
-					w_albedo[i + 2] = uint8_t(CLAMP(float(r_aa[i + 2]) * (1.0 - float(r_orm[i + 2] / 255.0)), 0, 255));
-					w_albedo[i + 3] = r_aa[i + 3];
-				}
-
-				md.albedo_on_uv2.instantiate();
-				md.albedo_on_uv2->set_data(lightmap_size.width, lightmap_size.height, false, Image::FORMAT_RGBA8, albedom);
-			}
-
-			md.emission_on_uv2 = images[RSE::BAKE_CHANNEL_EMISSION];
-			if (md.emission_on_uv2->get_format() != Image::FORMAT_RGBAH) {
-				md.emission_on_uv2->convert(Image::FORMAT_RGBAH);
 			}
 
 			//get geometry
@@ -1361,9 +1441,24 @@ LightmapGI::BakeError LightmapGI::bake(Node *p_from_node, String p_image_data_pa
 		}
 		lightmapper->add_area_light_atlas(area_light_atlas_size, area_light_atlas_mipmaps, area_light_atlas_data);
 
+		if (!lightmapper->supports_bake_material_func()) {
+			for (int i = 0; i < mesh_data.size(); i++) {
+				Lightmapper::MeshData &md = mesh_data.write[i];
+				Lightmapper::BakeError err = _bake_material(i, md.lightmap_size, md.albedo_on_uv2, md.emission_on_uv2, &bake_materials_ud);
+				if (err != Lightmapper::BAKE_OK) {
+					return BAKE_ERROR_CANT_CREATE_IMAGE;
+				}
+			}
+		} else {
+			lightmapper->set_bake_material_func(_bake_material, &bake_materials_ud);
+		}
+
 		for (int i = 0; i < mesh_data.size(); i++) {
 			lightmapper->add_mesh(mesh_data[i]);
 		}
+		// Lightmapper owns the geometry and material images now. Drop this second
+		// set of references so sources can be released as each mesh is atlased.
+		mesh_data.clear();
 		for (int i = 0; i < lights_found.size(); i++) {
 			Light3D *light = lights_found[i].light;
 			if (light->is_editor_only()) {
@@ -1701,6 +1796,7 @@ LightmapGI::BakeError LightmapGI::bake(Node *p_from_node, String p_image_data_pa
 		return BAKE_ERROR_CANT_CREATE_IMAGE;
 	}
 
+	previous_lightmap.restore = false;
 	set_light_data(gi_data);
 	update_configuration_warnings();
 

@@ -13,6 +13,7 @@ layout(location = 3) out vec3 barycentric;
 layout(location = 4) flat out uvec3 vertex_indices;
 layout(location = 5) flat out vec3 face_normal;
 layout(location = 6) flat out uint fragment_action;
+layout(location = 7) flat out uint mesh_id;
 
 layout(push_constant, std430) uniform Params {
 	vec2 atlas_size;
@@ -31,6 +32,7 @@ void main() {
 	uint triangle_subidx = gl_VertexIndex % 3;
 
 	vertex_indices = triangles.data[triangle_idx].indices;
+	mesh_id = triangles.data[triangle_idx].mesh;
 
 	uint vertex_idx;
 	if (triangle_subidx == 0) {
@@ -88,13 +90,19 @@ layout(location = 3) in vec3 barycentric;
 layout(location = 4) in flat uvec3 vertex_indices;
 layout(location = 5) in flat vec3 face_normal;
 layout(location = 6) in flat uint fragment_action;
+layout(location = 7) in flat uint mesh_id;
 
 layout(location = 0) out vec4 position;
 layout(location = 1) out vec4 normal;
 layout(location = 2) out vec4 unocclude;
+layout(location = 3) out uint mesh;
 
 void main() {
-	vec3 vertex_pos = vertex_interp;
+	vec3 pos0 = vertices.data[vertex_indices.x].position;
+	vec3 pos1 = vertices.data[vertex_indices.y].position;
+	vec3 pos2 = vertices.data[vertex_indices.z].position;
+	vec3 weights = inset_barycentric(barycentric, pos0, pos1, pos2, params.bias);
+	vec3 vertex_pos = pos0 * weights.x + pos1 * weights.y + pos2 * weights.z;
 
 	if (fragment_action == FA_SMOOTHEN_POSITION) {
 		// smooth out vertex position by interpolating its projection in the 3 normal planes (normal plane is created by vertex pos and normal)
@@ -140,7 +148,7 @@ void main() {
 		vec3 proj_b = vertex_pos - norm_b * (dot(norm_b, vertex_pos) - d_b);
 		vec3 proj_c = vertex_pos - norm_c * (dot(norm_c, vertex_pos) - d_c);
 
-		vec3 smooth_position = proj_a * barycentric.x + proj_b * barycentric.y + proj_c * barycentric.z;
+		vec3 smooth_position = proj_a * weights.x + proj_b * weights.y + proj_c * weights.z;
 
 		if (dot(face_normal, smooth_position) > dot(face_normal, vertex_pos)) { //only project outwards
 			vertex_pos = smooth_position;
@@ -162,6 +170,7 @@ void main() {
 		//continued on lm_compute.glsl
 	}
 
+	mesh = mesh_id;
 	position = vec4(vertex_pos, 1.0);
 	normal = vec4(normalize(normal_interp), 1.0);
 }

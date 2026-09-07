@@ -3162,6 +3162,9 @@
 			- Intel GPUs: SYCL libraries
 			If no GPU acceleration is configured on the system, multi-threaded CPU-based denoising will be performed instead. This CPU-based denoising is significantly slower than the JNLM denoiser in most cases.
 		</member>
+		<member name="rendering/lightmapping/denoising/oidn_device" type="int" setter="" getter="" default="0">
+			Device used by Open Image Denoise when [member rendering/lightmapping/denoising/denoiser] is set to OIDN. [code]Default[/code] lets OIDN select the best available device automatically. A specific CPU or GPU backend can also be selected.
+		</member>
 		<member name="rendering/lightmapping/lightmap_gi/use_bicubic_filter" type="bool" setter="" getter="" default="true">
 			If [code]true[/code], applies a bicubic filter during lightmap sampling. This makes lightmaps look much smoother, at a moderate performance cost.
 			[b]Note:[/b] The bicubic filter exaggerates the 'bleeding' effect that occurs when a lightmap's resolution is low enough.
