@@ -948,6 +948,7 @@ public:
 	virtual uint64_t get_resource_native_handle(DriverResource p_type, ID p_driver_id) = 0;
 	virtual uint64_t get_total_memory_used() = 0;
 	virtual uint64_t get_lazily_memory_used() = 0;
+	virtual uint64_t get_memory_budget() { return 0; }
 	virtual uint64_t limit_get(Limit p_limit) = 0;
 	virtual uint64_t api_trait_get(ApiTrait p_trait);
 	virtual bool has_feature(Features p_feature) = 0;

@@ -33,6 +33,8 @@
 #include "core/templates/local_vector.h"
 #include "scene/3d/lightmapper.h"
 
+#include <functional>
+
 class RenderingDevice;
 class RDShaderFile;
 
@@ -157,23 +159,33 @@ class LightmapperRD : public Lightmapper {
 	struct EdgeUV2 {
 		Vector2 a;
 		Vector2 b;
-		Vector2i indices;
 		bool operator==(const EdgeUV2 &p_uv2) const {
 			return a == p_uv2.a && b == p_uv2.b;
 		}
 		bool seam_found = false;
-		EdgeUV2(Vector2 p_a, Vector2 p_b, Vector2i p_indices) {
+		uint32_t users = 1;
+		Vector3 opposite_vertex;
+		Vector3 opposite_normal;
+		Vector2 opposite_uv;
+		EdgeUV2(Vector2 p_a, Vector2 p_b) {
 			a = p_a;
 			b = p_b;
-			indices = p_indices;
 		}
 		EdgeUV2() {}
 	};
 
 	struct Seam {
-		Vector2i a;
-		Vector2i b;
-		uint32_t slice;
+		// Directed UV segment, matching the std430 layout in lm_common_inc.glsl.
+		float src_uv[4] = {};
+		float dst_uv[4] = {};
+		uint32_t slice = 0;
+		uint32_t src_slice = 0;
+		uint32_t mesh = 0;
+		uint32_t src_mesh = 0;
+		float opposite_uv[4] = {};
+		float uv_transform[2][4] = {};
+		float normal[2][4] = {};
+		float source_normal[3][4] = {};
 		bool operator<(const Seam &p_seam) const {
 			return slice < p_seam.slice;
 		}
@@ -199,7 +211,7 @@ class LightmapperRD : public Lightmapper {
 		float min_bounds[3] = {};
 		uint32_t cull_mode = 0;
 		float max_bounds[3] = {};
-		float pad1 = 0.0;
+		uint32_t mesh = 0;
 		bool operator<(const Triangle &p_triangle) const {
 			return slice < p_triangle.slice;
 		}
@@ -258,20 +270,25 @@ class LightmapperRD : public Lightmapper {
 		uint32_t base_index = 0;
 		uint32_t slice = 0;
 		float uv_offset[2] = {};
-		uint32_t debug = 0;
 		float blend = 0.0;
-		uint32_t pad[2] = {};
+		uint32_t subslices = 1;
+		uint32_t pad = 0;
 	};
 
 	struct PushConstant {
 		uint32_t atlas_slice = 0;
+		uint32_t geometry_slice = 0;
+		uint32_t region_ofs[2] = {};
 		uint32_t ray_count = 0;
 		uint32_t ray_from = 0;
 		uint32_t ray_to = 0;
-		uint32_t region_ofs[2] = {};
 		uint32_t probe_count = 0;
 		uint32_t denoiser_range = 0;
+		uint32_t material_slice = 0;
+		uint32_t output_slice = 0;
+		uint32_t pad = 0;
 	};
+	static_assert(sizeof(PushConstant) == 48);
 
 	Vector<Ref<Image>> lightmap_textures;
 	Vector<Ref<Image>> shadowmask_textures;
@@ -294,19 +311,22 @@ class LightmapperRD : public Lightmapper {
 		uint32_t pad;
 	};
 
-	BakeError _blit_meshes_into_atlas(int p_max_texture_size, int p_denoiser_range, Vector<Ref<Image>> &albedo_images, Vector<Ref<Image>> &emission_images, AABB &bounds, Size2i &atlas_size, int &atlas_slices, float p_supersampling_factor, BakeStepFunc p_step_function, void *p_bake_userdata);
-	void _create_acceleration_structures(RenderingDevice *rd, Size2i atlas_size, int atlas_slices, AABB &bounds, int grid_size, uint32_t p_cluster_size, Vector<Probe> &probe_positions, GenerateProbes p_generate_probes, Vector<int> &slice_triangle_count, Vector<int> &slice_seam_count, RID &vertex_buffer, RID &triangle_buffer, RID &lights_buffer, RID &r_triangle_indices_buffer, RID &r_cluster_indices_buffer, RID &r_cluster_aabbs_buffer, RID &probe_positions_buffer, RID &grid_texture, RID &seams_buffer, BakeStepFunc p_step_function, void *p_bake_userdata);
-	void _raster_geometry(RenderingDevice *rd, Size2i atlas_size, int atlas_slices, int grid_size, AABB bounds, float p_bias, Vector<int> slice_triangle_count, RID position_tex, RID unocclude_tex, RID normal_tex, RID raster_depth_buffer, RID rasterize_shader, RID raster_base_uniform);
+	BakeError _blit_meshes_into_atlas(RenderingDevice *p_rd, RID &r_albedo_texture, RID &r_emission_texture, int p_max_texture_size, int p_denoiser_range, bool p_expand_for_oidn, AABB &bounds, Size2i &atlas_size, int &atlas_slices, float p_supersampling_factor, BakeStepFunc p_step_function, void *p_bake_userdata);
+	void _create_acceleration_structures(RenderingDevice *rd, Size2i atlas_size, int atlas_slices, AABB &bounds, int grid_size, uint32_t p_cluster_size, Vector<Probe> &probe_positions, GenerateProbes p_generate_probes, Vector<int> &slice_triangle_count, Vector<int> &slice_seam_count, Vector<Vector<int>> &r_slice_seam_sources, RID &vertex_buffer, RID &triangle_buffer, RID &lights_buffer, RID &r_triangle_indices_buffer, RID &r_cluster_indices_buffer, RID &r_cluster_aabbs_buffer, RID &probe_positions_buffer, RID &grid_texture, RID &seams_buffer, BakeStepFunc p_step_function, void *p_bake_userdata);
+	void _raster_geometry_slice(RenderingDevice *rd, Size2i atlas_size, int p_slice, int grid_size, AABB bounds, float p_bias, const Vector<int> &p_slice_triangle_count, RID position_tex, RID unocclude_tex, RID normal_tex, RID mesh_tex, RID raster_depth_buffer, RID rasterize_shader, RID raster_base_uniform);
 
+	BakeError _prepare_oidn_margins(RenderingDevice *p_rd, RID p_base_uniform, RID p_mesh_tex, RID p_normal_tex, RID p_unocclude_tex, const Size2i &p_atlas_size, const Vector<int> &p_slice_seam_count, const Vector<Vector<int>> &p_slice_seam_sources, int p_range, RID p_padded_normal_tex, const std::function<void(int)> &p_prepare_geometry_slice, const std::function<BakeError(int, RID)> &p_process_slice, BakeStepFunc p_step_function, void *p_bake_userdata);
 	BakeError _dilate(RenderingDevice *rd, Ref<RDShaderFile> &compute_shader, RID &compute_base_uniform_set, PushConstant &push_constant, RID &source_light_tex, RID &dest_light_tex, const Size2i &atlas_size, int atlas_slices);
-	BakeError _denoise(RenderingDevice *p_rd, Ref<RDShaderFile> &p_compute_shader, const RID &p_compute_base_uniform_set, PushConstant &p_push_constant, RID p_source_light_tex, RID p_source_normal_tex, RID p_dest_light_tex, RID p_unocclude_tex, float p_denoiser_strength, int p_denoiser_range, const Size2i &p_atlas_size, int p_atlas_slices, bool p_bake_sh, BakeStepFunc p_step_function, void *p_bake_userdata);
+	BakeError _pad_oidn_slice(RenderingDevice *p_rd, Ref<RDShaderFile> &p_compute_shader, const RID &p_compute_base_uniform_set, PushConstant &p_push_constant, RID p_source_tex, RID p_dest_tex, RID p_margin_tex, RID p_mesh_tex, const Size2i &p_atlas_size, uint32_t p_source_slice, uint32_t p_dest_slice, uint32_t p_geometry_slice, uint32_t p_coefficient_count = 1);
+	BakeError _denoise_slice(RenderingDevice *p_rd, Ref<RDShaderFile> &p_compute_shader, const RID &p_compute_base_uniform_set, PushConstant &p_push_constant, RID p_source_light_tex, RID p_source_normal_tex, RID p_dest_light_tex, RID p_unocclude_tex, float p_denoiser_strength, int p_denoiser_range, const Size2i &p_atlas_size, int p_atlas_slice, int p_material_slice, int p_atlas_slices, bool p_bake_sh, BakeStepFunc p_step_function, void *p_bake_userdata);
 	BakeError _pack_l1(RenderingDevice *rd, Ref<RDShaderFile> &compute_shader, RID &compute_base_uniform_set, PushConstant &push_constant, RID &source_light_tex, RID &dest_light_tex, const Size2i &atlas_size, int atlas_slices);
 
-	Error _store_pfm(RenderingDevice *p_rd, RID p_atlas_tex, int p_index, const Size2i &p_atlas_size, const String &p_name, bool p_shadowmask);
+	Error _store_pfm(const Vector<uint8_t> &p_data, const Size2i &p_atlas_size, const String &p_name, bool p_shadowmask);
 	Ref<Image> _read_pfm(const String &p_name, bool p_shadowmask);
-	BakeError _denoise_oidn(RenderingDevice *p_rd, RID p_source_light_tex, RID p_source_normal_tex, RID p_dest_light_tex, const Size2i &p_atlas_size, int p_atlas_slices, bool p_bake_sh, bool p_shadowmask, const String &p_exe);
+	BakeError _denoise_oidn(const String &p_light_path, const String &p_normal_path, const Size2i &p_atlas_size, int p_atlas_slices, bool p_bake_sh, bool p_shadowmask, const String &p_exe, const String &p_device, BakeStepFunc p_step_function, void *p_bake_userdata);
 
 public:
+	virtual bool supports_bake_material_func() const override { return true; }
 	virtual void add_mesh(const MeshData &p_mesh) override;
 	virtual void add_directional_light(const String &p_name, bool p_static, const Vector3 &p_direction, const Color &p_color, float p_energy, float p_indirect_energy, float p_angular_distance, float p_shadow_blur) override;
 	virtual void add_omni_light(const String &p_name, bool p_static, const Vector3 &p_position, const Color &p_color, float p_energy, float p_indirect_energy, float p_range, float p_attenuation, float p_size, float p_shadow_blur) override;

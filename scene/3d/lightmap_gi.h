@@ -234,6 +234,12 @@ private:
 		Vector<Ref<Material>> overrides;
 	};
 
+	struct BakeMaterialsUD {
+		Vector<MeshesFound> *meshes = nullptr;
+	};
+
+	static Lightmapper::BakeError _bake_material(int p_mesh_index, const Size2i &p_size, Ref<Image> &r_albedo, Ref<Image> &r_emission, void *p_userdata);
+
 	void _find_meshes_and_lights(Node *p_at_node, Vector<MeshesFound> &meshes, Vector<LightsFound> &lights, Vector<Vector3> &probes);
 
 	void _assign_lightmaps();

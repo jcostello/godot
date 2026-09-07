@@ -7314,6 +7314,29 @@ uint64_t RenderingDeviceDriverVulkan::get_total_memory_used() {
 	return total_memory_used;
 }
 
+uint64_t RenderingDeviceDriverVulkan::get_memory_budget() {
+	const VkPhysicalDeviceMemoryProperties *memory_properties = nullptr;
+	vmaGetMemoryProperties(allocator, &memory_properties);
+
+	VmaBudget *budgets = ALLOCA_ARRAY(VmaBudget, memory_properties->memoryHeapCount);
+	vmaGetHeapBudgets(allocator, budgets);
+
+	uint64_t total_budget = 0;
+	for (uint32_t i = 0; i < memory_properties->memoryHeapCount; i++) {
+		bool device_local = false;
+		for (uint32_t type = 0; type < memory_properties->memoryTypeCount; type++) {
+			if (memory_properties->memoryTypes[type].heapIndex == i && (memory_properties->memoryTypes[type].propertyFlags & VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT)) {
+				device_local = true;
+				break;
+			}
+		}
+		if (device_local) {
+			total_budget += budgets[i].budget;
+		}
+	}
+	return total_budget;
+}
+
 uint64_t RenderingDeviceDriverVulkan::get_lazily_memory_used() {
 	return vmaCalculateLazilyAllocatedBytes(allocator);
 }

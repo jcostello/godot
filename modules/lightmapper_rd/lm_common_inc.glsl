@@ -44,7 +44,7 @@ struct Triangle {
 	vec3 min_bounds;
 	uint cull_mode;
 	vec3 max_bounds;
-	uint pad1;
+	uint mesh;
 };
 
 struct ClusterAABB {
@@ -100,8 +100,16 @@ layout(set = 0, binding = 4, std430) restrict readonly buffer Lights {
 lights;
 
 struct Seam {
-	uvec2 a;
-	uvec2 b;
+	vec4 src_uv;
+	vec4 dst_uv;
+	uint slice;
+	uint src_slice;
+	uint mesh;
+	uint src_mesh;
+	vec4 opposite_uv;
+	vec4 uv_transform[2];
+	vec4 normal[2];
+	vec4 source_normal[3];
 };
 
 layout(set = 0, binding = 5, std430) restrict readonly buffer Seams {
@@ -135,3 +143,23 @@ cluster_aabbs;
 // Fragment action constants
 const uint FA_NONE = 0;
 const uint FA_SMOOTHEN_POSITION = 1;
+
+// Keep the sample inside the triangle after both ray bias offsets.
+vec3 inset_barycentric(vec3 p_barycentric, vec3 p0, vec3 p1, vec3 p2, float p_bias) {
+	vec3 edge_lengths = vec3(length(p2 - p1), length(p0 - p2), length(p1 - p0));
+	float twice_area = length(cross(p1 - p0, p2 - p0));
+	vec3 weights = max(p_barycentric, vec3(0.0));
+	float weight_sum = dot(weights, vec3(1.0));
+	weights = weight_sum > 0.0 ? weights / weight_sum : vec3(1.0 / 3.0);
+	// Degenerate geometry has no interior into which the sample can move.
+	if (twice_area <= 0.0 || any(lessThanEqual(edge_lengths, vec3(0.0)))) {
+		return weights;
+	}
+	vec3 altitudes = twice_area / edge_lengths;
+	if (any(lessThanEqual(altitudes, vec3(0.0)))) {
+		return weights;
+	}
+	float inset = min(p_bias * 2.1, min(altitudes.x, min(altitudes.y, altitudes.z)) / 3.0);
+	vec3 blend = max(vec3(inset) / altitudes - weights, vec3(0.0)) / max(vec3(1.0 / 3.0) - weights, vec3(0.000001));
+	return mix(weights, vec3(1.0 / 3.0), clamp(max(blend.x, max(blend.y, blend.z)), 0.0, 1.0));
+}
