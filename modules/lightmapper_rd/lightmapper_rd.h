@@ -218,11 +218,13 @@ class LightmapperRD : public Lightmapper {
 		float max_bounds[3] = {};
 		uint32_t mesh = 0;
 		float alpha_scissor_threshold = -1.0f;
-		uint32_t pad[3] = {};
+		uint32_t pad[3] = {}; // Match the 16-byte-aligned GLSL std430 array stride.
 		bool operator<(const Triangle &p_triangle) const {
 			return slice < p_triangle.slice;
 		}
 	};
+
+	static_assert(sizeof(Triangle) == 64);
 
 	struct ClusterAABB {
 		float min_bounds[3];

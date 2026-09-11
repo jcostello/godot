@@ -54,6 +54,7 @@ class LightmapGIEditorPlugin : public EditorPlugin {
 	SpinBox *target_density_spinbox = nullptr;
 	Ref<Shader> preview_shader;
 	ObjectID preview_lightmap_id;
+	ObjectID preview_viewport_id;
 	bool plugin_visible = false;
 	float target_density = 1.0f;
 	bool median_calculation_pending = false;
@@ -96,7 +97,7 @@ class LightmapGIEditorPlugin : public EditorPlugin {
 	void _target_density_changed(double p_value);
 	void _load_target_density();
 	void _create_preview();
-	void _clear_preview();
+	void _clear_preview(bool p_restore_normal_view = true);
 	void _find_preview_meshes(Node *p_node, Vector<MeshInstance3D *> &r_meshes) const;
 	void _calculate_scene_median(float p_global_scale);
 

@@ -629,10 +629,12 @@ SceneShaderForwardClustered::~SceneShaderForwardClustered() {
 	RD::get_singleton()->free_rid(default_material_feedback_buffer);
 
 	material_storage->shader_free(overdraw_material_shader);
+	material_storage->shader_free(wireframe_material_shader);
 	material_storage->shader_free(default_shader);
 	material_storage->shader_free(debug_shadow_splits_material_shader);
 
 	material_storage->material_free(overdraw_material);
+	material_storage->material_free(wireframe_material);
 	material_storage->material_free(default_material);
 	material_storage->material_free(debug_shadow_splits_material);
 }
@@ -980,6 +982,29 @@ void fragment() {
 		MaterialData *md = static_cast<MaterialData *>(material_storage->material_get_data(overdraw_material, RendererRD::MaterialStorage::SHADER_TYPE_3D));
 		overdraw_material_shader_ptr = md->shader_data;
 		overdraw_material_uniform_set = md->uniform_set;
+	}
+
+	{
+		wireframe_material_shader = material_storage->shader_allocate();
+		material_storage->shader_initialize(wireframe_material_shader);
+		material_storage->shader_set_code(wireframe_material_shader, R"(
+// 3D editor Wireframe debug draw mode shader (Forward+).
+
+shader_type spatial;
+
+render_mode unshaded, fog_disabled;
+
+void fragment() {
+	ALBEDO = vec3(0.65, 0.85, 0.9);
+}
+)");
+		wireframe_material = material_storage->material_allocate();
+		material_storage->material_initialize(wireframe_material);
+		material_storage->material_set_shader(wireframe_material, wireframe_material_shader);
+
+		MaterialData *md = static_cast<MaterialData *>(material_storage->material_get_data(wireframe_material, RendererRD::MaterialStorage::SHADER_TYPE_3D));
+		wireframe_material_shader_ptr = md->shader_data;
+		wireframe_material_uniform_set = md->uniform_set;
 	}
 
 	{
