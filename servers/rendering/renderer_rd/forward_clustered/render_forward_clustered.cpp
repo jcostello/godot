@@ -378,6 +378,9 @@ void RenderForwardClustered::_render_list_template(RenderingDevice::DrawListID p
 			} else if (unlikely(get_debug_draw_mode() == RSE::VIEWPORT_DEBUG_DRAW_OVERDRAW)) {
 				material_uniform_set = scene_shader.overdraw_material_uniform_set;
 				shader = scene_shader.overdraw_material_shader_ptr;
+			} else if (unlikely(get_debug_draw_mode() == RSE::VIEWPORT_DEBUG_DRAW_WIREFRAME)) {
+				material_uniform_set = scene_shader.wireframe_material_uniform_set;
+				shader = scene_shader.wireframe_material_shader_ptr;
 			} else if (unlikely(get_debug_draw_mode() == RSE::VIEWPORT_DEBUG_DRAW_PSSM_SPLITS)) {
 				material_uniform_set = scene_shader.debug_shadow_splits_material_uniform_set;
 				shader = scene_shader.debug_shadow_splits_material_shader_ptr;
@@ -635,7 +638,6 @@ void RenderForwardClustered::_render_list_template(RenderingDevice::DrawListID p
 
 void RenderForwardClustered::_render_list(RenderingDevice::DrawListID p_draw_list, RenderingDevice::FramebufferFormatID p_framebuffer_Format, RenderListParameters *p_params, uint32_t p_from_element, uint32_t p_to_element) {
 	//use template for faster performance (pass mode comparisons are inlined)
-
 	switch (p_params->pass_mode) {
 #define VALID_FLAG_COMBINATION(f) \
 	case f: { \

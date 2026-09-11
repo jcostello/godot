@@ -557,6 +557,8 @@ public:
 	void update_transform_gizmo_view();
 	void update_transform_gizmo_highlight();
 	void set_display_mode_normal() { _menu_option(VIEW_DISPLAY_NORMAL); }
+	void set_display_mode_unshaded() { _menu_option(VIEW_DISPLAY_UNSHADED); }
+	uint32_t get_editor_visual_layer_mask() const { return 1U << (GIZMO_BASE_LAYER + index); }
 
 	void set_can_preview(Camera3D *p_preview);
 	void switch_preview_camera(Camera3D *p_new_camera);

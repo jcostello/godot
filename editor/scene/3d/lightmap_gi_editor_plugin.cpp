@@ -153,7 +153,7 @@ void LightmapGIEditorPlugin::_preview_pressed() {
 }
 
 void LightmapGIEditorPlugin::_close_preview_pressed() {
-	callable_mp(this, &LightmapGIEditorPlugin::_clear_preview).call_deferred();
+	callable_mp(this, &LightmapGIEditorPlugin::_clear_preview).bind(true).call_deferred();
 }
 
 void LightmapGIEditorPlugin::_update_preview_button(bool p_preview_active) {
@@ -186,9 +186,10 @@ void LightmapGIEditorPlugin::_load_target_density() {
 	target_density_spinbox->set_value_no_signal(target_density);
 }
 
-void LightmapGIEditorPlugin::_clear_preview() {
+void LightmapGIEditorPlugin::_clear_preview(bool p_restore_normal_view) {
 	set_process(false);
 	median_calculation_pending = false;
+	Node3DEditorViewport *editor_viewport = ObjectDB::get_instance<Node3DEditorViewport>(preview_viewport_id);
 	for (const PreviewInstance &preview_instance : preview_instances) {
 		if (preview_instance.instance.is_valid()) {
 			RS::get_singleton()->free_rid(preview_instance.instance);
@@ -196,7 +197,11 @@ void LightmapGIEditorPlugin::_clear_preview() {
 	}
 	preview_instances.clear();
 	preview_lightmap_id = ObjectID();
+	preview_viewport_id = ObjectID();
 	_update_preview_button(false);
+	if (p_restore_normal_view && editor_viewport) {
+		editor_viewport->set_display_mode_normal();
+	}
 }
 
 void LightmapGIEditorPlugin::_find_preview_meshes(Node *p_node, Vector<MeshInstance3D *> &r_meshes) const {
@@ -236,17 +241,21 @@ void LightmapGIEditorPlugin::_create_preview() {
 	if (!lightmap || !lightmap->is_inside_tree() || !lightmap->get_world_3d().is_valid()) {
 		return;
 	}
-	for (uint32_t i = 0; i < Node3DEditor::VIEWPORTS_COUNT; i++) {
-		Node3DEditorViewport *editor_viewport = Node3DEditor::get_singleton()->get_editor_viewport(i);
-		if (editor_viewport) {
-			editor_viewport->set_display_mode_normal();
-		}
-	}
-
 	Node *root = get_tree()->get_edited_scene_root() == lightmap ? static_cast<Node *>(lightmap) : lightmap->get_parent();
 	if (!root) {
 		return;
 	}
+	Node3DEditorViewport *editor_viewport = Node3DEditor::get_singleton()->get_last_used_viewport();
+	if (!editor_viewport) {
+		editor_viewport = Node3DEditor::get_singleton()->get_editor_viewport(0);
+	}
+	if (!editor_viewport) {
+		return;
+	}
+	editor_viewport->set_display_mode_unshaded();
+	preview_viewport_id = editor_viewport->get_instance_id();
+	const uint32_t preview_layer_mask = editor_viewport->get_editor_visual_layer_mask();
+
 	Vector<MeshInstance3D *> meshes;
 	_find_preview_meshes(root, meshes);
 	const RID scenario = lightmap->get_world_3d()->get_scenario();
@@ -273,7 +282,7 @@ void LightmapGIEditorPlugin::_create_preview() {
 		preview_instance.base_lightmap_size = base_size;
 		preview_instance.instance = RS::get_singleton()->instance_create2(mesh->get_rid(), scenario);
 		RS::get_singleton()->instance_set_transform(preview_instance.instance, mesh_instance->get_global_transform());
-		RS::get_singleton()->instance_set_layer_mask(preview_instance.instance, mesh_instance->get_layer_mask());
+		RS::get_singleton()->instance_set_layer_mask(preview_instance.instance, preview_layer_mask);
 		RS::get_singleton()->instance_set_visible(preview_instance.instance, mesh_instance->is_visible_in_tree());
 		RS::get_singleton()->instance_geometry_set_material_override(preview_instance.instance, preview_instance.material->get_rid());
 		RS::get_singleton()->instance_geometry_set_cast_shadows_setting(preview_instance.instance, RSE::SHADOW_CASTING_SETTING_OFF);
@@ -342,10 +351,14 @@ void LightmapGIEditorPlugin::_notification(int p_what) {
 		return;
 	}
 
-	bool preview_visible = true;
-	Node3DEditorViewport *editor_viewport = Node3DEditor::get_singleton()->get_last_used_viewport();
-	if (editor_viewport && editor_viewport->get_viewport_node()->get_debug_draw() != Viewport::DEBUG_DRAW_DISABLED) {
-		preview_visible = false;
+	Node3DEditorViewport *editor_viewport = ObjectDB::get_instance<Node3DEditorViewport>(preview_viewport_id);
+	if (!editor_viewport) {
+		_clear_preview(false);
+		return;
+	}
+	if (editor_viewport->get_viewport_node()->get_debug_draw() != Viewport::DEBUG_DRAW_UNSHADED) {
+		_clear_preview(false);
+		return;
 	}
 	const float global_scale = preview_lightmap->get_texel_scale();
 	if (median_calculation_pending) {
@@ -390,7 +403,7 @@ void LightmapGIEditorPlugin::_notification(int p_what) {
 			RS::get_singleton()->instance_set_transform(preview_instance.instance, transform);
 			preview_instance.last_render_transform = transform;
 		}
-		const bool instance_visible = preview_visible && source->is_visible_in_tree();
+		const bool instance_visible = source->is_visible_in_tree();
 		if (!preview_instance.render_state_initialized || preview_instance.last_visible != instance_visible) {
 			RS::get_singleton()->instance_set_visible(preview_instance.instance, instance_visible);
 			preview_instance.last_visible = instance_visible;

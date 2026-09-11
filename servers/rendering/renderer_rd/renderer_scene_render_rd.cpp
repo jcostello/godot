@@ -45,6 +45,16 @@
 #include "servers/rendering/shader_include_db.h"
 #include "servers/rendering/storage/camera_attributes_storage.h"
 
+static float apply_debug_draw_exposure_compensation(RSE::ViewportDebugDraw p_debug_draw, float p_exposure_adjustment) {
+	if (p_debug_draw == RSE::VIEWPORT_DEBUG_DRAW_UNSHADED || p_debug_draw == RSE::VIEWPORT_DEBUG_DRAW_OVERDRAW) {
+		return 0.5f;
+	}
+	if (p_debug_draw == RSE::VIEWPORT_DEBUG_DRAW_WIREFRAME) {
+		return 1.0f;
+	}
+	return p_exposure_adjustment;
+}
+
 void get_vogel_disk(float *r_kernel, int p_sample_count) {
 	const float golden_angle = 2.4;
 
@@ -470,7 +480,8 @@ void RendererSceneRenderRD::_render_buffers_post_process_and_tonemap(const Rende
 	can_use_effects &= _debug_draw_can_use_effects(debug_draw);
 	bool can_use_storage = _render_buffers_can_be_storage();
 	const bool uses_auto_exposure = can_use_effects && RSG::camera_attributes->camera_attributes_uses_auto_exposure(p_render_data->camera_attributes);
-	const float manual_exposure_adjustment = uses_auto_exposure || !p_render_data->camera_attributes.is_valid() ? 1.0f : RSG::camera_attributes->camera_attributes_get_exposure_adjustment_factor(p_render_data->camera_attributes);
+	float manual_exposure_adjustment = uses_auto_exposure || !p_render_data->camera_attributes.is_valid() ? 1.0f : RSG::camera_attributes->camera_attributes_get_exposure_adjustment_factor(p_render_data->camera_attributes);
+	manual_exposure_adjustment = apply_debug_draw_exposure_compensation(debug_draw, manual_exposure_adjustment);
 
 	RSE::ViewportScaling3DMode scale_mode = rb->get_scaling_3d_mode();
 	bool use_upscaled_texture = rb->has_upscaled_texture() && (scale_mode == RSE::VIEWPORT_SCALING_3D_MODE_FSR2 || scale_mode == RSE::VIEWPORT_SCALING_3D_MODE_METALFX_TEMPORAL);
@@ -1005,7 +1016,8 @@ void RendererSceneRenderRD::_post_process_subpass(RID p_source_texture, RID p_fr
 		tonemap.white = environment_get_white(p_render_data->environment, limit_agx_white, max_value);
 		tonemap.max_value = max_value;
 	}
-	const float manual_exposure_adjustment = p_render_data->camera_attributes.is_valid() ? RSG::camera_attributes->camera_attributes_get_exposure_adjustment_factor(p_render_data->camera_attributes) : 1.0f;
+	float manual_exposure_adjustment = p_render_data->camera_attributes.is_valid() ? RSG::camera_attributes->camera_attributes_get_exposure_adjustment_factor(p_render_data->camera_attributes) : 1.0f;
+	manual_exposure_adjustment = apply_debug_draw_exposure_compensation(debug_draw, manual_exposure_adjustment);
 	tonemap.exposure *= manual_exposure_adjustment;
 
 	// We don't support glow or auto exposure here, if they are needed, don't use subpasses!
