@@ -790,6 +790,7 @@ void RendererSceneRenderRD::_render_buffers_post_process_and_tonemap(const Rende
 			tonemap.tint = environment_get_adjustment_tint(p_render_data->environment);
 			tonemap.shadows_start = environment_get_adjustment_shadows_start(p_render_data->environment);
 			tonemap.shadows_end = environment_get_adjustment_shadows_end(p_render_data->environment);
+			tonemap.tonal_softness = environment_get_adjustment_tonal_softness(p_render_data->environment);
 			tonemap.midtones_start = environment_get_adjustment_midtones_start(p_render_data->environment);
 			tonemap.midtones_end = environment_get_adjustment_midtones_end(p_render_data->environment);
 			tonemap.highlights_start = environment_get_adjustment_highlights_start(p_render_data->environment);
@@ -1065,8 +1066,9 @@ void RendererSceneRenderRD::_post_process_subpass(RID p_source_texture, RID p_fr
 		tonemap.tint = environment_get_adjustment_tint(p_render_data->environment);
 			tonemap.shadows_start = environment_get_adjustment_shadows_start(p_render_data->environment);
 			tonemap.shadows_end = environment_get_adjustment_shadows_end(p_render_data->environment);
-		tonemap.midtones_start = environment_get_adjustment_midtones_start(p_render_data->environment);
-		tonemap.midtones_end = environment_get_adjustment_midtones_end(p_render_data->environment);
+			tonemap.tonal_softness = environment_get_adjustment_tonal_softness(p_render_data->environment);
+			tonemap.midtones_start = environment_get_adjustment_midtones_start(p_render_data->environment);
+			tonemap.midtones_end = environment_get_adjustment_midtones_end(p_render_data->environment);
 			tonemap.highlights_start = environment_get_adjustment_highlights_start(p_render_data->environment);
 			tonemap.highlights_end = environment_get_adjustment_highlights_end(p_render_data->environment);
 		tonemap.shadows_color = environment_get_adjustments_shadows_color(p_render_data->environment);

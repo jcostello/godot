@@ -92,7 +92,7 @@ layout(push_constant, std430) uniform Params {
 	vec4 tonemapper_params;
 	vec4 offset;
 	vec4 tint_midtones_range;
-	vec4 tonal_ranges;
+	vec4 tonal_softness;
 	vec4 shadows;
 	vec4 midtones;
 	vec4 highlights;
@@ -501,6 +501,7 @@ vec3 apply_color_correction(vec3 color) {
 }
 #endif
 
+#define COLOR_GRADING_CURVES
 #include "../../../shaders/color_grading_inc.glsl"
 
 // FXAA 3.11 compact, Ported from https://github.com/kosua20/Rendu/blob/master/resources/common/shaders/screens/fxaa.frag
@@ -931,7 +932,7 @@ void main() {
 
 	color.rgb = apply_tonemapping(color.rgb);
 
-	if (bool(params.flags & FLAG_USE_BCS) && params.local_contrast > 0.001) {
+	if (bool(params.flags & FLAG_USE_BCS) && bool(params.flags & FLAG_USE_COLOR_GRADING) && params.local_contrast > 0.001 && params.local_contrast_fine > 0.0) {
 		float center_luminance = sample_source_tonemapped_luminance(uv_interp, exposure);
 		vec2 texel = params.pixel_size;
 		float luma_small = center_luminance;
@@ -941,22 +942,8 @@ void main() {
 		luma_small += sample_source_tonemapped_luminance(clamp(uv_interp - vec2(0.0, texel.y), vec2(0.0), vec2(1.0)), exposure);
 		luma_small *= 0.2;
 
-		// Measure local differences in stops so the response remains perceptually
-		// consistent across dark and bright regions.
-		float log_center = log2(center_luminance + 0.001);
-		float log_small = log2(luma_small + 0.001);
-		float fine_detail = log_center - log_small;
-
-		// Avoid amplifying noise near black and clipping detail near display white.
-		float shadow_protection = smoothstep(0.01, 0.08, center_luminance);
-		float highlight_protection = 1.0 - smoothstep(0.75, 1.0, center_luminance);
-		float tonal_protection = shadow_protection * highlight_protection;
-		fine_detail *= mix(0.5, 1.0, tonal_protection);
-
-		float master_strength = 1.0 - exp2(-max(params.local_contrast, 0.0));
-		float contrast_delta = fine_detail * clamp(params.local_contrast_fine, 0.0, 3.0);
-		float local_contrast_multiplier = exp2(clamp(contrast_delta * master_strength, -0.75, 0.75));
-		color.rgb *= local_contrast_multiplier;
+		float multiplier = grading_local_contrast(center_luminance, luma_small, params.local_contrast, params.local_contrast_fine);
+		color.rgb *= mix(1.0, multiplier, params.tint_midtones_range.w);
 	}
 
 	// Post-tonemap glow.
@@ -1007,27 +994,10 @@ void main() {
 			color.rgb *= tint_balance;
 
 			float luminance = dot(color.rgb, vec3(0.2126, 0.7152, 0.0722));
-			float midtones_start = clamp(params.tint_midtones_range.y, 0.0, 0.99);
-			float midtones_end = clamp(params.tint_midtones_range.z, midtones_start + 0.01, 1.0);
-			float shadows_start = clamp(params.tonal_ranges.x, 0.0, midtones_start);
-			float shadows_end = clamp(params.tonal_ranges.y, shadows_start, midtones_start);
-			float highlights_start = clamp(params.tonal_ranges.z, midtones_end, 1.0);
-			float highlights_end = clamp(params.tonal_ranges.w, highlights_start, 1.0);
-
-			// Build three independent masks so every range handle has a visual effect.
-			// Explicit divisions keep coincident handles well-defined.
-			float shadows_t = clamp((luminance - shadows_start) / max(shadows_end - shadows_start, 0.0001), 0.0, 1.0);
-			float shadows_weight = 1.0 - shadows_t * shadows_t * (3.0 - 2.0 * shadows_t);
-			float midtones_in_t = clamp((luminance - shadows_start) / max(midtones_start - shadows_start, 0.0001), 0.0, 1.0);
-			float midtones_out_t = clamp((luminance - midtones_end) / max(highlights_end - midtones_end, 0.0001), 0.0, 1.0);
-			float midtones_weight = midtones_in_t * midtones_in_t * (3.0 - 2.0 * midtones_in_t);
-			midtones_weight *= 1.0 - midtones_out_t * midtones_out_t * (3.0 - 2.0 * midtones_out_t);
-			float highlights_t = clamp((luminance - highlights_start) / max(highlights_end - highlights_start, 0.0001), 0.0, 1.0);
-			float highlights_weight = highlights_t * highlights_t * (3.0 - 2.0 * highlights_t);
-			float weight_sum = max(shadows_weight + midtones_weight + highlights_weight, 0.0001);
-			shadows_weight /= weight_sum;
-			midtones_weight /= weight_sum;
-			highlights_weight /= weight_sum;
+			vec3 weights = grading_tonal_weights(luminance, params.tint_midtones_range.yz, params.tonal_softness.xy);
+			float shadows_weight = weights.x;
+			float midtones_weight = weights.y;
+			float highlights_weight = weights.z;
 			vec3 wheel_color = params.shadows.rgb * shadows_weight;
 			wheel_color += params.midtones.rgb * midtones_weight;
 			wheel_color += params.highlights.rgb * highlights_weight;
@@ -1042,36 +1012,15 @@ void main() {
 		if (bool(params.flags & FLAG_USE_COLOR_GRADING_CURVES)) {
 			color.rgb = apply_color_grading_curves(color.rgb);
 		}
+
 		if (bool(params.flags & FLAG_USE_COLOR_GRADING)) {
-			color.rgb = mix(color_before_grading, color.rgb, params.tint_midtones_range.w);
-		}
-
-		// Apply vibrance (selective saturation boost)
-		if (abs(params.vibrance) > 0.001) {
-			vec3 hsv = grading_rgb_to_hsv(color.rgb);
-			if (params.vibrance > 0.0) {
-				// Emphasize moderately saturated colors without tinting neutrals or
-				// pushing already saturated colors disproportionately.
-				hsv.y += hsv.y * (1.0 - hsv.y) * params.vibrance;
-			} else {
-				hsv.y *= (1.0 + params.vibrance);
+			if (abs(params.vibrance) > 0.001) {
+				color.rgb = apply_grading_vibrance(color.rgb, params.vibrance);
 			}
-			hsv.y = clamp(hsv.y, 0.0, 1.0);
-			color.rgb = grading_hsv_to_rgb(hsv);
-		}
-
-		if (params.vignette > 0.001) {
-			vec2 vignette_uv = uv_interp * 2.0 - 1.0;
-			float aspect = params.pixel_size.y / params.pixel_size.x;
-			vignette_uv.x *= aspect;
-			float vignette_radius = length(vignette_uv);
-			float vignette_max_radius = length(vec2(aspect, 1.0));
-			float vignette_t = vignette_radius / max(vignette_max_radius, 0.00001);
-			float vignette_start = clamp(params.vignette_range.x, 0.0, 0.999);
-			float vignette_end = clamp(params.vignette_range.y, vignette_start + 0.001, 1.0);
-			float vignette_mask = smoothstep(vignette_start, vignette_end, vignette_t);
-			float vignette_strength = clamp(params.vignette * 0.5, 0.0, 1.0);
-			color.rgb *= 1.0 - vignette_strength * vignette_mask;
+			if (params.vignette > 0.001) {
+				color.rgb *= grading_vignette(uv_interp, params.pixel_size.y / params.pixel_size.x, params.vignette, params.vignette_range);
+			}
+			color.rgb = mix(color_before_grading, color.rgb, params.tint_midtones_range.w);
 		}
 
 		if (bool(params.flags & FLAG_USE_COLOR_CORRECTION)) {

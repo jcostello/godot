@@ -49,10 +49,10 @@
 			If [code]true[/code], enables advanced color grading controls under [b]Color Grading[/b]. If [code]false[/code], only basic adjustments (brightness, contrast, saturation) remain active.
 		</member>
 		<member name="adjustment_color_grading_intensity" type="float" setter="set_adjustment_color_grading_intensity" getter="get_adjustment_color_grading_intensity" default="1.0">
-			Blends between the image before advanced color grading and the fully graded image. At [code]0.0[/code], temperature, tint, tonal wheels and curves have no effect. At [code]1.0[/code], they are applied fully.
+			Controls the strength of all advanced color grading effects. At [code]0.0[/code], temperature, local contrast, tint, tonal wheels, curves, vibrance and vignette have no effect. At [code]1.0[/code], they are applied fully. Temperature and local contrast are blended at their respective stages; tonal wheels, curves, vibrance and vignette are blended together after the basic adjustments. Brightness, contrast, saturation and the color-correction LUT are independent of this setting.
 		</member>
 		<member name="adjustment_enabled" type="bool" setter="set_adjustment_enabled" getter="is_adjustment_enabled" default="false">
-			If [code]true[/code], enables the [code]adjustment_*[/code] properties provided by this resource. If [code]false[/code], modifications to the [code]adjustment_*[/code] properties will have no effect on the rendered scene. Operations are applied in this order: white balance temperature, tonemapping, brightness/contrast/saturation, advanced tonal grading, grading curves, then the color-correction LUT.
+			If [code]true[/code], enables the [code]adjustment_*[/code] properties provided by this resource. If [code]false[/code], modifications to the [code]adjustment_*[/code] properties will have no effect on the rendered scene. Operations are applied in this order: white balance temperature, tonemapping, local contrast, brightness/contrast/saturation, advanced tonal grading, grading curves, vibrance, vignette, then the color-correction LUT.
 		</member>
 		<member name="adjustment_highlights_color" type="Color" setter="set_adjustment_highlights_color" getter="get_adjustment_highlights_color" default="Color(1, 1, 1, 1)">
 			Tints the brightest range of the rendered image. Effective only if [member adjustment_enabled] and [member adjustment_advanced] are [code]true[/code].
@@ -60,26 +60,29 @@
 		<member name="adjustment_highlights_luminance" type="float" setter="set_adjustment_highlights_luminance" getter="get_adjustment_highlights_luminance" default="1.0">
 			Multiplies the brightness of the brightest range of the rendered image. Effective only if [member adjustment_enabled] and [member adjustment_advanced] are [code]true[/code].
 		</member>
+		<member name="adjustment_highlights_softness" type="float" setter="set_adjustment_highlights_softness" getter="get_adjustment_highlights_softness" default="0.1">
+			Total width of the transition centered at [member adjustment_midtones_end]. For example, a center of [code]0.3[/code] with softness [code]0.1[/code] blends from [code]0.25[/code] to [code]0.35[/code]. Zero produces an exact cutoff. The width does not move either transition center. Overlapping transitions are normalized so neutral grading preserves brightness. Effective only if [member adjustment_enabled] and [member adjustment_advanced] are [code]true[/code].
+		</member>
 		<member name="adjustment_hue_vs_hue" type="CurveTexture" setter="set_adjustment_hue_vs_hue" getter="get_adjustment_hue_vs_hue">
-			Shifts each input hue according to the curve. The horizontal axis is the input hue and the vertical axis is the hue offset, with [code]0.5[/code] being neutral. Sampling is continuous across the red hue boundary. Effective only if [member adjustment_enabled] and [member adjustment_advanced] are [code]true[/code].
+			Shifts each input hue according to the curve. The horizontal axis is the input hue and the vertical axis is the hue offset, with [code]0.5[/code] being neutral. Sampling joins the first and last texture samples at the red hue boundary, averaging them over a one-texel transition. Use matching endpoint values for a periodic curve. Effective only if [member adjustment_enabled] and [member adjustment_advanced] are [code]true[/code].
 		</member>
 		<member name="adjustment_hue_vs_saturation" type="CurveTexture" setter="set_adjustment_hue_vs_saturation" getter="get_adjustment_hue_vs_saturation">
 			Adjusts saturation according to input hue. A curve value of [code]0.5[/code] is neutral. Effective only if [member adjustment_enabled] and [member adjustment_advanced] are [code]true[/code].
 		</member>
 		<member name="adjustment_luminance_vs_saturation" type="CurveTexture" setter="set_adjustment_luminance_vs_saturation" getter="get_adjustment_luminance_vs_saturation">
-			Adjusts saturation according to input luminance. A curve value of [code]0.5[/code] is neutral. Effective only if [member adjustment_enabled] and [member adjustment_advanced] are [code]true[/code].
+			Adjusts saturation according to perceptual luma computed from sRGB-encoded color, matching the tonal wheel ranges. The input is clamped to [code]0.0[/code] through [code]1.0[/code]; it is not linear-light luminance. A curve value of [code]0.5[/code] is neutral. Effective only if [member adjustment_enabled] and [member adjustment_advanced] are [code]true[/code].
 		</member>
 		<member name="adjustment_midtones_color" type="Color" setter="set_adjustment_midtones_color" getter="get_adjustment_midtones_color" default="Color(1, 1, 1, 1)">
 			Tints the mid-range luminance of the rendered image while approximately preserving luminance. Effective only if [member adjustment_enabled] and [member adjustment_advanced] are [code]true[/code].
 		</member>
 		<member name="adjustment_midtones_end" type="float" setter="set_adjustment_midtones_end" getter="get_adjustment_midtones_end" default="0.55">
-			Sets where the midtones range ends and highlights begin for color grading weights. Effective only if [member adjustment_enabled] and [member adjustment_advanced] are [code]true[/code].
+			Sets the center of the midtones-to-highlights transition in perceptual sRGB luma. [member adjustment_highlights_softness] controls its width. With zero softness, values at or above this cutoff belong to highlights. Effective only if [member adjustment_enabled] and [member adjustment_advanced] are [code]true[/code].
 		</member>
 		<member name="adjustment_midtones_luminance" type="float" setter="set_adjustment_midtones_luminance" getter="get_adjustment_midtones_luminance" default="1.0">
 			Multiplies the brightness of the mid-range luminance of the rendered image. Effective only if [member adjustment_enabled] and [member adjustment_advanced] are [code]true[/code].
 		</member>
 		<member name="adjustment_midtones_start" type="float" setter="set_adjustment_midtones_start" getter="get_adjustment_midtones_start" default="0.45">
-			Sets where the midtones range starts and shadows end for color grading weights. Effective only if [member adjustment_enabled] and [member adjustment_advanced] are [code]true[/code].
+			Sets the center of the shadows-to-midtones transition in perceptual sRGB luma after brightness, contrast, saturation, offset and tint. [member adjustment_shadows_softness] controls its width. With zero softness, values below this cutoff belong to shadows and values at or above it belong to midtones until [member adjustment_midtones_end]. Effective only if [member adjustment_enabled] and [member adjustment_advanced] are [code]true[/code].
 		</member>
 		<member name="adjustment_offset_color" type="Color" setter="set_adjustment_offset_color" getter="get_adjustment_offset_color" default="Color(1, 1, 1, 1)">
 			Applies an additive global color offset to the entire tonal range. White is neutral. Effective only if [member adjustment_enabled] and [member adjustment_advanced] are [code]true[/code].
@@ -104,6 +107,9 @@
 		</member>
 		<member name="adjustment_shadows_luminance" type="float" setter="set_adjustment_shadows_luminance" getter="get_adjustment_shadows_luminance" default="1.0">
 			Multiplies the brightness of the darkest range of the rendered image. Effective only if [member adjustment_enabled] and [member adjustment_advanced] are [code]true[/code].
+		</member>
+		<member name="adjustment_shadows_softness" type="float" setter="set_adjustment_shadows_softness" getter="get_adjustment_shadows_softness" default="0.1">
+			Total width of the transition centered at [member adjustment_midtones_start]. For example, a center of [code]0.3[/code] with softness [code]0.1[/code] blends from [code]0.25[/code] to [code]0.35[/code]. Zero produces an exact cutoff. The width does not move either transition center. Overlapping transitions are normalized so neutral grading preserves brightness. Effective only if [member adjustment_enabled] and [member adjustment_advanced] are [code]true[/code].
 		</member>
 		<member name="ambient_light_color" type="Color" setter="set_ambient_light_color" getter="get_ambient_light_color" default="Color(0, 0, 0, 1)">
 			The ambient light's [Color]. Only effective if [member ambient_light_sky_contribution] is lower than [code]1.0[/code] (exclusive).

@@ -128,7 +128,7 @@ private:
 		float tonemapper_params[4]; //  16 - 112
 		float offset[4]; // 16 - 128
 		float tint_midtones_range[4]; // 16 - 144
-		float tonal_ranges[4]; // 16 - 160
+		float tonal_softness[4]; // 16 - 160
 		float shadows[4]; // 16 - 176
 		float midtones[4]; // 16 - 192
 		float highlights[4]; // 16 - 208
@@ -156,7 +156,7 @@ private:
 		float tonemapper_params[4]; //  16 - 64
 		float offset[4]; // 16 - 80
 		float tint_midtones_range[4]; // 16 - 96
-		float tonal_ranges[4]; // 16 - 112
+		float tonal_softness[4]; // 16 - 112
 		float tonemap_temperature[3]; // 12 - 124
 		float output_max_value; // 4 - 128
 		float shadows[4]; // 16 - 144
@@ -226,6 +226,7 @@ public:
 		float tint = 0.0;
 		float shadows_start = 0.0;
 		float shadows_end = 0.45;
+		Vector2 tonal_softness = Vector2(0.1f, 0.1f);
 		float midtones_start = 0.45;
 		float midtones_end = 0.55;
 		float highlights_start = 0.55;

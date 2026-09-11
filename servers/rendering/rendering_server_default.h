@@ -887,6 +887,7 @@ public:
 	FUNC13(environment_set_adjustment, RID, bool, float, float, float, bool, RID, const Color &, float, const Color &, float, const Color &, float)
 	FUNC3(environment_set_adjustment_offset, RID, const Color &, float)
 	FUNC2(environment_set_adjustment_tint, RID, float)
+	FUNC3(environment_set_adjustment_tonal_softness, RID, float, float)
 	FUNC7(environment_set_adjustment_midtones_range, RID, float, float, float, float, float, float)
 	FUNC3(environment_set_adjustment_advance, RID, bool, float)
 	FUNC5(environment_set_adjustment_curves, RID, RID, RID, RID, RID)

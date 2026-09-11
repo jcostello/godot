@@ -46,11 +46,49 @@ TEST_CASE("[Rendering][Environment] Color grading neutral values") {
 TEST_CASE("[Rendering][Environment] Color grading midtones stay ordered") {
 	const Vector2 low_range = EnvironmentColorGrading::clamp_midtones_range(-1.0f, -1.0f);
 	CHECK(low_range.x == doctest::Approx(0.0f));
-	CHECK(low_range.y == doctest::Approx(0.01f));
+	CHECK(low_range.y == doctest::Approx(0.0f));
 
 	const Vector2 high_range = EnvironmentColorGrading::clamp_midtones_range(2.0f, 2.0f);
-	CHECK(high_range.x == doctest::Approx(0.99f));
+	CHECK(high_range.x == doctest::Approx(1.0f));
 	CHECK(high_range.y == doctest::Approx(1.0f));
+}
+
+TEST_CASE("[Rendering][Environment] Hard tonal cuts allow empty ranges") {
+	CHECK(EnvironmentColorGrading::clamp_midtones_range(0.0f, 0.0f).is_equal_approx(Vector2(0.0f, 0.0f)));
+	CHECK(EnvironmentColorGrading::clamp_midtones_range(1.0f, 1.0f).is_equal_approx(Vector2(1.0f, 1.0f)));
+	CHECK(EnvironmentColorGrading::clamp_midtones_range(0.5f, 0.5f).is_equal_approx(Vector2(0.5f, 0.5f)));
+	CHECK(EnvironmentColorGrading::clamp_midtones_range(0.8f, 0.2f).is_equal_approx(Vector2(0.8f, 0.8f)));
+}
+
+TEST_CASE("[Rendering][Environment] Tonal softness is centered and independent") {
+	const Vector2 centers(0.3f, 0.7f);
+	const Vector2 softness(0.1f, 0.2f);
+	CHECK(EnvironmentColorGrading::tonal_weights(0.25f, centers, softness).is_equal_approx(Vector3(1, 0, 0)));
+	CHECK(EnvironmentColorGrading::tonal_weights(0.3f, centers, softness).is_equal_approx(Vector3(0.5f, 0.5f, 0)));
+	CHECK(EnvironmentColorGrading::tonal_weights(0.35f, centers, softness).is_equal_approx(Vector3(0, 1, 0)));
+	CHECK(EnvironmentColorGrading::tonal_weights(0.6f, centers, softness).is_equal_approx(Vector3(0, 1, 0)));
+	CHECK(EnvironmentColorGrading::tonal_weights(0.7f, centers, softness).is_equal_approx(Vector3(0, 0.5f, 0.5f)));
+	CHECK(EnvironmentColorGrading::tonal_weights(0.8f, centers, softness).is_equal_approx(Vector3(0, 0, 1)));
+	// One transition may stay sharp while the other is soft.
+	CHECK(EnvironmentColorGrading::tonal_weights(0.3f, centers, Vector2(0, 0.2f)).is_equal_approx(Vector3(0, 1, 0)));
+	CHECK(EnvironmentColorGrading::tonal_weights(0.7f, centers, Vector2(0.1f, 0)).is_equal_approx(Vector3(0, 0, 1)));
+}
+
+TEST_CASE("[Rendering][Environment] Tonal softness preserves neutral weights when overlapping") {
+	const Vector2 centers[] = { Vector2(0, 0), Vector2(0.45f, 0.55f), Vector2(0.5f, 0.5f), Vector2(1, 1) };
+	const Vector2 widths[] = { Vector2(0, 0), Vector2(0, 1), Vector2(1, 0), Vector2(0.1f, 0.1f), Vector2(1, 1) };
+	for (const Vector2 &center : centers) {
+		for (const Vector2 &width : widths) {
+			for (int i = -10; i <= 110; i++) {
+				const Vector3 weights = EnvironmentColorGrading::tonal_weights(float(i) / 100.0f, center, width);
+				CHECK(weights.x >= 0.0f);
+				CHECK(weights.y >= 0.0f);
+				CHECK(weights.z >= 0.0f);
+				CHECK(weights.x + weights.y + weights.z == doctest::Approx(1.0f));
+			}
+		}
+	}
+	CHECK(EnvironmentColorGrading::tonal_weights(0.5f, Vector2(0.5f, 0.5f), Vector2()).is_equal_approx(Vector3(0, 0, 1)));
 }
 
 TEST_CASE("[Rendering][Environment] Color grading tonal ranges stay integrated") {

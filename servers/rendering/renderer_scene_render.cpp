@@ -606,6 +606,14 @@ void RendererSceneRender::environment_set_adjustment_tint(RID p_env, float p_tin
 	environment_storage.environment_set_adjustment_tint(p_env, p_tint);
 }
 
+void RendererSceneRender::environment_set_adjustment_tonal_softness(RID p_env, float p_shadows_softness, float p_highlights_softness) {
+	environment_storage.environment_set_adjustment_tonal_softness(p_env, p_shadows_softness, p_highlights_softness);
+}
+
+Vector2 RendererSceneRender::environment_get_adjustment_tonal_softness(RID p_env) const {
+	return environment_storage.environment_get_adjustment_tonal_softness(p_env);
+}
+
 void RendererSceneRender::environment_set_adjustment_midtones_range(RID p_env, float p_shadows_start, float p_shadows_end, float p_midtones_start, float p_midtones_end, float p_highlights_start, float p_highlights_end) {
 	environment_storage.environment_set_adjustment_midtones_range(p_env, p_shadows_start, p_shadows_end, p_midtones_start, p_midtones_end, p_highlights_start, p_highlights_end);
 }

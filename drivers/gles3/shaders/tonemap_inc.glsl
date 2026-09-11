@@ -14,6 +14,9 @@ layout(std140) uniform TonemapData { //ubo:0
 	vec4 offset;
 	vec4 tint_midtones_range;
 	vec4 tonemap_temperature;
+	vec4 tonal_softness;
+	vec4 grading_effects; // Vibrance, local contrast, fine contrast, vignette.
+	vec4 vignette_range;
 };
 
 // This approximation expects non-negative input; negative input is undefined behavior.

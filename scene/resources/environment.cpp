@@ -1156,9 +1156,28 @@ float Environment::get_adjustment_shadows_end() const {
 	return adjustment_shadows_end;
 }
 
+void Environment::set_adjustment_shadows_softness(float p_softness) {
+	adjustment_shadows_softness = CLAMP(p_softness, 0.0f, 1.0f);
+	_update_adjustment();
+}
+
+float Environment::get_adjustment_shadows_softness() const {
+	return adjustment_shadows_softness;
+}
+
+void Environment::set_adjustment_highlights_softness(float p_softness) {
+	adjustment_highlights_softness = CLAMP(p_softness, 0.0f, 1.0f);
+	_update_adjustment();
+}
+
+float Environment::get_adjustment_highlights_softness() const {
+	return adjustment_highlights_softness;
+}
+
 void Environment::set_adjustment_midtones_start(float p_midtones_start) {
-	adjustment_midtones_start = p_midtones_start;
-	_clamp_environment_tonal_ranges(adjustment_shadows_start, adjustment_shadows_end, adjustment_midtones_start, adjustment_midtones_end, adjustment_highlights_start, adjustment_highlights_end);
+	const Vector2 range = EnvironmentColorGrading::clamp_midtones_range(p_midtones_start, adjustment_midtones_end);
+	adjustment_midtones_start = range.x;
+	adjustment_midtones_end = range.y;
 	_update_adjustment();
 }
 
@@ -1167,8 +1186,9 @@ float Environment::get_adjustment_midtones_start() const {
 }
 
 void Environment::set_adjustment_midtones_end(float p_midtones_end) {
-	adjustment_midtones_end = p_midtones_end;
-	_clamp_environment_tonal_ranges(adjustment_shadows_start, adjustment_shadows_end, adjustment_midtones_start, adjustment_midtones_end, adjustment_highlights_start, adjustment_highlights_end);
+	const Vector2 range = EnvironmentColorGrading::clamp_midtones_range(adjustment_midtones_start, p_midtones_end);
+	adjustment_midtones_start = range.x;
+	adjustment_midtones_end = range.y;
 	_update_adjustment();
 }
 
@@ -1478,6 +1498,7 @@ void Environment::_update_adjustment() {
 			adjustment_offset_color,
 			adjustment_offset_luminance);
 	RS::get_singleton()->environment_set_adjustment_tint(environment, adjustment_tint);
+	RS::get_singleton()->environment_set_adjustment_tonal_softness(environment, adjustment_shadows_softness, adjustment_highlights_softness);
 	RS::get_singleton()->environment_set_adjustment_midtones_range(
 			environment,
 			adjustment_shadows_start,
@@ -2023,6 +2044,10 @@ void Environment::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("get_adjustment_shadows_start"), &Environment::get_adjustment_shadows_start);
 	ClassDB::bind_method(D_METHOD("set_adjustment_shadows_end", "end"), &Environment::set_adjustment_shadows_end);
 	ClassDB::bind_method(D_METHOD("get_adjustment_shadows_end"), &Environment::get_adjustment_shadows_end);
+	ClassDB::bind_method(D_METHOD("set_adjustment_shadows_softness", "softness"), &Environment::set_adjustment_shadows_softness);
+	ClassDB::bind_method(D_METHOD("get_adjustment_shadows_softness"), &Environment::get_adjustment_shadows_softness);
+	ClassDB::bind_method(D_METHOD("set_adjustment_highlights_softness", "softness"), &Environment::set_adjustment_highlights_softness);
+	ClassDB::bind_method(D_METHOD("get_adjustment_highlights_softness"), &Environment::get_adjustment_highlights_softness);
 	ClassDB::bind_method(D_METHOD("set_adjustment_midtones_start", "start"), &Environment::set_adjustment_midtones_start);
 	ClassDB::bind_method(D_METHOD("get_adjustment_midtones_start"), &Environment::get_adjustment_midtones_start);
 	ClassDB::bind_method(D_METHOD("set_adjustment_midtones_end", "end"), &Environment::set_adjustment_midtones_end);
@@ -2087,12 +2112,16 @@ void Environment::_bind_methods() {
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "adjustment_vignette", PROPERTY_HINT_RANGE, "0,2,0.01"), "set_adjustment_vignette", "get_adjustment_vignette");
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "adjustment_vignette_start", PROPERTY_HINT_RANGE, "0,1,0.001"), "set_adjustment_vignette_start", "get_adjustment_vignette_start");
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "adjustment_vignette_end", PROPERTY_HINT_RANGE, "0,1,0.001"), "set_adjustment_vignette_end", "get_adjustment_vignette_end");
-	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "adjustment_shadows_start", PROPERTY_HINT_RANGE, "0,1,0.001"), "set_adjustment_shadows_start", "get_adjustment_shadows_start");
-	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "adjustment_shadows_end", PROPERTY_HINT_RANGE, "0,1,0.001"), "set_adjustment_shadows_end", "get_adjustment_shadows_end");
+	// Retain the old transition properties for loading existing resources.
+	// Tonal transitions use adjustment_midtones_start/end and their softness.
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "adjustment_shadows_start", PROPERTY_HINT_RANGE, "0,1,0.001", PROPERTY_USAGE_STORAGE | PROPERTY_USAGE_INTERNAL), "set_adjustment_shadows_start", "get_adjustment_shadows_start");
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "adjustment_shadows_end", PROPERTY_HINT_RANGE, "0,1,0.001", PROPERTY_USAGE_STORAGE | PROPERTY_USAGE_INTERNAL), "set_adjustment_shadows_end", "get_adjustment_shadows_end");
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "adjustment_shadows_softness", PROPERTY_HINT_RANGE, "0,1,0.001"), "set_adjustment_shadows_softness", "get_adjustment_shadows_softness");
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "adjustment_highlights_softness", PROPERTY_HINT_RANGE, "0,1,0.001"), "set_adjustment_highlights_softness", "get_adjustment_highlights_softness");
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "adjustment_midtones_start", PROPERTY_HINT_RANGE, "0,1,0.001"), "set_adjustment_midtones_start", "get_adjustment_midtones_start");
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "adjustment_midtones_end", PROPERTY_HINT_RANGE, "0,1,0.001"), "set_adjustment_midtones_end", "get_adjustment_midtones_end");
-	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "adjustment_highlights_start", PROPERTY_HINT_RANGE, "0,1,0.001"), "set_adjustment_highlights_start", "get_adjustment_highlights_start");
-	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "adjustment_highlights_end", PROPERTY_HINT_RANGE, "0,1,0.001"), "set_adjustment_highlights_end", "get_adjustment_highlights_end");
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "adjustment_highlights_start", PROPERTY_HINT_RANGE, "0,1,0.001", PROPERTY_USAGE_STORAGE | PROPERTY_USAGE_INTERNAL), "set_adjustment_highlights_start", "get_adjustment_highlights_start");
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "adjustment_highlights_end", PROPERTY_HINT_RANGE, "0,1,0.001", PROPERTY_USAGE_STORAGE | PROPERTY_USAGE_INTERNAL), "set_adjustment_highlights_end", "get_adjustment_highlights_end");
 	ADD_PROPERTY(PropertyInfo(Variant::COLOR, "adjustment_offset_color", PROPERTY_HINT_COLOR_NO_ALPHA), "set_adjustment_offset_color", "get_adjustment_offset_color");
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "adjustment_offset_luminance", PROPERTY_HINT_RANGE, "0.0,2.0,0.01,or_greater"), "set_adjustment_offset_luminance", "get_adjustment_offset_luminance");
 	ADD_PROPERTY(PropertyInfo(Variant::COLOR, "adjustment_shadows_color", PROPERTY_HINT_COLOR_NO_ALPHA), "set_adjustment_shadows_color", "get_adjustment_shadows_color");

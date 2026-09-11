@@ -46,8 +46,29 @@ struct TonalRanges {
 };
 
 inline Vector2 clamp_midtones_range(float p_start, float p_end) {
-	const float start = CLAMP(p_start, 0.0f, 0.99f);
-	return Vector2(start, CLAMP(p_end, start + 0.01f, 1.0f));
+	const float start = CLAMP(p_start, 0.0f, 1.0f);
+	return Vector2(start, CLAMP(p_end, start, 1.0f));
+}
+
+// Keep these weights in sync with grading_tonal_weights() in color_grading_inc.glsl.
+// The inspector uses the same masks to preview the rendered transition bands.
+inline float tonal_transition(float p_luminance, float p_center, float p_softness) {
+	const float half_width = CLAMP(p_softness, 0.0f, 1.0f) * 0.5f;
+	const float start = p_center - half_width;
+	const float end = p_center + half_width;
+	if (end <= start) {
+		return p_luminance >= p_center ? 1.0f : 0.0f;
+	}
+	const float t = CLAMP((p_luminance - start) / (end - start), 0.0f, 1.0f);
+	return t * t * (3.0f - 2.0f * t);
+}
+
+inline Vector3 tonal_weights(float p_luminance, const Vector2 &p_centers, const Vector2 &p_softness) {
+	const Vector2 centers = clamp_midtones_range(p_centers.x, p_centers.y);
+	const float shadows_to_midtones = tonal_transition(p_luminance, centers.x, p_softness.x);
+	const float midtones_to_highlights = tonal_transition(p_luminance, centers.y, p_softness.y);
+	const Vector3 weights(1.0f - shadows_to_midtones, shadows_to_midtones * (1.0f - midtones_to_highlights), midtones_to_highlights);
+	return weights / (weights.x + weights.y + weights.z);
 }
 
 inline TonalRanges clamp_tonal_ranges(float p_shadows_start, float p_shadows_end, float p_midtones_start, float p_midtones_end, float p_highlights_start, float p_highlights_end) {

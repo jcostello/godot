@@ -228,6 +228,8 @@ private:
 	float adjustment_tint = 0.0;
 	float adjustment_shadows_start = 0.0;
 	float adjustment_shadows_end = 0.45;
+	float adjustment_shadows_softness = 0.1f;
+	float adjustment_highlights_softness = 0.1f;
 	float adjustment_midtones_start = 0.45;
 	float adjustment_midtones_end = 0.55;
 	float adjustment_highlights_start = 0.55;
@@ -495,6 +497,10 @@ public:
 	float get_adjustment_shadows_start() const;
 	void set_adjustment_shadows_end(float p_shadows_end);
 	float get_adjustment_shadows_end() const;
+	void set_adjustment_shadows_softness(float p_softness);
+	float get_adjustment_shadows_softness() const;
+	void set_adjustment_highlights_softness(float p_softness);
+	float get_adjustment_highlights_softness() const;
 	void set_adjustment_midtones_start(float p_midtones_start);
 	float get_adjustment_midtones_start() const;
 	void set_adjustment_midtones_end(float p_midtones_end);
