@@ -683,6 +683,7 @@ public:
 	virtual void environment_set_adjustment(RID p_env, bool p_enable, float p_brightness, float p_contrast, float p_saturation, bool p_use_1d_color_correction, RID p_color_correction, const Color &p_shadows_color, float p_shadows_luminance, const Color &p_midtones_color, float p_midtones_luminance, const Color &p_highlights_color, float p_highlights_luminance) = 0;
 	virtual void environment_set_adjustment_offset(RID p_env, const Color &p_color, float p_luminance) = 0;
 	virtual void environment_set_adjustment_tint(RID p_env, float p_tint) = 0;
+	virtual void environment_set_adjustment_tonal_softness(RID p_env, float p_shadows_softness, float p_highlights_softness) = 0;
 	virtual void environment_set_adjustment_midtones_range(RID p_env, float p_shadows_start, float p_shadows_end, float p_midtones_start, float p_midtones_end, float p_highlights_start, float p_highlights_end) = 0;
 	virtual void environment_set_adjustment_advance(RID p_env, bool p_enable, float p_intensity = 1.0f) = 0;
 	virtual void environment_set_adjustment_curves(RID p_env, RID p_hue_vs_hue, RID p_hue_vs_saturation, RID p_saturation_vs_saturation, RID p_luminance_vs_saturation) = 0;

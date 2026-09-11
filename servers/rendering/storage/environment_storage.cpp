@@ -943,6 +943,18 @@ void RendererEnvironmentStorage::environment_set_adjustment_tint(RID p_env, floa
 	env->adjustments_tint = CLAMP(p_tint, -1.0f, 1.0f);
 }
 
+void RendererEnvironmentStorage::environment_set_adjustment_tonal_softness(RID p_env, float p_shadows_softness, float p_highlights_softness) {
+	Environment *env = environment_owner.get_or_null(p_env);
+	ERR_FAIL_NULL(env);
+	env->adjustments_tonal_softness = Vector2(CLAMP(p_shadows_softness, 0.0f, 1.0f), CLAMP(p_highlights_softness, 0.0f, 1.0f));
+}
+
+Vector2 RendererEnvironmentStorage::environment_get_adjustment_tonal_softness(RID p_env) const {
+	const Environment *env = environment_owner.get_or_null(p_env);
+	ERR_FAIL_NULL_V(env, Vector2(0.1f, 0.1f));
+	return env->adjustments_tonal_softness;
+}
+
 void RendererEnvironmentStorage::environment_set_adjustment_midtones_range(RID p_env, float p_shadows_start, float p_shadows_end, float p_midtones_start, float p_midtones_end, float p_highlights_start, float p_highlights_end) {
 	Environment *env = environment_owner.get_or_null(p_env);
 	ERR_FAIL_NULL(env);

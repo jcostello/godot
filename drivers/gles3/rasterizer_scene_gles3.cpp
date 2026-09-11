@@ -2587,6 +2587,15 @@ void RasterizerSceneGLES3::render_scene(const Ref<RenderSceneBuffers> &p_render_
 		tonemap_ubo.tint_midtones_range[1] = environment_get_adjustment_midtones_start(render_data.environment);
 		tonemap_ubo.tint_midtones_range[2] = environment_get_adjustment_midtones_end(render_data.environment);
 		tonemap_ubo.tint_midtones_range[3] = environment_get_adjustment_color_grading_intensity(render_data.environment);
+		const Vector2 tonal_softness = environment_get_adjustment_tonal_softness(render_data.environment);
+		tonemap_ubo.tonal_softness[0] = tonal_softness.x;
+		tonemap_ubo.tonal_softness[1] = tonal_softness.y;
+		tonemap_ubo.grading_effects[0] = environment_get_adjustment_vibrance(render_data.environment);
+		tonemap_ubo.grading_effects[1] = environment_get_adjustment_local_contrast(render_data.environment);
+		tonemap_ubo.grading_effects[2] = environment_get_adjustment_local_contrast_fine(render_data.environment);
+		tonemap_ubo.grading_effects[3] = environment_get_adjustment_vignette(render_data.environment);
+		tonemap_ubo.vignette_range[0] = environment_get_adjustment_vignette_start(render_data.environment);
+		tonemap_ubo.vignette_range[1] = environment_get_adjustment_vignette_end(render_data.environment);
 		if (environment_get_adjustments_enabled(render_data.environment) && environment_get_adjustment_advance(render_data.environment) && environment_get_adjustment_color_grading_intensity(render_data.environment) > 0.0f) {
 			const Vector3 full_temperature = EnvironmentColorGrading::temperature_balance(environment_get_tonemap_temperature(render_data.environment));
 			const Vector3 temperature = Vector3(1.0, 1.0, 1.0).lerp(full_temperature, environment_get_adjustment_color_grading_intensity(render_data.environment));

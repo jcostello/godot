@@ -47,10 +47,10 @@ uniform sampler2D source_color; // texunit:0
 
 uniform float view;
 uniform float luminance_multiplier;
+uniform vec2 pixel_size;
 
 #ifdef USE_GLOW
 uniform sampler2D glow_color; // texunit:1
-uniform vec2 pixel_size;
 uniform float glow_intensity;
 uniform float srgb_white;
 
@@ -99,8 +99,10 @@ uniform sampler2D hue_vs_saturation_curve; //texunit:5
 uniform sampler2D saturation_vs_saturation_curve; //texunit:6
 uniform sampler2D luminance_vs_saturation_curve; //texunit:7
 
-#include "../../../../servers/rendering/shaders/color_grading_inc.glsl"
+#define COLOR_GRADING_CURVES
 #endif
+
+#include "../../../../servers/rendering/shaders/color_grading_inc.glsl"
 
 #if defined(USE_SSAO_ABYSS) || defined(USE_SSAO_LOW) || defined(USE_SSAO_MED) || defined(USE_SSAO_HIGH) || defined(USE_SSAO_MEGA)
 #define USE_SOME_SSAO
@@ -128,6 +130,21 @@ uniform sampler2D depth_buffer; // texunit:3
 in vec2 uv_interp;
 
 layout(location = 0) out vec4 frag_color;
+
+#ifdef USE_COLOR_GRADING
+float sample_source_tonemapped_luminance(vec2 uv) {
+#ifdef USE_MULTIVIEW
+	vec3 color = textureLod(source_color, vec3(uv, view), 0.0).rgb;
+#else
+	vec3 color = textureLod(source_color, uv, 0.0).rgb;
+#endif
+#ifdef USE_LUMINANCE_MULTIPLIER
+	color /= luminance_multiplier;
+#endif
+	color = apply_tonemapping(srgb_to_linear(color) * tonemap_temperature.rgb);
+	return dot(color, vec3(0.2126, 0.7152, 0.0722));
+}
+#endif
 
 void main() {
 #ifdef USE_MULTIVIEW
@@ -178,6 +195,19 @@ void main() {
 
 	color.rgb = apply_tonemapping(color.rgb);
 
+#ifdef USE_COLOR_GRADING
+	if (grading_effects.y > 0.001 && grading_effects.z > 0.0) {
+		float center_luminance = sample_source_tonemapped_luminance(uv_interp);
+		float average_luminance = center_luminance;
+		average_luminance += sample_source_tonemapped_luminance(clamp(uv_interp + vec2(pixel_size.x, 0.0), vec2(0.0), vec2(1.0)));
+		average_luminance += sample_source_tonemapped_luminance(clamp(uv_interp - vec2(pixel_size.x, 0.0), vec2(0.0), vec2(1.0)));
+		average_luminance += sample_source_tonemapped_luminance(clamp(uv_interp + vec2(0.0, pixel_size.y), vec2(0.0), vec2(1.0)));
+		average_luminance += sample_source_tonemapped_luminance(clamp(uv_interp - vec2(0.0, pixel_size.y), vec2(0.0), vec2(1.0)));
+		float multiplier = grading_local_contrast(center_luminance, average_luminance * 0.2, grading_effects.y, grading_effects.z);
+		color.rgb *= mix(1.0, multiplier, tint_midtones_range.w);
+	}
+#endif
+
 #ifdef USE_BCS
 	// Apply brightness:
 	// Apply to relative luminance. This ensures that the hue and saturation of
@@ -210,11 +240,10 @@ void main() {
 	color.rgb *= vec3(1.0 + tint, 1.0 - tint, 1.0 + tint);
 
 	float grading_luminance = dot(color.rgb, vec3(0.2126, 0.7152, 0.0722));
-	float midtones_start = clamp(tint_midtones_range.y, 0.0, 0.99);
-	float midtones_end = clamp(tint_midtones_range.z, midtones_start + 0.01, 1.0);
-	float shadows_weight = 1.0 - smoothstep(0.0, midtones_start, grading_luminance);
-	float highlights_weight = smoothstep(midtones_end, 1.0, grading_luminance);
-	float midtones_weight = max(0.0, 1.0 - shadows_weight - highlights_weight);
+	vec3 weights = grading_tonal_weights(grading_luminance, tint_midtones_range.yz, tonal_softness.xy);
+	float shadows_weight = weights.x;
+	float midtones_weight = weights.y;
+	float highlights_weight = weights.z;
 	vec3 wheel_color = shadows.rgb * shadows_weight;
 	wheel_color += midtones.rgb * midtones_weight;
 	wheel_color += highlights.rgb * highlights_weight;
@@ -230,6 +259,12 @@ void main() {
 	color.rgb = apply_color_grading_curves(color.rgb);
 #endif
 #ifdef USE_COLOR_GRADING
+	if (abs(grading_effects.x) > 0.001) {
+		color.rgb = apply_grading_vibrance(color.rgb, grading_effects.x);
+	}
+	if (grading_effects.w > 0.001) {
+		color.rgb *= grading_vignette(uv_interp, pixel_size.y / pixel_size.x, grading_effects.w, vignette_range.xy);
+	}
 	color.rgb = mix(color_before_grading, color.rgb, tint_midtones_range.w);
 #endif
 #else

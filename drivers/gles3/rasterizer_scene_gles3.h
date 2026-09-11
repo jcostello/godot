@@ -491,6 +491,9 @@ private:
 			float offset[4] = { 1.0, 1.0, 1.0, 1.0 };
 			float tint_midtones_range[4] = { 0.0, 0.45, 0.55, 0.0 };
 			float tonemap_temperature[4] = { 1.0, 1.0, 1.0, 0.0 };
+			float tonal_softness[4] = { 0.1, 0.1, 0.0, 0.0 };
+			float grading_effects[4] = { 0.0, 0.0, 1.0, 0.0 };
+			float vignette_range[4] = { 0.6, 1.0, 0.0, 0.0 };
 		};
 		static_assert(sizeof(TonemapUBO) % 16 == 0, "Tonemap UBO size must be a multiple of 16 bytes");
 

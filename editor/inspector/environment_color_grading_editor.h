@@ -8,6 +8,7 @@
 #include "scene/gui/button.h"
 #include "scene/gui/slider.h"
 
+class EditorSpinSlider;
 class EnvironmentColorGradingEditor;
 class EnvironmentTonalRangesEditor;
 
@@ -60,7 +61,9 @@ class EnvironmentTonalRangesControl : public Control {
 	EnvironmentTonalRangesEditor *editor = nullptr;
 	float midtones_start = 0.45f;
 	float midtones_end = 0.55f;
+	Vector2 softness = Vector2(0.1f, 0.1f);
 	int dragging_handle = -1;
+	float drag_offset = 0.0f;
 
 	float _value_to_x(float p_value) const;
 	float _x_to_value(float p_x) const;
@@ -72,7 +75,7 @@ protected:
 	void gui_input(const Ref<InputEvent> &p_event) override;
 
 public:
-	void set_values(float p_midtones_start, float p_midtones_end);
+	void set_values(float p_midtones_start, float p_midtones_end, const Vector2 &p_softness);
 	EnvironmentTonalRangesControl(EnvironmentTonalRangesEditor *p_editor);
 };
 
@@ -82,10 +85,17 @@ class EnvironmentTonalRangesEditor : public EditorProperty {
 	friend class EnvironmentTonalRangesControl;
 
 	EnvironmentTonalRangesControl *ranges_control = nullptr;
+	EditorSpinSlider *cutoff_sliders[2] = {};
+	EditorSpinSlider *softness_sliders[2] = {};
+	void _softness_changed(double p_value, int p_handle);
+	void _cutoff_changed(double p_value, int p_handle);
+
+protected:
+	void _set_read_only(bool p_read_only) override;
 
 public:
 	void update_property() override;
-	void set_tonal_ranges(float p_midtones_start, float p_midtones_end, bool p_changing);
+	void set_tonal_cutoff(int p_handle, float p_value, bool p_changing);
 	EnvironmentTonalRangesEditor();
 };
 
