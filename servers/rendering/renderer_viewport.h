@@ -109,6 +109,7 @@ public:
 		uint64_t last_pass = 0;
 
 		RSE::ViewportDebugDraw debug_draw = RSE::VIEWPORT_DEBUG_DRAW_DISABLED;
+		float debug_draw_exposure = 1.0f;
 
 		RSE::ViewportClearMode clear_mode = RSE::VIEWPORT_CLEAR_ALWAYS;
 
@@ -288,6 +289,7 @@ public:
 
 	virtual int viewport_get_render_info(RID p_viewport, RSE::ViewportRenderInfoType p_type, RSE::ViewportRenderInfo p_info);
 	virtual void viewport_set_debug_draw(RID p_viewport, RSE::ViewportDebugDraw p_draw);
+	virtual void viewport_set_debug_draw_exposure(RID p_viewport, float p_exposure);
 
 	void viewport_set_measure_render_time(RID p_viewport, bool p_enable);
 	float viewport_get_measured_render_time_cpu(RID p_viewport) const;

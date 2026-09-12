@@ -809,6 +809,7 @@ public:
 
 	FUNC3R(int, viewport_get_render_info, RID, RSE::ViewportRenderInfoType, RSE::ViewportRenderInfo)
 	FUNC2(viewport_set_debug_draw, RID, RSE::ViewportDebugDraw)
+	FUNC2(viewport_set_debug_draw_exposure, RID, float)
 
 	FUNC2(viewport_set_measure_render_time, RID, bool)
 	FUNC1RC(double, viewport_get_measured_render_time_cpu, RID)

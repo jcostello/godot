@@ -128,6 +128,7 @@ protected:
 
 private:
 	RSE::ViewportDebugDraw debug_draw = RSE::VIEWPORT_DEBUG_DRAW_DISABLED;
+	float debug_draw_exposure = 1.0f;
 	static RendererSceneRenderRD *singleton;
 
 	/* Shadow atlas */
@@ -343,6 +344,7 @@ public:
 	virtual void update() override;
 
 	virtual void set_debug_draw_mode(RSE::ViewportDebugDraw p_debug_draw) override;
+	virtual void set_debug_draw_exposure(float p_exposure) override { debug_draw_exposure = p_exposure; }
 	_FORCE_INLINE_ RSE::ViewportDebugDraw get_debug_draw_mode() const {
 		return debug_draw;
 	}

@@ -482,6 +482,9 @@ void RendererSceneRenderRD::_render_buffers_post_process_and_tonemap(const Rende
 	const bool uses_auto_exposure = can_use_effects && RSG::camera_attributes->camera_attributes_uses_auto_exposure(p_render_data->camera_attributes);
 	float manual_exposure_adjustment = uses_auto_exposure || !p_render_data->camera_attributes.is_valid() ? 1.0f : RSG::camera_attributes->camera_attributes_get_exposure_adjustment_factor(p_render_data->camera_attributes);
 	manual_exposure_adjustment = apply_debug_draw_exposure_compensation(debug_draw, manual_exposure_adjustment);
+	if (debug_draw == RSE::VIEWPORT_DEBUG_DRAW_LIGHTING) {
+		manual_exposure_adjustment *= debug_draw_exposure;
+	}
 
 	RSE::ViewportScaling3DMode scale_mode = rb->get_scaling_3d_mode();
 	bool use_upscaled_texture = rb->has_upscaled_texture() && (scale_mode == RSE::VIEWPORT_SCALING_3D_MODE_FSR2 || scale_mode == RSE::VIEWPORT_SCALING_3D_MODE_METALFX_TEMPORAL);
@@ -1018,6 +1021,9 @@ void RendererSceneRenderRD::_post_process_subpass(RID p_source_texture, RID p_fr
 	}
 	float manual_exposure_adjustment = p_render_data->camera_attributes.is_valid() ? RSG::camera_attributes->camera_attributes_get_exposure_adjustment_factor(p_render_data->camera_attributes) : 1.0f;
 	manual_exposure_adjustment = apply_debug_draw_exposure_compensation(debug_draw, manual_exposure_adjustment);
+	if (debug_draw == RSE::VIEWPORT_DEBUG_DRAW_LIGHTING) {
+		manual_exposure_adjustment *= debug_draw_exposure;
+	}
 	tonemap.exposure *= manual_exposure_adjustment;
 
 	// We don't support glow or auto exposure here, if they are needed, don't use subpasses!

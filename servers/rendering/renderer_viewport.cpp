@@ -902,6 +902,7 @@ void RendererViewport::draw_viewports(bool p_swap_buffers) {
 
 				// render...
 				RSG::scene->set_debug_draw_mode(vp->debug_draw);
+				RSG::scene->set_debug_draw_exposure(vp->debug_draw_exposure);
 
 				// and draw viewport
 				_draw_viewport(vp);
@@ -929,6 +930,7 @@ void RendererViewport::draw_viewports(bool p_swap_buffers) {
 #endif // XR_DISABLED
 		{
 			RSG::scene->set_debug_draw_mode(vp->debug_draw);
+			RSG::scene->set_debug_draw_exposure(vp->debug_draw_exposure);
 
 			// render standard mono camera
 			_draw_viewport(vp);
@@ -974,6 +976,7 @@ void RendererViewport::draw_viewports(bool p_swap_buffers) {
 	}
 
 	RSG::scene->set_debug_draw_mode(RSE::VIEWPORT_DEBUG_DRAW_DISABLED);
+	RSG::scene->set_debug_draw_exposure(1.0f);
 
 	total_objects_drawn = objects_drawn;
 	total_vertices_drawn = vertices_drawn;
@@ -1558,6 +1561,13 @@ int RendererViewport::viewport_get_render_info(RID p_viewport, RSE::ViewportRend
 	}
 
 	return viewport->render_info.info[p_type][p_info];
+}
+
+void RendererViewport::viewport_set_debug_draw_exposure(RID p_viewport, float p_exposure) {
+	Viewport *viewport = viewport_owner.get_or_null(p_viewport);
+	ERR_FAIL_NULL(viewport);
+	ERR_FAIL_COND(!Math::is_finite(p_exposure) || p_exposure <= 0.0f);
+	viewport->debug_draw_exposure = p_exposure;
 }
 
 void RendererViewport::viewport_set_debug_draw(RID p_viewport, RSE::ViewportDebugDraw p_draw) {

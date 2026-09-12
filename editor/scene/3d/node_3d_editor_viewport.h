@@ -292,6 +292,10 @@ private:
 	bool vertex_snap_has_source = false;
 	HashMap<ObjectID, Vector3> vertex_snap_original_positions;
 
+	PanelContainer *lighting_exposure_panel = nullptr;
+	Label *lighting_exposure_label = nullptr;
+	void _lighting_exposure_changed(double p_value);
+
 	PanelContainer *info_panel = nullptr;
 	Label *info_label = nullptr;
 	Label *cinema_label = nullptr;
