@@ -138,6 +138,11 @@ EditorQuickOpenDialog::EditorQuickOpenDialog() {
 	get_ok_button()->hide();
 }
 
+void EditorQuickOpenDialog::add_custom_control(Control *p_control) {
+	ERR_FAIL_NULL(p_control);
+	container->get_parent()->add_child(p_control);
+}
+
 String EditorQuickOpenDialog::get_dialog_title(const Vector<StringName> &p_base_types) {
 	if (p_base_types.size() > 1) {
 		return TTR("Select Resource");
@@ -150,7 +155,7 @@ String EditorQuickOpenDialog::get_dialog_title(const Vector<StringName> &p_base_
 	return vformat(TTR("Select %s"), p_base_types[0]);
 }
 
-void EditorQuickOpenDialog::popup_dialog(const Vector<StringName> &p_base_types, const Callable &p_item_selected_callback, bool p_allow_type_switching) {
+void EditorQuickOpenDialog::popup_dialog(const Vector<StringName> &p_base_types, const Callable &p_item_selected_callback, bool p_allow_type_switching, bool p_include_imported_scenes) {
 	ERR_FAIL_COND(p_base_types.is_empty());
 	ERR_FAIL_COND(!p_item_selected_callback.is_valid());
 
@@ -160,7 +165,7 @@ void EditorQuickOpenDialog::popup_dialog(const Vector<StringName> &p_base_types,
 	allow_type_switching = p_allow_type_switching;
 
 	is_cycling_items = false;
-	container->init(p_base_types);
+	container->init(p_base_types, p_include_imported_scenes);
 	container->set_instant_preview_toggle_visible(false);
 	_finish_dialog_setup(p_base_types);
 }
@@ -500,9 +505,10 @@ void QuickOpenResultContainer::_ensure_result_vector_capacity() {
 	}
 }
 
-void QuickOpenResultContainer::init(const Vector<StringName> &p_base_types) {
+void QuickOpenResultContainer::init(const Vector<StringName> &p_base_types, bool p_include_imported_scenes) {
 	_ensure_result_vector_capacity();
 	base_types = p_base_types;
+	include_imported_scenes = p_include_imported_scenes;
 
 	const int display_mode_behavior = EDITOR_GET("filesystem/quick_open_dialog/default_display_mode");
 	const bool adaptive_display_mode = (display_mode_behavior == 0);
@@ -739,8 +745,8 @@ void QuickOpenResultContainer::_add_candidate(QuickOpenResultCandidate &p_candid
 
 	String file_path = ResourceUID::get_singleton()->get_id_path(p_candidate.uid);
 
-	// Verify that a PackedScene is actually a "real" Scene if in a Open Scene context.
-	if (base_types.size() == 1 && base_types[0] == SNAME("PackedScene")) {
+	// Opening scenes requires native scene files; instantiation can also use imported scenes.
+	if (!include_imported_scenes && base_types.size() == 1 && base_types[0] == SNAME("PackedScene")) {
 		static FixedVector<String, 3> valid_extensions = { "tscn", "scn", "res" };
 		bool is_valid_type = false;
 		for (const String &ext : valid_extensions) {

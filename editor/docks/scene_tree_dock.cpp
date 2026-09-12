@@ -501,6 +501,100 @@ void SceneTreeDock::_perform_create_audio_stream_players(const Vector<String> &p
 	undo_redo->commit_action();
 }
 
+bool SceneTreeDock::_can_replace_with_scene(Node *p_node) const {
+	return edited_scene && p_node && p_node != edited_scene && !p_node->is_internal() &&
+			p_node->get_owner() == edited_scene &&
+			(edited_scene->get_scene_inherited_state().is_null() ||
+					edited_scene->get_scene_inherited_state()->find_node_by_path(edited_scene->get_path_to(p_node)) < 0);
+}
+
+void SceneTreeDock::_replace_selected_with_scene(const String &p_file) {
+	Vector<Node *> nodes;
+	for (ObjectID id : replace_scene_nodes) {
+		Node *node = Object::cast_to<Node>(ObjectDB::get_instance(id));
+		if (!_can_replace_with_scene(node)) {
+			return;
+		}
+		nodes.push_back(node);
+	}
+	if (nodes.is_empty()) {
+		return;
+	}
+
+	nodes.sort_custom<Node::Comparator>();
+
+	Ref<PackedScene> scene = ResourceLoader::load(p_file);
+	if (scene.is_null()) {
+		accept->set_text(vformat(TTR("Error loading scene from %s"), p_file));
+		accept->popup_centered();
+		return;
+	}
+	Vector<Node *> instances;
+	for (Node *node : nodes) {
+		Node *instance = scene->instantiate(PackedScene::GEN_EDIT_STATE_INSTANCE);
+		if (!instance || (!edited_scene->get_scene_file_path().is_empty() && (p_file == edited_scene->get_scene_file_path() || _cyclical_dependency_exists(edited_scene->get_scene_file_path(), instance)))) {
+			if (instance) {
+				memdelete(instance);
+			}
+			for (Node *created : instances) {
+				memdelete(created);
+			}
+			accept->set_text(TTR("Cannot replace nodes with this scene. It could not be instantiated or would create a circular dependency."));
+			accept->popup_centered();
+			return;
+		}
+		instance->set_unique_name_in_owner(node->is_unique_name_in_owner());
+		// Only copy transforms between compatible node types, retaining scene defaults otherwise.
+		if ((Object::cast_to<Node2D>(node) && Object::cast_to<Node2D>(instance)) ||
+				(Object::cast_to<Node3D>(node) && Object::cast_to<Node3D>(instance)) ||
+				(Object::cast_to<Control>(node) && Object::cast_to<Control>(instance))) {
+			if (replace_keep_position->is_pressed()) {
+				instance->set("position", node->get("position"));
+			}
+			if (replace_keep_rotation->is_pressed()) {
+				instance->set("rotation", node->get("rotation"));
+			}
+			if (replace_keep_scale->is_pressed()) {
+				instance->set("scale", node->get("scale"));
+			}
+		}
+		instances.push_back(instance);
+	}
+
+	EditorUndoRedoManager *undo_redo = EditorUndoRedoManager::get_singleton();
+	// Selection changes belong to the editor, so explicitly use the scene's history.
+	undo_redo->create_action(TTR("Replace Nodes with Scene"), UndoRedo::MERGE_DISABLE, edited_scene);
+	undo_redo->add_do_method(editor_selection, "clear");
+	undo_redo->add_undo_method(editor_selection, "clear");
+	// Remove all replacements before restoring names, which may overlap across siblings.
+	for (int i = 0; i < nodes.size(); i++) {
+		undo_redo->add_undo_method(nodes[i]->get_parent(), "remove_child", instances[i]);
+	}
+	for (int i = 0; i < nodes.size(); i++) {
+		Node *node = nodes[i];
+		Node *instance = instances[i];
+		Node *parent = node->get_parent();
+		List<Node *> owned;
+		node->get_owned_by(edited_scene, &owned);
+		Array owners;
+		for (Node *owned_node : owned) {
+			owners.push_back(owned_node);
+		}
+		undo_redo->add_do_method(parent, "remove_child", node);
+		undo_redo->add_do_method(parent, "add_child", instance, true);
+		undo_redo->add_do_method(parent, "move_child", instance, node->get_index());
+		undo_redo->add_do_method(instance, "set_owner", edited_scene);
+		undo_redo->add_do_method(editor_selection, "add_node", instance);
+		undo_redo->add_undo_method(parent, "add_child", node, true);
+		undo_redo->add_undo_method(parent, "move_child", node, node->get_index());
+		undo_redo->add_undo_method(this, "_set_owners", edited_scene, owners);
+		undo_redo->add_undo_method(editor_selection, "add_node", node);
+		undo_redo->add_do_reference(instance);
+		undo_redo->add_undo_reference(node);
+	}
+	undo_redo->commit_action();
+}
+
 void SceneTreeDock::_replace_with_branch_scene(const String &p_file, Node *p_base) {
 	// `move_child` + `get_index` doesn't really work for internal nodes.
 	ERR_FAIL_COND_MSG(p_base->is_internal(), "Trying to replace internal node, this is not supported.");
@@ -718,6 +812,23 @@ void SceneTreeDock::_tool_selected(int p_tool, bool p_confirm_override) {
 			}
 
 			EditorNode::get_singleton()->get_quick_open_dialog()->popup_dialog({ "PackedScene" }, callable_mp(this, &SceneTreeDock::_quick_open));
+		} break;
+		case TOOL_REPLACE_WITH_SCENE: {
+			if (!profile_allow_editing) {
+				break;
+			}
+			replace_scene_nodes.clear();
+			const List<Node *> &selection = editor_selection->get_top_selected_node_list();
+			for (Node *node : selection) {
+				if (!_can_replace_with_scene(node)) {
+					replace_scene_nodes.clear();
+					break;
+				}
+				replace_scene_nodes.push_back(node->get_instance_id());
+			}
+			if (!replace_scene_nodes.is_empty()) {
+				replace_scene_dialog->popup_dialog({ "PackedScene" }, callable_mp(this, &SceneTreeDock::_replace_selected_with_scene), false, true);
+			}
 		} break;
 		case TOOL_EXPAND_COLLAPSE: {
 			Tree *tree = scene_tree->get_scene_tree();
@@ -4243,6 +4354,21 @@ void SceneTreeDock::_tree_rmb(const Vector2 &p_menu_pos) {
 		END_SECTION()
 	}
 
+	if (profile_allow_editing && !selection.is_empty()) {
+		bool can_replace_scene = true;
+		for (Node *node : selection) {
+			if (!_can_replace_with_scene(node)) {
+				can_replace_scene = false;
+				break;
+			}
+		}
+		if (can_replace_scene) {
+			BEGIN_SECTION()
+			menu->add_icon_item(get_editor_theme_icon(SNAME("PackedScene")), TTR("Replace With..."), TOOL_REPLACE_WITH_SCENE);
+			END_SECTION()
+		}
+	}
+
 	if (profile_allow_editing) {
 		if (can_rename || can_replace) {
 			BEGIN_SECTION()
@@ -5458,6 +5584,27 @@ SceneTreeDock::SceneTreeDock(Node *p_scene_root, EditorSelection *p_editor_selec
 	placeholder_editable_instance_remove_dialog->set_flag(Window::FLAG_RESIZE_DISABLED, true);
 	add_child(placeholder_editable_instance_remove_dialog);
 	placeholder_editable_instance_remove_dialog->connect(SceneStringName(confirmed), callable_mp(this, &SceneTreeDock::_toggle_placeholder_from_selection));
+
+	replace_scene_dialog = memnew(EditorQuickOpenDialog);
+	replace_scene_dialog->get_ok_button()->show();
+	replace_scene_dialog->set_ok_button_text(TTRC("Replace"));
+	VBoxContainer *replace_options = memnew(VBoxContainer);
+	replace_scene_dialog->add_custom_control(replace_options);
+	Label *replace_description = memnew(Label);
+	replace_description->set_text(TTR("Replace selected nodes and their children with the chosen scene.\nNew nodes will use the scene's root name."));
+	replace_options->add_child(replace_description);
+	HBoxContainer *replace_transforms = memnew(HBoxContainer);
+	replace_options->add_child(replace_transforms);
+	replace_keep_position = memnew(CheckBox(TTRC("Keep Position")));
+	replace_keep_position->set_pressed(true);
+	replace_transforms->add_child(replace_keep_position);
+	replace_keep_rotation = memnew(CheckBox(TTRC("Keep Rotation")));
+	replace_keep_rotation->set_pressed(true);
+	replace_transforms->add_child(replace_keep_rotation);
+	replace_keep_scale = memnew(CheckBox(TTRC("Keep Scale")));
+	replace_keep_scale->set_pressed(true);
+	replace_transforms->add_child(replace_keep_scale);
+	add_child(replace_scene_dialog);
 
 	new_scene_from_dialog = memnew(EditorFileDialog);
 	new_scene_from_dialog->set_title(TTRC("Save New Scene As..."));

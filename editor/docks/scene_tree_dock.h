@@ -38,6 +38,7 @@
 class CheckBox;
 class EditorData;
 class EditorSelection;
+class EditorQuickOpenDialog;
 class MenuButton;
 class PanelContainer;
 class RenameDialog;
@@ -56,6 +57,7 @@ class SceneTreeDock : public EditorDock {
 	enum Tool {
 		TOOL_NEW,
 		TOOL_INSTANTIATE,
+		TOOL_REPLACE_WITH_SCENE,
 		TOOL_EXPAND_COLLAPSE,
 		TOOL_CUT,
 		TOOL_COPY,
@@ -165,6 +167,13 @@ class SceneTreeDock : public EditorDock {
 
 	ReparentDialog *reparent_dialog = nullptr;
 	EditorFileDialog *new_scene_from_dialog = nullptr;
+	EditorQuickOpenDialog *replace_scene_dialog = nullptr;
+	CheckBox *replace_keep_position = nullptr;
+	CheckBox *replace_keep_rotation = nullptr;
+	CheckBox *replace_keep_scale = nullptr;
+	LocalVector<ObjectID> replace_scene_nodes;
+	bool _can_replace_with_scene(Node *p_node) const;
+	void _replace_selected_with_scene(const String &p_file);
 
 	enum FilterMenuItems {
 		FILTER_BY_TYPE = 64, // Used in the same menus as the Tool enum.
