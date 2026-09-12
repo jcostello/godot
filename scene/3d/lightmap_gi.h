@@ -199,7 +199,7 @@ private:
 	bool bake_ao = false;
 	float ao_distance = 1.0;
 	float ao_strength = 1.0;
-	float ao_light_affect = 1.0;
+	float ao_light_affect = 0.0;
 	int ao_samples = 64;
 	float texel_scale = 1.0;
 	int max_texture_size = 16384;

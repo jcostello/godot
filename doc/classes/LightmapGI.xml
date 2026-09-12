@@ -17,19 +17,19 @@
 	</tutorials>
 	<members>
 		<member name="ao_distance" type="float" setter="set_ao_distance" getter="get_ao_distance" default="1.0">
-			The maximum distance, in world units, at which geometry occludes a texel for baked ambient occlusion. Only effective if [member bake_ao] is [code]true[/code].
+			The maximum distance, in world units, at which geometry occludes a texel for baked ambient occlusion. Occlusion decreases smoothly to zero at this distance. Only effective if [member bake_ao] is [code]true[/code].
 		</member>
-		<member name="ao_light_affect" type="float" setter="set_ao_light_affect" getter="get_ao_light_affect" default="1.0">
+		<member name="ao_light_affect" type="float" setter="set_ao_light_affect" getter="get_ao_light_affect" default="0.0">
 			How strongly baked ambient occlusion affects direct lighting. At [code]0.0[/code], AO only affects indirect lighting. At [code]1.0[/code], AO affects direct and indirect lighting equally. Only effective if [member bake_ao] is [code]true[/code].
 		</member>
 		<member name="ao_samples" type="int" setter="set_ao_samples" getter="get_ao_samples" default="64">
 			The number of hemisphere rays traced per lightmap texel for ambient occlusion. Higher values reduce noise at the cost of longer bake times. Only effective if [member bake_ao] is [code]true[/code].
 		</member>
 		<member name="ao_strength" type="float" setter="set_ao_strength" getter="get_ao_strength" default="1.0">
-			The strength of baked ambient occlusion. A value of [code]0.0[/code] has no effect, [code]1.0[/code] applies the physically computed occlusion, and values above [code]1.0[/code] exaggerate it. Only effective if [member bake_ao] is [code]true[/code].
+			The strength of baked ambient occlusion. A value of [code]0.0[/code] has no effect, [code]1.0[/code] applies the computed distance-weighted occlusion, and values above [code]1.0[/code] exaggerate it. Only effective if [member bake_ao] is [code]true[/code].
 		</member>
 		<member name="bake_ao" type="bool" setter="set_bake_ao" getter="is_baking_ao" default="false">
-			If [code]true[/code], traces local ambient occlusion and stores it directly in the generated lightmap. This has no additional run-time texture or sampling cost, but increases bake time.
+			If [code]true[/code], traces local ambient occlusion and stores it directly in the generated lightmap. This has no additional run-time texture or sampling cost, but increases bake time. This is an artistic adjustment that adds occlusion on top of the baked indirect lighting. Transparent surfaces attenuate occlusion according to their opacity, subject to [member ProjectSettings.rendering/lightmapping/bake_performance/max_transparency_rays].
 		</member>
 		<member name="bias" type="float" setter="set_bias" getter="get_bias" default="0.0005">
 			The bias to use when computing shadows. Increasing [member bias] can fix shadow acne on the resulting baked lightmap, but can introduce peter-panning (shadows not connecting to their casters). Real-time [Light3D] shadows are not affected by this [member bias] property.
