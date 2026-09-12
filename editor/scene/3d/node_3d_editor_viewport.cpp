@@ -66,6 +66,7 @@
 #include "scene/gui/box_container.h"
 #include "scene/gui/color_picker.h"
 #include "scene/gui/rich_text_label.h"
+#include "scene/gui/slider.h"
 #include "scene/gui/split_container.h"
 #include "scene/gui/subviewport_container.h"
 #include "scene/main/node.h"
@@ -4734,10 +4735,16 @@ void Node3DEditorViewport::_menu_option(int p_option) {
 
 				if (id == p_option) {
 					viewport->set_debug_draw(debug_draw_modes[idx]);
+					lighting_exposure_panel->set_visible(id == VIEW_DISPLAY_LIGHTING);
 				}
 			}
 		} break;
 	}
+}
+
+void Node3DEditorViewport::_lighting_exposure_changed(double p_value) {
+	RS::get_singleton()->viewport_set_debug_draw_exposure(viewport->get_viewport_rid(), Math::pow(2.0, p_value));
+	lighting_exposure_label->set_text(vformat(TTR("Exposure: %s EV"), String::num(p_value, 1)));
 }
 
 void Node3DEditorViewport::_preview_exited_scene() {
@@ -7141,6 +7148,31 @@ Node3DEditorViewport::Node3DEditorViewport(Node3DEditor *p_spatial_editor, int p
 	gizmo_scale = 1.0;
 
 	preview_node = nullptr;
+
+	lighting_exposure_panel = memnew(PanelContainer);
+	surface->add_child(lighting_exposure_panel);
+	lighting_exposure_panel->set_anchors_and_offsets_preset(PRESET_BOTTOM_LEFT);
+	lighting_exposure_panel->set_offset(SIDE_LEFT, 10 * EDSCALE);
+	lighting_exposure_panel->set_offset(SIDE_TOP, -10 * EDSCALE);
+	lighting_exposure_panel->set_offset(SIDE_BOTTOM, -10 * EDSCALE);
+	lighting_exposure_panel->set_v_grow_direction(GROW_DIRECTION_BEGIN);
+	lighting_exposure_panel->set_mouse_filter(MOUSE_FILTER_STOP);
+	lighting_exposure_panel->hide();
+
+	VBoxContainer *exposure_vbox = memnew(VBoxContainer);
+	lighting_exposure_panel->add_child(exposure_vbox);
+	lighting_exposure_label = memnew(Label);
+	exposure_vbox->add_child(lighting_exposure_label);
+	HSlider *exposure_slider = memnew(HSlider);
+	exposure_slider->set_min(-8.0);
+	exposure_slider->set_max(8.0);
+	exposure_slider->set_step(0.1);
+	exposure_slider->set_value(0.0);
+	exposure_slider->set_custom_minimum_size(Size2(160, 0) * EDSCALE);
+	exposure_slider->set_tooltip_text(TTR("Exposure compensation for Lighting in this viewport only. Each EV doubles the exposure. Reset to 0 for the original exposure."));
+	exposure_vbox->add_child(exposure_slider);
+	exposure_slider->connect(SceneStringName(value_changed), callable_mp(this, &Node3DEditorViewport::_lighting_exposure_changed));
+	_lighting_exposure_changed(0.0);
 
 	bottom_center_vbox = memnew(VBoxContainer);
 	bottom_center_vbox->set_anchors_preset(LayoutPreset::PRESET_CENTER);
