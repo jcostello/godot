@@ -103,6 +103,7 @@ layout(rgba16f, set = 1, binding = 0) uniform restrict image2DArray ao_light;
 layout(set = 1, binding = 1) uniform texture2DArray ao_position;
 layout(set = 1, binding = 2) uniform texture2DArray ao_normal;
 layout(rgba16f, set = 1, binding = 3) uniform restrict readonly image2DArray ao_direct_light;
+layout(set = 1, binding = 4) uniform texture2DArray ao_geometry;
 #endif
 
 #ifdef MODE_DENOISE
@@ -1129,14 +1130,46 @@ void main() {
 		return;
 	}
 	vec3 position = texelFetch(sampler2DArray(ao_position, linear_sampler), ivec3(atlas_pos, params.geometry_slice), 0).xyz;
+	vec3 geometry_normal = texelFetch(sampler2DArray(ao_geometry, linear_sampler), ivec3(atlas_pos, params.geometry_slice), 0).yzw;
 	uint noise = random_seed(ivec3(atlas_pos, 92821));
-	uint occluded = 0;
+	float occluded = 0.0;
+	uint valid_samples = 0;
 	for (uint i = 0; i < params.ray_count; i++) {
 		vec3 ray_dir = generate_ray_dir_from_normal(normal, noise);
-		occluded += trace_ray_any_hit(position, position + ray_dir * bake_params.ao_distance) == RAY_MISS ? 0 : 1;
+		// Smooth normals can point rays below the actual surface.
+		if (dot(geometry_normal, ray_dir) <= 0.0) {
+			continue;
+		}
+		valid_samples++;
+		vec3 ray_end = position + ray_dir * bake_params.ao_distance;
+		vec3 ray_origin = position + ray_dir * bake_params.bias;
+		float transmission = 1.0;
+		bool did_hit = false;
+		for (uint iter = 0; iter < max(bake_params.transparency_rays, 1u); iter++) {
+			if (dot(ray_end - ray_origin, ray_dir) <= bake_params.bias) {
+				break;
+			}
+			vec4 hit_albedo;
+			vec3 hit_position;
+			uint hit = trace_ray_closest_hit_triangle_albedo_alpha(ray_origin, ray_end, hit_albedo, hit_position);
+			if (hit == RAY_MISS) {
+				break;
+			}
+			// Match direct lighting: don't count the exit of a closed transparent mesh twice.
+			if (hit == RAY_FRONT || !did_hit) {
+				float opacity = clamp(hit_albedo.a, 0.0, 1.0);
+				float falloff = 1.0 - smoothstep(0.0, bake_params.ao_distance, distance(position, hit_position));
+				occluded += transmission * opacity * falloff;
+				transmission *= 1.0 - opacity;
+			}
+			did_hit = true;
+			if (transmission <= 0.00001) {
+				break;
+			}
+			ray_origin = hit_position + ray_dir * bake_params.bias;
+		}
 	}
-	float visibility = 1.0 - float(occluded) / float(params.ray_count);
-	float ao = max(0.0, 1.0 - (1.0 - visibility) * bake_params.ao_strength);
+	float ao = max(0.0, 1.0 - occluded / float(max(valid_samples, 1u)) * bake_params.ao_strength);
 #ifdef USE_SH_LIGHTMAPS
 	for (int i = 0; i < 4; i++) {
 		vec4 light = imageLoad(ao_light, ivec3(atlas_pos, params.output_slice * 4 + i));

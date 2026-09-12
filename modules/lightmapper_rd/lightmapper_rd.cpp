@@ -3150,11 +3150,11 @@ LightmapperRD::BakeError LightmapperRD::bake(BakeQuality p_quality, bool p_use_d
 		}
 
 		Vector<RD::Uniform> uniforms;
-		for (int binding = 0; binding < 4; binding++) {
+		for (int binding = 0; binding < 5; binding++) {
 			RD::Uniform u;
 			u.uniform_type = binding == 0 || binding == 3 ? RD::UNIFORM_TYPE_IMAGE : RD::UNIFORM_TYPE_TEXTURE;
 			u.binding = binding;
-			u.append_id(binding == 0 ? light_accum_tex : (binding == 1 ? position_tex : (binding == 2 ? normal_tex : direct_light_tex)));
+			u.append_id(binding == 0 ? light_accum_tex : (binding == 1 ? position_tex : (binding == 2 ? normal_tex : (binding == 3 ? direct_light_tex : unocclude_tex))));
 			uniforms.push_back(u);
 		}
 		RID ao_uniform_set = rd->uniform_set_create(uniforms, compute_shader_ao, 1);
