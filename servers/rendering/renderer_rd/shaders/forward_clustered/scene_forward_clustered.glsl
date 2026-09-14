@@ -3198,6 +3198,20 @@ void fragment_shader(in SceneData scene_data) {
 
 #endif //MODE_SEPARATE_SPECULAR
 
+	if (bool(instances.data[instance_index].layer_mask & scene_data.editor_gizmo_layer_mask)) {
+		float gizmo_exposure = scene_data.editor_gizmo_exposure;
+		if (scene_data.editor_gizmo_auto_exposure_scale > 0.0) {
+			float luminance = texelFetch(sampler2D(editor_gizmo_exposure_texture, SAMPLER_LINEAR_CLAMP), ivec2(0), 0).r;
+			gizmo_exposure *= luminance * scene_data.editor_gizmo_auto_exposure_scale;
+		}
+#ifdef MODE_SEPARATE_SPECULAR
+		diffuse_buffer.rgb *= gizmo_exposure;
+		specular_buffer.rgb *= gizmo_exposure;
+#else
+		frag_color.rgb *= gizmo_exposure;
+#endif
+	}
+
 #endif //MODE_RENDER_DEPTH
 #ifdef MOTION_VECTORS
 	vec2 position_clip = (screen_position.xy / screen_position.w) - scene_data.taa_jitter;

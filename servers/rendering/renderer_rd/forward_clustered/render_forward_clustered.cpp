@@ -966,9 +966,12 @@ void RenderForwardClustered::_fill_render_list(RenderListType p_render_list, con
 		if (p_render_list == RENDER_LIST_OPAQUE) {
 			// Opaque fills motion and alpha lists.
 			render_list[RENDER_LIST_MOTION].clear();
+			render_list[RENDER_LIST_EDITOR_GIZMOS].clear();
 			render_list[RENDER_LIST_ALPHA].clear();
 		}
 	}
+
+	const bool defer_editor_gizmos = p_render_list == RENDER_LIST_OPAQUE && _should_defer_editor_gizmos(p_render_data);
 
 	//fill list
 
@@ -1166,11 +1169,16 @@ void RenderForwardClustered::_fill_render_list(RenderListType p_render_list, con
 					force_alpha = true;
 				}
 
-				if (!force_alpha && (surf->flags & (GeometryInstanceSurfaceDataCache::FLAG_PASS_DEPTH | GeometryInstanceSurfaceDataCache::FLAG_PASS_OPAQUE))) {
+				const bool is_editor_gizmo = defer_editor_gizmos && (inst->layer_mask & RSE::EDITOR_GIZMO_LAYER_MASK);
+				if (!is_editor_gizmo && !force_alpha && (surf->flags & (GeometryInstanceSurfaceDataCache::FLAG_PASS_DEPTH | GeometryInstanceSurfaceDataCache::FLAG_PASS_OPAQUE))) {
 					rl->add_element(surf);
 				}
 
-				if (force_alpha || (surf->flags & GeometryInstanceSurfaceDataCache::FLAG_PASS_ALPHA)) {
+				if (is_editor_gizmo) {
+					render_list[RENDER_LIST_EDITOR_GIZMOS].add_element(surf);
+					surf->color_pass_inclusion_mask = COLOR_PASS_FLAG_TRANSPARENT;
+					surf->sort.uses_forward_gi = uses_gi;
+				} else if (force_alpha || (surf->flags & GeometryInstanceSurfaceDataCache::FLAG_PASS_ALPHA)) {
 					surf->color_pass_inclusion_mask = COLOR_PASS_FLAG_TRANSPARENT;
 					render_list[RENDER_LIST_ALPHA].add_element(surf);
 					if (uses_gi) {
@@ -1782,6 +1790,29 @@ void RenderForwardClustered::_process_sss(Ref<RenderSceneBuffersRD> p_render_buf
 	}
 }
 
+void RenderForwardClustered::_render_editor_gizmos(const RenderDataRD *p_render_data, RID p_framebuffer, const Size2i &p_size) {
+	Ref<RenderSceneBuffersRD> rb = p_render_data->render_buffers;
+	RenderList &list = render_list[RENDER_LIST_EDITOR_GIZMOS];
+	RID radiance_texture;
+	if (p_render_data->environment.is_valid()) {
+		RID sky_rid = environment_get_sky(p_render_data->environment);
+		if (sky_rid.is_valid()) {
+			radiance_texture = sky.sky_get_radiance_texture_rd(sky_rid);
+		}
+	}
+	const bool multiview = p_render_data->scene_data->view_count > 1;
+	const bool reverse_cull = p_render_data->scene_data->cam_transform.basis.determinant() < 0;
+	// The scene has already been temporally resolved, so render the overlay without jitter.
+	const Vector2 jitter = p_render_data->scene_data->taa_jitter;
+	p_render_data->scene_data->taa_jitter = Vector2();
+	uint32_t uniform_buffer_index = _setup_environment(p_render_data, false, p_size, p_size, Color(), false);
+	RID uniform_set = _setup_render_pass_uniform_set(RENDER_LIST_EDITOR_GIZMOS, p_render_data, multiview, radiance_texture, rb->get_samplers(), uniform_buffer_index, true);
+	uint32_t flags = COLOR_PASS_FLAG_TRANSPARENT | (multiview ? uint32_t(COLOR_PASS_FLAG_MULTIVIEW) : 0u);
+	RenderListParameters params(list.elements.ptr(), list.element_info.ptr(), list.elements.size(), reverse_cull, PASS_MODE_COLOR, flags, false, p_render_data->directional_light_soft_shadows, uniform_set, false, Vector2(), p_render_data->scene_data->lod_distance_multiplier, p_render_data->scene_data->screen_mesh_lod_threshold, p_render_data->scene_data->view_count, 0, scene_state.editor_gizmo_specialization, true);
+	p_render_data->scene_data->taa_jitter = jitter;
+	_render_list_with_draw_list(&params, p_framebuffer, RD::DRAW_DEFAULT_ALL, Vector<Color>(), 0.0f, 0u);
+}
+
 void RenderForwardClustered::_render_scene(RenderDataRD *p_render_data, const Color &p_default_bg_color) {
 	scene_state.used_uniform_buffer_count = 0;
 
@@ -2001,11 +2032,13 @@ void RenderForwardClustered::_render_scene(RenderDataRD *p_render_data, const Co
 	render_list[RENDER_LIST_OPAQUE].sort_by_key();
 	render_list[RENDER_LIST_MOTION].sort_by_key();
 	render_list[RENDER_LIST_ALPHA].sort_by_reverse_depth_and_priority();
+	render_list[RENDER_LIST_EDITOR_GIZMOS].sort_by_reverse_depth_and_priority();
 
 	int *render_info = p_render_data->render_info ? p_render_data->render_info->info[RSE::VIEWPORT_RENDER_INFO_TYPE_VISIBLE] : (int *)nullptr;
 	_fill_instance_data(RENDER_LIST_OPAQUE, render_info);
 	_fill_instance_data(RENDER_LIST_MOTION, render_info);
 	_fill_instance_data(RENDER_LIST_ALPHA, render_info);
+	_fill_instance_data(RENDER_LIST_EDITOR_GIZMOS, render_info);
 
 	RD::get_singleton()->draw_command_end_label();
 
@@ -2494,6 +2527,8 @@ void RenderForwardClustered::_render_scene(RenderDataRD *p_render_data, const Co
 		RENDER_TIMESTAMP("Process Pre Transparent Compositor Effects");
 		_process_compositor_effects(RSE::COMPOSITOR_EFFECT_CALLBACK_TYPE_PRE_TRANSPARENT, p_render_data);
 	}
+
+	scene_state.editor_gizmo_specialization = base_specialization;
 
 	RENDER_TIMESTAMP("Render 3D Transparent Pass");
 
@@ -3875,6 +3910,18 @@ RID RenderForwardClustered::_setup_render_pass_uniform_set(RenderListType p_rend
 		uniforms.push_back(u);
 	}
 #endif // MODULE_TEXTURE_STREAMING_ENABLED
+
+	{
+		RD::Uniform u;
+		u.binding = 39;
+		u.uniform_type = RD::UNIFORM_TYPE_TEXTURE;
+		RID exposure_texture = rb.is_valid() ? luminance->get_current_luminance_buffer(rb) : RID();
+		if (exposure_texture.is_null()) {
+			exposure_texture = texture_storage->texture_rd_get_default(RendererRD::TextureStorage::DEFAULT_RD_TEXTURE_WHITE);
+		}
+		u.append_id(exposure_texture);
+		uniforms.push_back(u);
+	}
 
 	return UniformSetCacheRD::get_singleton()->get_cache_vec(scene_shader.get_default_shader_rd(is_multiview), RENDER_PASS_UNIFORM_SET, uniforms);
 }

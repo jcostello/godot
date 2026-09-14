@@ -523,6 +523,9 @@ layout(set = 1, binding = 38, std430) buffer restrict MaterialFeedbackBuffer {
 material_feedback;
 #endif
 
+// Previous frame's adapted luminance, used to keep editor gizmos legible.
+layout(set = 1, binding = 39) uniform texture2D editor_gizmo_exposure_texture;
+
 /* Set 2 Skeleton & Instancing (can change per item) */
 
 layout(set = 2, binding = 0, std430) restrict readonly buffer Transforms {

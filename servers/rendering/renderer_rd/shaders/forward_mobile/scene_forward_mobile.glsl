@@ -2410,6 +2410,11 @@ void main() {
 	specular_buffer.rgb = mix(specular_buffer.rgb, vec3(0.0), fog.a);
 #endif // !FOG_DISABLED
 
+	if (bool(instances.data[draw_call.instance_index].layer_mask & scene_data.editor_gizmo_layer_mask)) {
+		diffuse_buffer.rgb *= scene_data.editor_gizmo_exposure;
+		specular_buffer.rgb *= scene_data.editor_gizmo_exposure;
+	}
+
 #else //MODE_MULTIPLE_RENDER_TARGETS
 
 #ifdef MODE_UNSHADED
@@ -2429,6 +2434,10 @@ void main() {
 #ifdef PREMUL_ALPHA_USED
 	out_color.rgb *= premul_alpha;
 #endif
+
+	if (bool(instances.data[draw_call.instance_index].layer_mask & scene_data.editor_gizmo_layer_mask)) {
+		out_color.rgb *= half(scene_data.editor_gizmo_exposure);
+	}
 
 	frag_color = out_color;
 

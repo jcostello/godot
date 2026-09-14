@@ -32,6 +32,7 @@
 
 #ifdef GLES3_ENABLED
 
+#include "core/config/engine.h"
 #include "core/config/project_settings.h"
 #include "core/templates/sort_array.h"
 #include "drivers/gles3/effects/copy_effects.h"
@@ -1696,6 +1697,12 @@ void RasterizerSceneGLES3::_setup_environment(const RenderDataGLES3 *p_render_da
 
 	} else {
 	}
+
+	scene_state.data.editor_gizmo_layer_mask = Engine::get_singleton()->is_editor_hint() ? RSE::EDITOR_GIZMO_LAYER_MASK : 0;
+	const float camera_exposure = p_render_data->camera_attributes.is_valid() ? RSG::camera_attributes->camera_attributes_get_exposure_adjustment_factor(p_render_data->camera_attributes) : 1.0f;
+	scene_state.data.editor_gizmo_exposure = 1.0f / MAX(1e-8f, camera_exposure);
+	scene_state.data.editor_gizmo_padding[0] = 0.0f;
+	scene_state.data.editor_gizmo_padding[1] = 0.0f;
 
 	if (p_render_data->camera_attributes.is_valid()) {
 		scene_state.data.emissive_exposure_normalization = RSG::camera_attributes->camera_attributes_get_render_exposure_normalization_factor(p_render_data->camera_attributes);

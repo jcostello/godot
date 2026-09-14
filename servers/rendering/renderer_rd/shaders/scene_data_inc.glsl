@@ -85,4 +85,9 @@ struct SceneData {
 	float IBL_exposure_normalization;
 	uint camera_visible_layers;
 	float pass_alpha_multiplier;
+
+	uint editor_gizmo_layer_mask;
+	float editor_gizmo_exposure;
+	float editor_gizmo_auto_exposure_scale;
+	float editor_gizmo_padding;
 };

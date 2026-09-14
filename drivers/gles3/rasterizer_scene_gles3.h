@@ -442,6 +442,10 @@ private:
 			float z_near;
 			float IBL_exposure_normalization;
 
+			uint32_t editor_gizmo_layer_mask;
+			float editor_gizmo_exposure;
+			float editor_gizmo_padding[2];
+
 			uint32_t fog_enabled;
 			uint32_t fog_mode;
 			float fog_density;

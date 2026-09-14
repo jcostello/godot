@@ -119,6 +119,7 @@ CopyEffects::CopyEffects(BitField<RasterEffects> p_raster_effects) {
 		copy_modes.push_back("\n#define MODE_PANORAMA_TO_DP\n"); // COPY_TO_FB_COPY_PANORAMA_TO_DP
 		copy_modes.push_back("\n#define MODE_TWO_SOURCES\n"); // COPY_TO_FB_COPY2
 		copy_modes.push_back("\n#define MODE_SET_COLOR\n"); // COPY_TO_FB_SET_COLOR
+		copy_modes.push_back("\n#define MODE_COPY_DEPTH\n"); // COPY_TO_FB_DEPTH
 		copy_modes.push_back("\n#define USE_MULTIVIEW\n"); // COPY_TO_FB_MULTIVIEW
 		copy_modes.push_back("\n#define USE_MULTIVIEW\n#define MODE_TWO_SOURCES\n"); // COPY_TO_FB_MULTIVIEW_WITH_DEPTH
 
@@ -135,7 +136,13 @@ CopyEffects::CopyEffects(BitField<RasterEffects> p_raster_effects) {
 
 		for (int i = 0; i < COPY_TO_FB_MAX; i++) {
 			if (copy_to_fb.shader.is_variant_enabled(i)) {
-				copy_to_fb.pipelines[i].setup(copy_to_fb.shader.version_get_shader(copy_to_fb.shader_version, i), RD::RENDER_PRIMITIVE_TRIANGLES, RD::PipelineRasterizationState(), RD::PipelineMultisampleState(), RD::PipelineDepthStencilState(), RD::PipelineColorBlendState::create_disabled(), 0);
+				RD::PipelineDepthStencilState depth_state;
+				if (i == COPY_TO_FB_DEPTH) {
+					depth_state.enable_depth_test = true;
+					depth_state.enable_depth_write = true;
+					depth_state.depth_compare_operator = RD::COMPARE_OP_ALWAYS;
+				}
+				copy_to_fb.pipelines[i].setup(copy_to_fb.shader.version_get_shader(copy_to_fb.shader_version, i), RD::RENDER_PRIMITIVE_TRIANGLES, RD::PipelineRasterizationState(), RD::PipelineMultisampleState(), depth_state, RD::PipelineColorBlendState::create_disabled(i == COPY_TO_FB_DEPTH ? 0 : 1), 0);
 			} else {
 				copy_to_fb.pipelines[i].clear();
 			}
@@ -488,6 +495,21 @@ void CopyEffects::copy_octmap_to_panorama(RID p_source_octmap, RID p_dest_panora
 	RD::get_singleton()->compute_list_set_push_constant(compute_list, &copy.push_constant, sizeof(CopyPushConstant));
 	RD::get_singleton()->compute_list_dispatch_threads(compute_list, p_panorama_size.width, p_panorama_size.height, 1);
 	RD::get_singleton()->compute_list_end();
+}
+
+void CopyEffects::copy_to_depth_framebuffer(RID p_source, RID p_framebuffer, const Rect2i &p_rect) {
+	MaterialStorage *material_storage = MaterialStorage::get_singleton();
+	RID sampler = material_storage->sampler_rd_get_default(RSE::CANVAS_ITEM_TEXTURE_FILTER_NEAREST, RSE::CANVAS_ITEM_TEXTURE_REPEAT_DISABLED);
+	RID shader = copy_to_fb.shader.version_get_shader(copy_to_fb.shader_version, COPY_TO_FB_DEPTH);
+	RD::Uniform source(RD::UNIFORM_TYPE_SAMPLER_WITH_TEXTURE, 0, Vector<RID>({ sampler, p_source }));
+	CopyToFbPushConstant push_constant = {};
+	RD::DrawListID draw_list = RD::get_singleton()->draw_list_begin(p_framebuffer, RD::DRAW_CLEAR_DEPTH | RD::DRAW_CLEAR_STENCIL, Vector<Color>(), 0.0f, 0, p_rect);
+	RD::get_singleton()->draw_list_bind_render_pipeline(draw_list, copy_to_fb.pipelines[COPY_TO_FB_DEPTH].get_render_pipeline(RD::INVALID_ID, RD::get_singleton()->framebuffer_get_format(p_framebuffer)));
+	RD::get_singleton()->draw_list_bind_uniform_set(draw_list, UniformSetCacheRD::get_singleton()->get_cache(shader, 0, source), 0);
+	RD::get_singleton()->draw_list_bind_index_array(draw_list, material_storage->get_quad_index_array());
+	RD::get_singleton()->draw_list_set_push_constant(draw_list, &push_constant, sizeof(push_constant));
+	RD::get_singleton()->draw_list_draw(draw_list, true);
+	RD::get_singleton()->draw_list_end();
 }
 
 void CopyEffects::copy_depth_to_rect(RID p_source_rd_texture, RID p_dest_texture, const Rect2i &p_rect, bool p_flip_y) {

@@ -103,7 +103,9 @@ layout(set = 1, binding = 0) uniform sampler2D source_color2;
 #endif /* USE_MULTIVIEW */
 #endif /* !SET_COLOR */
 
+#ifndef MODE_COPY_DEPTH
 layout(location = 0) out vec4 frag_color;
+#endif
 
 vec3 linear_to_srgb(vec3 color) {
 	const vec3 a = vec3(0.055f);
@@ -115,6 +117,9 @@ vec3 srgb_to_linear(vec3 color) {
 }
 
 void main() {
+#ifdef MODE_COPY_DEPTH
+	gl_FragDepth = textureLod(source_color, uv_interp, 0.0).r;
+#else
 #ifdef MODE_SET_COLOR
 	frag_color = params.color;
 #else
@@ -191,4 +196,5 @@ void main() {
 
 	frag_color = color / params.luminance_multiplier;
 #endif // MODE_SET_COLOR
+#endif // MODE_COPY_DEPTH
 }
