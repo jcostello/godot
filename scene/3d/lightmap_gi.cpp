@@ -1080,7 +1080,7 @@ Lightmapper::BakeError LightmapGI::_bake_material(int p_mesh_index, const Size2i
 		}
 	}
 
-	TypedArray<Image> images = RS::get_singleton()->bake_render_uv2(mf.mesh->get_rid(), overrides, p_size);
+	TypedArray<Image> images = RS::get_singleton()->bake_render_uv2(mf.mesh->get_rid(), overrides, p_size, ud->exposure_normalization);
 	ERR_FAIL_COND_V(images.size() <= RSE::BAKE_CHANNEL_EMISSION, Lightmapper::BAKE_ERROR_LIGHTMAP_CANT_PRE_BAKE_MESHES);
 
 	Ref<Image> albedo = images[RSE::BAKE_CHANNEL_ALBEDO_ALPHA];
@@ -1423,8 +1423,27 @@ LightmapGI::BakeError LightmapGI::bake(Node *p_from_node, String p_image_data_pa
 		}
 	}
 
-	// Add everything to lightmapper
 	const bool use_physical_light_units = GLOBAL_GET("rendering/lights_and_shadows/use_physical_light_units");
+	const float reference_exposure_normalization = use_physical_light_units ? RS::CAMERA_EXPOSURE_NORMALIZATION_REFERENCE : 1.0f;
+	// LightmapGI camera attributes override the scene attributes for baking.
+	Ref<CameraAttributes> bake_camera_attributes = camera_attributes;
+	if (bake_camera_attributes.is_null()) {
+		Ref<World3D> world = get_world_3d();
+		if (world.is_valid()) {
+			bake_camera_attributes = world->get_camera_attributes();
+		}
+	}
+
+	float exposure_normalization = reference_exposure_normalization;
+	if (bake_camera_attributes.is_valid()) {
+		exposure_normalization = bake_camera_attributes->get_exposure_multiplier();
+		if (use_physical_light_units) {
+			exposure_normalization *= bake_camera_attributes->calculate_exposure_normalization();
+		}
+	}
+	bake_materials_ud.exposure_normalization = exposure_normalization;
+
+	// Add everything to lightmapper
 	if (p_bake_step) {
 		p_bake_step(0.4, RTR("Preparing Lightmapper"), p_bake_userdata, true);
 	}
@@ -1574,23 +1593,6 @@ LightmapGI::BakeError LightmapGI::bake(Node *p_from_node, String p_image_data_pa
 		}
 	}
 
-	const float reference_exposure_normalization = use_physical_light_units ? RS::CAMERA_EXPOSURE_NORMALIZATION_REFERENCE : 1.0f;
-	// LightmapGI camera attributes override the scene attributes for baking.
-	Ref<CameraAttributes> bake_camera_attributes = camera_attributes;
-	if (bake_camera_attributes.is_null()) {
-		Ref<World3D> world = get_world_3d();
-		if (world.is_valid()) {
-			bake_camera_attributes = world->get_camera_attributes();
-		}
-	}
-
-	float exposure_normalization = reference_exposure_normalization;
-	if (bake_camera_attributes.is_valid()) {
-		exposure_normalization = bake_camera_attributes->get_exposure_multiplier();
-		if (use_physical_light_units) {
-			exposure_normalization *= bake_camera_attributes->calculate_exposure_normalization();
-		}
-	}
 	// The panorama is generated at the renderer's reference exposure, while
 	// direct and emissive lighting use the selected bake exposure.
 	const float environment_exposure_multiplier = exposure_normalization / reference_exposure_normalization;

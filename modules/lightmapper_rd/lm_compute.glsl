@@ -873,7 +873,6 @@ vec3 trace_indirect_light(vec3 p_position, vec3 p_ray_dir, inout uint r_noise, f
 #endif
 
 			vec3 emissive = textureLod(sampler2DArray(emission_tex, linear_sampler), uvw, 0).rgb;
-			emissive *= bake_params.exposure_normalization;
 
 			light += throughput * emissive * albedo_alpha.a;
 			throughput = mix(throughput, throughput * albedo_alpha.rgb, albedo_alpha.a);
@@ -955,7 +954,6 @@ vec3 trace_indirect_light(vec3 p_position, vec3 p_ray_dir, inout uint r_noise, f
 #endif
 
 			vec3 emissive = textureLod(sampler2DArray(emission_tex, linear_sampler), uvw, 0).rgb;
-			emissive *= bake_params.exposure_normalization;
 
 			light += throughput * emissive * albedo_alpha.a;
 			throughput = mix(mix(throughput, throughput * albedo_alpha.rgb, albedo_alpha.a), vec3(0.0), albedo_alpha.a);

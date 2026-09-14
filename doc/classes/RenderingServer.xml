@@ -32,8 +32,9 @@
 			<param index="0" name="base" type="RID" />
 			<param index="1" name="material_overrides" type="RID[]" />
 			<param index="2" name="image_size" type="Vector2i" />
+			<param index="3" name="exposure_normalization" type="float" default="1.0" />
 			<description>
-				Bakes the material data of the Mesh passed in the [param base] parameter with optional [param material_overrides] to a set of [Image]s of size [param image_size]. Returns an array of [Image]s containing material properties as specified in [enum BakeChannels].
+				Bakes the material data of the Mesh passed in the [param base] parameter with optional [param material_overrides] to a set of [Image]s of size [param image_size]. Emission is multiplied by [param exposure_normalization] before being stored. Returns an array of [Image]s containing material properties as specified in [enum BakeChannels].
 			</description>
 		</method>
 		<method name="call_on_render_thread">

@@ -469,6 +469,7 @@ private:
 		StringName roughness;
 		StringName emission;
 		StringName emission_energy;
+		StringName emission_temperature_color;
 		StringName normal_scale;
 		StringName rim;
 		StringName rim_tint;
@@ -543,6 +544,7 @@ private:
 	Color emission;
 	float emission_energy_multiplier = 1.0f;
 	float emission_intensity = 1000.0f; // In nits, equivalent to indoor lighting.
+	float emission_temperature = 6500.0f;
 	float normal_scale = 0.0f;
 	float rim = 0.0f;
 	float rim_tint = 0.0f;
@@ -663,6 +665,9 @@ public:
 
 	void set_emission_intensity(float p_emission_intensity);
 	float get_emission_intensity() const;
+
+	void set_emission_temperature(float p_emission_temperature);
+	float get_emission_temperature() const;
 
 	void set_normal_scale(float p_normal_scale);
 	float get_normal_scale() const;
