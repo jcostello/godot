@@ -2972,7 +2972,7 @@ void main() {
 	orm_output_buffer.b = metallic;
 	orm_output_buffer.a = 1.0;
 
-	emission_output_buffer.rgb = emission;
+	emission_output_buffer.rgb = clamp(emission * scene_data_block.data.emissive_exposure_normalization, vec3(0.0), vec3(65504.0));
 	emission_output_buffer.a = 0.0;
 #else // !RENDER_MATERIAL
 #ifdef BASE_PASS

@@ -3138,7 +3138,7 @@ void RenderForwardClustered::_render_material(const Transform3D &p_cam_transform
 	RD::get_singleton()->draw_command_end_label();
 }
 
-void RenderForwardClustered::_render_uv2(const PagedArray<RenderGeometryInstance *> &p_instances, RID p_framebuffer, const Rect2i &p_region) {
+void RenderForwardClustered::_render_uv2(const PagedArray<RenderGeometryInstance *> &p_instances, RID p_framebuffer, const Rect2i &p_region, float p_exposure_normalization) {
 	RENDER_TIMESTAMP("Setup Rendering UV2");
 
 	RD::get_singleton()->draw_command_begin_label("Render UV2");
@@ -3147,7 +3147,7 @@ void RenderForwardClustered::_render_uv2(const PagedArray<RenderGeometryInstance
 	scene_data.dual_paraboloid_side = 0;
 	scene_data.material_uv2_mode = true;
 	scene_data.opaque_prepass_threshold = 0.0;
-	scene_data.emissive_exposure_normalization = -1.0;
+	scene_data.emissive_exposure_normalization = p_exposure_normalization;
 
 	RenderDataRD render_data;
 	render_data.scene_data = &scene_data;

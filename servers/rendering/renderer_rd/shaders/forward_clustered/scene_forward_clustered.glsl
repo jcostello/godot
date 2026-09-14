@@ -1685,9 +1685,12 @@ void fragment_shader(in SceneData scene_data) {
 	vec3 indirect_specular_light = vec3(0.0, 0.0, 0.0);
 	vec3 diffuse_light = vec3(0.0, 0.0, 0.0);
 	vec3 ambient_light = vec3(0.0, 0.0, 0.0);
-#ifndef MODE_UNSHADED
+#if !defined(MODE_UNSHADED) || defined(MODE_RENDER_MATERIAL)
 	// Used in regular draw pass and when drawing SDFs for SDFGI and materials for VoxelGI.
 	emission *= scene_data.emissive_exposure_normalization;
+#ifdef MODE_RENDER_MATERIAL
+	emission = clamp(emission, vec3(0.0), vec3(65504.0));
+#endif
 #endif
 
 #if !defined(MODE_RENDER_DEPTH) && !defined(MODE_UNSHADED)

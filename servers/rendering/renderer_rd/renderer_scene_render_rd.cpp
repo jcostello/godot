@@ -1785,7 +1785,7 @@ float RendererSceneRenderRD::screen_space_roughness_limiter_get_limit() const {
 	return screen_space_roughness_limiter_limit;
 }
 
-TypedArray<Image> RendererSceneRenderRD::bake_render_uv2(RID p_base, const TypedArray<RID> &p_material_overrides, const Size2i &p_image_size) {
+TypedArray<Image> RendererSceneRenderRD::bake_render_uv2(RID p_base, const TypedArray<RID> &p_material_overrides, const Size2i &p_image_size, float p_exposure_normalization) {
 	ERR_FAIL_COND_V_MSG(p_image_size.width <= 0, TypedArray<Image>(), "Image width must be greater than 0.");
 	ERR_FAIL_COND_V_MSG(p_image_size.height <= 0, TypedArray<Image>(), "Image height must be greater than 0.");
 	RD::TextureFormat tf;
@@ -1839,7 +1839,7 @@ TypedArray<Image> RendererSceneRenderRD::bake_render_uv2(RID p_base, const Typed
 		cull_argument.push_back(nullptr);
 	}
 	cull_argument[0] = gi_inst;
-	_render_uv2(cull_argument, fb, Rect2i(0, 0, p_image_size.width, p_image_size.height));
+	_render_uv2(cull_argument, fb, Rect2i(0, 0, p_image_size.width, p_image_size.height), p_exposure_normalization);
 
 	geometry_instance_free(gi_inst);
 

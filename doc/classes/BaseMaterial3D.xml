@@ -227,6 +227,9 @@
 		<member name="emission_operator" type="int" setter="set_emission_operator" getter="get_emission_operator" enum="BaseMaterial3D.EmissionOperator" default="0">
 			Sets how [member emission] interacts with [member emission_texture]. Can either add or multiply.
 		</member>
+		<member name="emission_temperature" type="float" setter="set_emission_temperature" getter="get_emission_temperature" default="6500.0">
+			Color temperature of emitted light, measured in Kelvin. Lower values produce a warmer color, while higher values produce a colder color. Only available when [member ProjectSettings.rendering/lights_and_shadows/use_physical_light_units] is enabled.
+		</member>
 		<member name="emission_texture" type="Texture2D" setter="set_texture" getter="get_texture">
 			Texture that specifies how much surface emits light at a given point.
 		</member>

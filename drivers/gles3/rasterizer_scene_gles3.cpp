@@ -4299,13 +4299,13 @@ void RasterizerSceneGLES3::render_particle_collider_heightfield(RID p_collider, 
 	glBindFramebuffer(GL_FRAMEBUFFER, GLES3::TextureStorage::system_fbo);
 }
 
-void RasterizerSceneGLES3::_render_uv2(const PagedArray<RenderGeometryInstance *> &p_instances, GLuint p_framebuffer, const Rect2i &p_region) {
+void RasterizerSceneGLES3::_render_uv2(const PagedArray<RenderGeometryInstance *> &p_instances, GLuint p_framebuffer, const Rect2i &p_region, float p_exposure_normalization) {
 	RENDER_TIMESTAMP("Setup Rendering UV2");
 
 	RenderDataGLES3 render_data;
 	render_data.instances = &p_instances;
 
-	scene_state.data.emissive_exposure_normalization = -1.0; // Use default exposure normalization.
+	scene_state.data.emissive_exposure_normalization = p_exposure_normalization;
 
 	_setup_environment(&render_data, true, Vector2(1, 1), true, Color(), false);
 
@@ -4529,7 +4529,7 @@ void RasterizerSceneGLES3::sub_surface_scattering_set_quality(RSE::SubSurfaceSca
 void RasterizerSceneGLES3::sub_surface_scattering_set_scale(float p_scale, float p_depth_scale) {
 }
 
-TypedArray<Image> RasterizerSceneGLES3::bake_render_uv2(RID p_base, const TypedArray<RID> &p_material_overrides, const Size2i &p_image_size) {
+TypedArray<Image> RasterizerSceneGLES3::bake_render_uv2(RID p_base, const TypedArray<RID> &p_material_overrides, const Size2i &p_image_size, float p_exposure_normalization) {
 	GLES3::Config *config = GLES3::Config::get_singleton();
 	ERR_FAIL_COND_V_MSG(p_image_size.width <= 0, TypedArray<Image>(), "Image width must be greater than 0.");
 	ERR_FAIL_COND_V_MSG(p_image_size.height <= 0, TypedArray<Image>(), "Image height must be greater than 0.");
@@ -4614,7 +4614,7 @@ TypedArray<Image> RasterizerSceneGLES3::bake_render_uv2(RID p_base, const TypedA
 		cull_argument.push_back(nullptr);
 	}
 	cull_argument[0] = gi_inst;
-	_render_uv2(cull_argument, fbo, Rect2i(0, 0, p_image_size.width, p_image_size.height));
+	_render_uv2(cull_argument, fbo, Rect2i(0, 0, p_image_size.width, p_image_size.height), p_exposure_normalization);
 
 	geometry_instance_free(gi_inst);
 

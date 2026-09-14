@@ -177,7 +177,7 @@ public:
 	void sub_surface_scattering_set_quality(RSE::SubSurfaceScatteringQuality p_quality) override {}
 	void sub_surface_scattering_set_scale(float p_scale, float p_depth_scale) override {}
 
-	TypedArray<Image> bake_render_uv2(RID p_base, const TypedArray<RID> &p_material_overrides, const Size2i &p_image_size) override;
+	TypedArray<Image> bake_render_uv2(RID p_base, const TypedArray<RID> &p_material_overrides, const Size2i &p_image_size, float p_exposure_normalization) override;
 	PackedByteArray bake_render_area_light_atlas(const TypedArray<RID> &p_area_light_textures, const TypedArray<Rect2> &p_area_light_atlas_texture_rects, const Size2i &p_size, int p_mipmaps) override { return PackedByteArray(); }
 
 	bool free(RID p_rid) override;

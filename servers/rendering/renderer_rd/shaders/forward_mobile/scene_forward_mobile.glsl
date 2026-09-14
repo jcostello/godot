@@ -1251,7 +1251,12 @@ void main() {
 	half transmittance_boost = half(transmittance_boost_highp);
 	half metallic = half(metallic_highp);
 	half specular = half(specular_highp);
+#ifdef MODE_RENDER_MATERIAL
+	// Pre-expose material emission before converting it to half precision.
+	hvec3 emission = hvec3(clamp(emission_highp * scene_data.emissive_exposure_normalization, vec3(0.0), vec3(65504.0)));
+#else
 	hvec3 emission = hvec3(emission_highp);
+#endif
 	half roughness = half(roughness_highp);
 	half rim = half(rim_highp);
 	half rim_tint = half(rim_tint_highp);

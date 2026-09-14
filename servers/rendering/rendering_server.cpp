@@ -2068,12 +2068,12 @@ TypedArray<Dictionary> RenderingServer::_canvas_item_get_instance_shader_paramet
 	return convert_property_list(&params);
 }
 
-TypedArray<Image> RenderingServer::_bake_render_uv2(RID p_base, const TypedArray<RID> &p_material_overrides, const Size2i &p_image_size) {
+TypedArray<Image> RenderingServer::_bake_render_uv2(RID p_base, const TypedArray<RID> &p_material_overrides, const Size2i &p_image_size, float p_exposure_normalization) {
 	TypedArray<RID> mat_overrides;
 	for (int i = 0; i < p_material_overrides.size(); i++) {
 		mat_overrides.push_back(p_material_overrides[i]);
 	}
-	return bake_render_uv2(p_base, mat_overrides, p_image_size);
+	return bake_render_uv2(p_base, mat_overrides, p_image_size, p_exposure_normalization);
 }
 
 void RenderingServer::_particles_set_trail_bind_poses(RID p_particles, const TypedArray<Transform3D> &p_bind_poses) {
@@ -3304,7 +3304,7 @@ void RenderingServer::_bind_methods() {
 
 	/* Bake 3D Object */
 
-	ClassDB::bind_method(D_METHOD("bake_render_uv2", "base", "material_overrides", "image_size"), &RenderingServer::bake_render_uv2);
+	ClassDB::bind_method(D_METHOD("bake_render_uv2", "base", "material_overrides", "image_size", "exposure_normalization"), &RenderingServer::_bake_render_uv2, DEFVAL(1.0f));
 
 	BIND_ENUM_CONSTANT(RSE::BAKE_CHANNEL_ALBEDO_ALPHA);
 	BIND_ENUM_CONSTANT(RSE::BAKE_CHANNEL_NORMAL);

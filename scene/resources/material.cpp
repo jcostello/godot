@@ -41,6 +41,7 @@
 #include "core/version.h"
 #include "scene/main/scene_tree.h"
 #include "scene/resources/texture.h"
+#include "servers/rendering/storage/environment_color_grading.h"
 #include "servers/rendering/rendering_server.h"
 
 void Material::set_next_pass(const Ref<Material> &p_pass) {
@@ -567,6 +568,7 @@ void BaseMaterial3D::init_shaders() {
 	shader_names->metallic = "metallic";
 	shader_names->emission = "emission";
 	shader_names->emission_energy = "emission_energy";
+	shader_names->emission_temperature_color = "emission_temperature_color";
 	shader_names->normal_scale = "normal_scale";
 	shader_names->rim = "rim";
 	shader_names->rim_tint = "rim_tint";
@@ -1043,6 +1045,7 @@ uniform bool particles_anim_loop;
 uniform sampler2D texture_emission : source_color, hint_default_black, %s;
 uniform vec4 emission : source_color;
 uniform float emission_energy : hint_range(0.0, 100.0, 0.01);
+uniform vec3 emission_temperature_color = vec3(1.0);
 )",
 				texfilter_str);
 	}
@@ -1767,11 +1770,11 @@ void fragment() {)";
 
 		if (emission_op == EMISSION_OP_ADD) {
 			code += R"(	// Emission Operator: Add
-	EMISSION = (emission.rgb + emission_tex) * emission_energy;
+	EMISSION = (emission.rgb + emission_tex) * emission_temperature_color * emission_energy;
 )";
 		} else {
 			code += R"(	// Emission Operator: Multiply
-	EMISSION = (emission.rgb * emission_tex) * emission_energy;
+	EMISSION = (emission.rgb * emission_tex) * emission_temperature_color * emission_energy;
 )";
 		}
 	}
@@ -2219,6 +2222,19 @@ float BaseMaterial3D::get_emission_intensity() const {
 	return emission_intensity;
 }
 
+void BaseMaterial3D::set_emission_temperature(float p_emission_temperature) {
+	emission_temperature = CLAMP(p_emission_temperature, 1000.0f, 15000.0f);
+	Color temperature_color(1.0f, 1.0f, 1.0f);
+	if (GLOBAL_GET_CACHED(bool, "rendering/lights_and_shadows/use_physical_light_units")) {
+		temperature_color = EnvironmentColorGrading::color_from_temperature(emission_temperature);
+	}
+	_material_set_param(shader_names->emission_temperature_color, Vector3(temperature_color.r, temperature_color.g, temperature_color.b));
+}
+
+float BaseMaterial3D::get_emission_temperature() const {
+	return emission_temperature;
+}
+
 void BaseMaterial3D::set_normal_scale(float p_normal_scale) {
 	normal_scale = p_normal_scale;
 	_material_set_param(shader_names->normal_scale, p_normal_scale);
@@ -2576,7 +2592,7 @@ BaseMaterial3D::TextureFilter BaseMaterial3D::get_texture_filter() const {
 }
 
 void BaseMaterial3D::_validate_property(PropertyInfo &p_property) const {
-	if (p_property.name == "emission_intensity" && !GLOBAL_GET_CACHED(bool, "rendering/lights_and_shadows/use_physical_light_units")) {
+	if ((p_property.name == "emission_intensity" || p_property.name == "emission_temperature") && !GLOBAL_GET_CACHED(bool, "rendering/lights_and_shadows/use_physical_light_units")) {
 		p_property.usage = PROPERTY_USAGE_NONE;
 	}
 
@@ -3394,6 +3410,8 @@ void BaseMaterial3D::_bind_methods() {
 
 	ClassDB::bind_method(D_METHOD("set_emission_intensity", "emission_energy_multiplier"), &BaseMaterial3D::set_emission_intensity);
 	ClassDB::bind_method(D_METHOD("get_emission_intensity"), &BaseMaterial3D::get_emission_intensity);
+	ClassDB::bind_method(D_METHOD("set_emission_temperature", "temperature"), &BaseMaterial3D::set_emission_temperature);
+	ClassDB::bind_method(D_METHOD("get_emission_temperature"), &BaseMaterial3D::get_emission_temperature);
 
 	ClassDB::bind_method(D_METHOD("set_normal_scale", "normal_scale"), &BaseMaterial3D::set_normal_scale);
 	ClassDB::bind_method(D_METHOD("get_normal_scale"), &BaseMaterial3D::get_normal_scale);
@@ -3642,6 +3660,7 @@ void BaseMaterial3D::_bind_methods() {
 	ADD_PROPERTY(PropertyInfo(Variant::COLOR, "emission", PROPERTY_HINT_COLOR_NO_ALPHA), "set_emission", "get_emission");
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "emission_energy_multiplier", PROPERTY_HINT_RANGE, "0,16,0.01,or_greater"), "set_emission_energy_multiplier", "get_emission_energy_multiplier");
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "emission_intensity", PROPERTY_HINT_RANGE, "0,100000.0,0.01,or_greater,suffix:nt"), "set_emission_intensity", "get_emission_intensity");
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "emission_temperature", PROPERTY_HINT_RANGE, "1000,15000.0,1.0,suffix:k"), "set_emission_temperature", "get_emission_temperature");
 
 	ADD_PROPERTY(PropertyInfo(Variant::INT, "emission_operator", PROPERTY_HINT_ENUM, "Add,Multiply"), "set_emission_operator", "get_emission_operator");
 	ADD_PROPERTYI(PropertyInfo(Variant::BOOL, "emission_on_uv2"), "set_flag", "get_flag", FLAG_EMISSION_ON_UV2);
@@ -3955,6 +3974,7 @@ BaseMaterial3D::BaseMaterial3D(bool p_orm) :
 	set_metallic(0.0);
 	set_emission(Color(0, 0, 0));
 	set_emission_energy_multiplier(1.0);
+	set_emission_temperature(6500.0);
 	set_normal_scale(1);
 	set_rim(1.0);
 	set_rim_tint(0.5);
