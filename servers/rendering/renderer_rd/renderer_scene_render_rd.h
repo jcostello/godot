@@ -90,6 +90,9 @@ protected:
 	virtual void setup_render_buffer_data(Ref<RenderSceneBuffersRD> p_render_buffers) = 0;
 
 	virtual void _render_scene(RenderDataRD *p_render_data, const Color &p_default_color) = 0;
+	bool _should_defer_editor_gizmos(const RenderDataRD *p_render_data) const;
+	virtual bool _has_editor_gizmos() const = 0;
+	virtual void _render_editor_gizmos(const RenderDataRD *p_render_data, RID p_framebuffer, const Size2i &p_size) = 0;
 	virtual void _render_buffers_debug_draw(const RenderDataRD *p_render_data);
 
 	virtual void _render_material(const Transform3D &p_cam_transform, const Projection &p_cam_projection, bool p_cam_orthogonal, const PagedArray<RenderGeometryInstance *> &p_instances, RID p_framebuffer, const Rect2i &p_region, float p_exposure_normalization) = 0;
@@ -124,7 +127,6 @@ protected:
 	RendererRD::GI gi;
 
 	virtual void _update_shader_quality_settings() {}
-	static bool _debug_draw_can_use_effects(RSE::ViewportDebugDraw p_debug_draw);
 
 private:
 	RSE::ViewportDebugDraw debug_draw = RSE::VIEWPORT_DEBUG_DRAW_DISABLED;
@@ -345,6 +347,8 @@ public:
 
 	virtual void set_debug_draw_mode(RSE::ViewportDebugDraw p_debug_draw) override;
 	virtual void set_debug_draw_exposure(float p_exposure) override { debug_draw_exposure = p_exposure; }
+	static bool debug_draw_can_use_effects(RSE::ViewportDebugDraw p_debug_draw);
+	float get_camera_exposure_adjustment(RID p_camera_attributes, bool p_uses_auto_exposure = false) const;
 	_FORCE_INLINE_ RSE::ViewportDebugDraw get_debug_draw_mode() const {
 		return debug_draw;
 	}

@@ -67,6 +67,7 @@ private:
 		RENDER_LIST_OPAQUE, //used for opaque objects
 		RENDER_LIST_ALPHA, //used for transparent objects
 		RENDER_LIST_SECONDARY, //used for shadows and other objects
+		RENDER_LIST_EDITOR_GIZMOS, // Drawn after depth of field.
 		RENDER_LIST_MAX
 	};
 
@@ -201,6 +202,7 @@ private:
 	/* Scene state */
 
 	struct SceneState {
+		SceneShaderForwardMobile::ShaderSpecialization editor_gizmo_specialization;
 		MultiUmaBuffer<1u> uniform_buffers = MultiUmaBuffer<1u>("SceneState::uniform_buffers");
 
 		struct PushConstantUbershader {
@@ -285,7 +287,7 @@ private:
 		static_assert(std::is_trivially_destructible_v<InstanceData>);
 		static_assert(std::is_trivially_constructible_v<InstanceData>);
 
-		MultiUmaBuffer<1u> instance_buffer[RENDER_LIST_MAX] = { MultiUmaBuffer<1u>("RENDER_LIST_OPAQUE"), MultiUmaBuffer<1u>("RENDER_LIST_ALPHA"), MultiUmaBuffer<1u>("RENDER_LIST_SECONDARY") };
+		MultiUmaBuffer<1u> instance_buffer[RENDER_LIST_MAX] = { MultiUmaBuffer<1u>("RENDER_LIST_OPAQUE"), MultiUmaBuffer<1u>("RENDER_LIST_ALPHA"), MultiUmaBuffer<1u>("RENDER_LIST_SECONDARY"), MultiUmaBuffer<1u>("RENDER_LIST_EDITOR_GIZMOS") };
 		InstanceData *curr_gpu_ptr[RENDER_LIST_MAX] = {};
 
 		// !BAS! We need to change lightmaps, we're not going to do this with a buffer but pushing the used lightmap in
@@ -597,6 +599,8 @@ protected:
 	/* Rendering */
 
 	virtual void _render_scene(RenderDataRD *p_render_data, const Color &p_default_bg_color) override;
+	virtual bool _has_editor_gizmos() const override { return !render_list[RENDER_LIST_EDITOR_GIZMOS].elements.is_empty(); }
+	virtual void _render_editor_gizmos(const RenderDataRD *p_render_data, RID p_framebuffer, const Size2i &p_size) override;
 
 	virtual void _render_material(const Transform3D &p_cam_transform, const Projection &p_cam_projection, bool p_cam_orthogonal, const PagedArray<RenderGeometryInstance *> &p_instances, RID p_framebuffer, const Rect2i &p_region, float p_exposure_normalization) override;
 	virtual void _render_uv2(const PagedArray<RenderGeometryInstance *> &p_instances, RID p_framebuffer, const Rect2i &p_region) override;

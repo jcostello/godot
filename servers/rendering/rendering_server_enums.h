@@ -34,6 +34,9 @@
 
 namespace RenderingServerEnums {
 
+// Reserved editor layers: grid (25), node gizmos (26), and viewport gizmos (27-30).
+constexpr uint32_t EDITOR_GIZMO_LAYER_MASK = 0x7e000000;
+
 enum {
 	NO_INDEX_ARRAY = -1,
 	ARRAY_WEIGHTS_SIZE = 4,

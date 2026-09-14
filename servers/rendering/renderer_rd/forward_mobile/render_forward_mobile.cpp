@@ -851,6 +851,28 @@ void RenderForwardMobile::_pre_opaque_render(RenderDataRD *p_render_data) {
 	}
 }
 
+void RenderForwardMobile::_render_editor_gizmos(const RenderDataRD *p_render_data, RID p_framebuffer, const Size2i &p_size) {
+	Ref<RenderSceneBuffersRD> rb = p_render_data->render_buffers;
+	RenderList &list = render_list[RENDER_LIST_EDITOR_GIZMOS];
+	RID radiance_texture;
+	if (p_render_data->environment.is_valid()) {
+		RID sky_rid = environment_get_sky(p_render_data->environment);
+		if (sky_rid.is_valid()) {
+			radiance_texture = sky.sky_get_radiance_texture_rd(sky_rid);
+		}
+	}
+	const bool multiview = p_render_data->scene_data->view_count > 1;
+	const bool reverse_cull = p_render_data->scene_data->cam_transform.basis.determinant() < 0;
+	// The scene has already been temporally resolved, so render the overlay without jitter.
+	const Vector2 jitter = p_render_data->scene_data->taa_jitter;
+	p_render_data->scene_data->taa_jitter = Vector2();
+	_setup_environment(p_render_data, false, p_size, p_size, Color(), false);
+	RID uniform_set = _setup_render_pass_uniform_set(RENDER_LIST_EDITOR_GIZMOS, p_render_data, multiview, radiance_texture, rb->get_samplers(), true);
+	RenderListParameters params(list.elements.ptr(), list.element_info.ptr(), list.elements.size(), reverse_cull, PASS_MODE_COLOR, uniform_set, scene_state.editor_gizmo_specialization, false, Vector2(), p_render_data->scene_data->lod_distance_multiplier, p_render_data->scene_data->screen_mesh_lod_threshold, p_render_data->scene_data->view_count, 0, true);
+	p_render_data->scene_data->taa_jitter = jitter;
+	_render_list_with_draw_list(&params, p_framebuffer, RD::DRAW_DEFAULT_ALL, Vector<Color>(), 0.0f, 0u);
+}
+
 void RenderForwardMobile::_render_scene(RenderDataRD *p_render_data, const Color &p_default_bg_color) {
 	RendererRD::LightStorage *light_storage = RendererRD::LightStorage::get_singleton();
 	RendererRD::TextureStorage *texture_storage = RendererRD::TextureStorage::get_singleton();
@@ -967,9 +989,11 @@ void RenderForwardMobile::_render_scene(RenderDataRD *p_render_data, const Color
 		render_list[RENDER_LIST_OPAQUE].sort_by_key();
 	}
 	render_list[RENDER_LIST_ALPHA].sort_by_reverse_depth_and_priority();
+	render_list[RENDER_LIST_EDITOR_GIZMOS].sort_by_reverse_depth_and_priority();
 
 	_fill_instance_data(RENDER_LIST_OPAQUE);
 	_fill_instance_data(RENDER_LIST_ALPHA);
+	_fill_instance_data(RENDER_LIST_EDITOR_GIZMOS);
 
 	if (p_render_data->render_info) {
 		p_render_data->render_info->info[RSE::VIEWPORT_RENDER_INFO_TYPE_VISIBLE][RSE::VIEWPORT_RENDER_INFO_DRAW_CALLS_IN_FRAME] = p_render_data->instances->size();
@@ -1001,7 +1025,7 @@ void RenderForwardMobile::_render_scene(RenderDataRD *p_render_data, const Color
 		if (rb->get_scaling_3d_mode() != RSE::VIEWPORT_SCALING_3D_MODE_OFF) {
 			// can't do blit subpass because we're scaling
 			using_subpass_post_process = false;
-		} else if (p_render_data->environment.is_valid() && (environment_get_glow_enabled(p_render_data->environment) || RSG::camera_attributes->camera_attributes_uses_auto_exposure(p_render_data->camera_attributes) || RSG::camera_attributes->camera_attributes_uses_dof(p_render_data->camera_attributes) || environment_get_background(p_render_data->environment) == RSE::ENV_BG_CANVAS)) {
+		} else if (_has_editor_gizmos() || (p_render_data->environment.is_valid() && (environment_get_glow_enabled(p_render_data->environment) || RSG::camera_attributes->camera_attributes_uses_auto_exposure(p_render_data->camera_attributes) || RSG::camera_attributes->camera_attributes_uses_dof(p_render_data->camera_attributes) || environment_get_background(p_render_data->environment) == RSE::ENV_BG_CANVAS))) {
 			// can't do blit subpass because we're using post processes
 			using_subpass_post_process = false;
 		}
@@ -1016,7 +1040,7 @@ void RenderForwardMobile::_render_scene(RenderDataRD *p_render_data, const Color
 			using_subpass_post_process = false;
 		}
 
-		if (use_msaa && p_render_data->environment.is_valid() && RSG::camera_attributes->camera_attributes_uses_dof(p_render_data->camera_attributes)) {
+		if (use_msaa && (_has_editor_gizmos() || (p_render_data->environment.is_valid() && RSG::camera_attributes->camera_attributes_uses_dof(p_render_data->camera_attributes)))) {
 			// Need to resolve depth texture for DOF when using MSAA.
 			scene_state.used_depth_texture = true;
 			resolve_depth_buffer = true;
@@ -1222,6 +1246,8 @@ void RenderForwardMobile::_render_scene(RenderDataRD *p_render_data, const Color
 			base_specialization.luminance_multiplier = false;
 		}
 	}
+
+	scene_state.editor_gizmo_specialization = base_specialization;
 
 	{
 		RDD::BreadcrumbMarker breadcrumb;
@@ -2236,9 +2262,12 @@ void RenderForwardMobile::_fill_render_list(RenderListType p_render_list, const 
 	if (!p_append) {
 		rl->clear();
 		if (p_render_list == RENDER_LIST_OPAQUE) {
+			render_list[RENDER_LIST_EDITOR_GIZMOS].clear();
 			render_list[RENDER_LIST_ALPHA].clear(); //opaque fills alpha too
 		}
 	}
+
+	const bool defer_editor_gizmos = p_render_list == RENDER_LIST_OPAQUE && _should_defer_editor_gizmos(p_render_data);
 
 	//fill list
 
@@ -2363,10 +2392,13 @@ void RenderForwardMobile::_fill_render_list(RenderListType p_render_list, const 
 #else
 				bool force_alpha = false;
 #endif
-				if (!force_alpha && (surf->flags & GeometryInstanceSurfaceDataCache::FLAG_PASS_OPAQUE)) {
+				const bool is_editor_gizmo = defer_editor_gizmos && (inst->layer_mask & RSE::EDITOR_GIZMO_LAYER_MASK);
+				if (!is_editor_gizmo && !force_alpha && (surf->flags & GeometryInstanceSurfaceDataCache::FLAG_PASS_OPAQUE)) {
 					rl->add_element(surf);
 				}
-				if (force_alpha || (surf->flags & GeometryInstanceSurfaceDataCache::FLAG_PASS_ALPHA)) {
+				if (is_editor_gizmo) {
+					render_list[RENDER_LIST_EDITOR_GIZMOS].add_element(surf);
+				} else if (force_alpha || (surf->flags & GeometryInstanceSurfaceDataCache::FLAG_PASS_ALPHA)) {
 					render_list[RENDER_LIST_ALPHA].add_element(surf);
 				}
 

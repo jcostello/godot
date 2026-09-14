@@ -29,8 +29,8 @@
 /**************************************************************************/
 
 #include "renderer_scene_render_rd.h"
-#include "servers/rendering/storage/environment_color_grading.h"
 
+#include "core/config/engine.h"
 #include "core/config/project_settings.h"
 #include "core/io/image.h"
 #include "servers/rendering/renderer_rd/environment/fog.h"
@@ -44,6 +44,7 @@
 #include "servers/rendering/rendering_server_enums.h"
 #include "servers/rendering/shader_include_db.h"
 #include "servers/rendering/storage/camera_attributes_storage.h"
+#include "servers/rendering/storage/environment_color_grading.h"
 
 static float apply_debug_draw_exposure_compensation(RSE::ViewportDebugDraw p_debug_draw, float p_exposure_adjustment) {
 	if (p_debug_draw == RSE::VIEWPORT_DEBUG_DRAW_UNSHADED || p_debug_draw == RSE::VIEWPORT_DEBUG_DRAW_OVERDRAW) {
@@ -53,6 +54,15 @@ static float apply_debug_draw_exposure_compensation(RSE::ViewportDebugDraw p_deb
 		return 1.0f;
 	}
 	return p_exposure_adjustment;
+}
+
+float RendererSceneRenderRD::get_camera_exposure_adjustment(RID p_camera_attributes, bool p_uses_auto_exposure) const {
+	float adjustment = p_uses_auto_exposure || !p_camera_attributes.is_valid() ? 1.0f : RSG::camera_attributes->camera_attributes_get_exposure_adjustment_factor(p_camera_attributes);
+	adjustment = apply_debug_draw_exposure_compensation(debug_draw, adjustment);
+	if (debug_draw == RSE::VIEWPORT_DEBUG_DRAW_LIGHTING) {
+		adjustment *= debug_draw_exposure;
+	}
+	return adjustment;
 }
 
 void get_vogel_disk(float *r_kernel, int p_sample_count) {
@@ -463,6 +473,14 @@ void RendererSceneRenderRD::_render_buffers_copy_depth_texture(const RenderDataR
 	RD::get_singleton()->draw_command_end_label();
 }
 
+bool RendererSceneRenderRD::_should_defer_editor_gizmos(const RenderDataRD *p_render_data) const {
+	if (!Engine::get_singleton()->is_editor_hint() || p_render_data->render_buffers.is_null() || p_render_data->reflection_probe.is_valid() || p_render_data->transparent_bg || !debug_draw_can_use_effects(debug_draw)) {
+		return false;
+	}
+	const Size2i target_size = p_render_data->render_buffers->get_target_size();
+	return target_size.x >= 8 && target_size.y >= 8 && RSG::camera_attributes->camera_attributes_uses_dof(p_render_data->camera_attributes);
+}
+
 void RendererSceneRenderRD::_render_buffers_post_process_and_tonemap(const RenderDataRD *p_render_data, bool p_use_msaa) {
 	RendererRD::TextureStorage *texture_storage = RendererRD::TextureStorage::get_singleton();
 
@@ -477,14 +495,10 @@ void RendererSceneRenderRD::_render_buffers_post_process_and_tonemap(const Rende
 
 	Size2i target_size = rb->get_target_size();
 	bool can_use_effects = target_size.x >= 8 && target_size.y >= 8; // FIXME I think this should check internal size, we do all our post processing at this size...
-	can_use_effects &= _debug_draw_can_use_effects(debug_draw);
+	can_use_effects &= debug_draw_can_use_effects(debug_draw);
 	bool can_use_storage = _render_buffers_can_be_storage();
 	const bool uses_auto_exposure = can_use_effects && RSG::camera_attributes->camera_attributes_uses_auto_exposure(p_render_data->camera_attributes);
-	float manual_exposure_adjustment = uses_auto_exposure || !p_render_data->camera_attributes.is_valid() ? 1.0f : RSG::camera_attributes->camera_attributes_get_exposure_adjustment_factor(p_render_data->camera_attributes);
-	manual_exposure_adjustment = apply_debug_draw_exposure_compensation(debug_draw, manual_exposure_adjustment);
-	if (debug_draw == RSE::VIEWPORT_DEBUG_DRAW_LIGHTING) {
-		manual_exposure_adjustment *= debug_draw_exposure;
-	}
+	const float manual_exposure_adjustment = get_camera_exposure_adjustment(p_render_data->camera_attributes, uses_auto_exposure);
 
 	RSE::ViewportScaling3DMode scale_mode = rb->get_scaling_3d_mode();
 	bool use_upscaled_texture = rb->has_upscaled_texture() && (scale_mode == RSE::VIEWPORT_SCALING_3D_MODE_FSR2 || scale_mode == RSE::VIEWPORT_SCALING_3D_MODE_METALFX_TEMPORAL);
@@ -565,6 +579,49 @@ void RendererSceneRenderRD::_render_buffers_post_process_and_tonemap(const Rende
 				bokeh_dof->bokeh_dof_raster(buffers, p_render_data->camera_attributes, z_near, z_far, p_render_data->scene_data->cam_orthogonal);
 			}
 		}
+		RD::get_singleton()->draw_command_end_label();
+	}
+
+	if (_has_editor_gizmos()) {
+		RD::get_singleton()->draw_command_begin_label("Editor Gizmos");
+		// A separate depth attachment preserves scene occlusion without modifying the
+		// depth used by post-processing. It also handles resolved MSAA and upscaling.
+		const StringName context = SNAME("editor_gizmos");
+		const StringName depth_name = SNAME("depth");
+		const StringName color_name = SNAME("color_msaa");
+		const RD::TextureSamples samples = RenderSceneBuffersRD::msaa_to_samples(rb->get_msaa_3d());
+		if (rb->has_texture(context, depth_name)) {
+			const RD::TextureFormat format = rb->get_texture_format(context, depth_name);
+			if (Size2i(format.width, format.height) != color_size || format.samples != samples) {
+				rb->clear_context(context);
+			}
+		}
+		RID depth = rb->create_texture(context, depth_name, RenderSceneBuffersRD::get_depth_format(false, false, false), RD::TEXTURE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | RD::TEXTURE_USAGE_SAMPLING_BIT, samples, color_size);
+		RID gizmo_color = color_texture;
+		if (samples != RD::TEXTURE_SAMPLES_1) {
+			gizmo_color = rb->create_texture(context, color_name, rb->get_base_data_format(), RD::TEXTURE_USAGE_COLOR_ATTACHMENT_BIT, samples, color_size);
+		}
+		for (uint32_t view = 0; view < rb->get_view_count(); view++) {
+			if (samples != RD::TEXTURE_SAMPLES_1) {
+				RID source_color = use_upscaled_texture ? rb->get_upscaled_texture(view) : rb->get_internal_texture(view);
+				RID color_fb = FramebufferCacheRD::get_singleton()->get_cache(rb->get_texture_slice(context, color_name, view, 0));
+				copy_effects->copy_to_fb_rect(source_color, color_fb, Rect2i(Point2i(), color_size));
+			}
+			RID source_depth = p_use_msaa ? rb->get_texture_slice(RB_SCOPE_BUFFERS, RB_TEX_BACK_DEPTH, view, 0) : rb->get_depth_texture(view);
+			RID depth_fb = FramebufferCacheRD::get_singleton()->get_cache(rb->get_texture_slice(context, depth_name, view, 0));
+			copy_effects->copy_to_depth_framebuffer(source_depth, depth_fb, Rect2i(Point2i(), color_size));
+		}
+		RID framebuffer;
+		if (samples != RD::TEXTURE_SAMPLES_1) {
+			RD::FramebufferPass pass;
+			pass.color_attachments.push_back(0);
+			pass.depth_attachment = 1;
+			pass.resolve_attachments.push_back(2);
+			framebuffer = FramebufferCacheRD::get_singleton()->get_cache_multipass(Vector<RID>({ gizmo_color, depth, color_texture }), Vector<RD::FramebufferPass>({ pass }), rb->get_view_count());
+		} else {
+			framebuffer = FramebufferCacheRD::get_singleton()->get_cache_multiview(rb->get_view_count(), color_texture, depth);
+		}
+		_render_editor_gizmos(p_render_data, framebuffer, color_size);
 		RD::get_singleton()->draw_command_end_label();
 	}
 
@@ -1019,11 +1076,7 @@ void RendererSceneRenderRD::_post_process_subpass(RID p_source_texture, RID p_fr
 		tonemap.white = environment_get_white(p_render_data->environment, limit_agx_white, max_value);
 		tonemap.max_value = max_value;
 	}
-	float manual_exposure_adjustment = p_render_data->camera_attributes.is_valid() ? RSG::camera_attributes->camera_attributes_get_exposure_adjustment_factor(p_render_data->camera_attributes) : 1.0f;
-	manual_exposure_adjustment = apply_debug_draw_exposure_compensation(debug_draw, manual_exposure_adjustment);
-	if (debug_draw == RSE::VIEWPORT_DEBUG_DRAW_LIGHTING) {
-		manual_exposure_adjustment *= debug_draw_exposure;
-	}
+	const float manual_exposure_adjustment = get_camera_exposure_adjustment(p_render_data->camera_attributes);
 	tonemap.exposure *= manual_exposure_adjustment;
 
 	// We don't support glow or auto exposure here, if they are needed, don't use subpasses!
@@ -1143,7 +1196,7 @@ void RendererSceneRenderRD::_disable_clear_request(const RenderDataRD *p_render_
 	texture_storage->render_target_disable_clear_request(p_render_data->render_buffers->get_render_target());
 }
 
-bool RendererSceneRenderRD::_debug_draw_can_use_effects(RSE::ViewportDebugDraw p_debug_draw) {
+bool RendererSceneRenderRD::debug_draw_can_use_effects(RSE::ViewportDebugDraw p_debug_draw) {
 	bool can_use_effects = true;
 	switch (p_debug_draw) {
 		// No debug draw, use camera effects

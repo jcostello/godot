@@ -30,6 +30,7 @@
 
 #include "render_scene_data_rd.h"
 
+#include "core/config/engine.h"
 #include "servers/rendering/renderer_rd/renderer_scene_render_rd.h"
 #include "servers/rendering/renderer_rd/storage_rd/light_storage.h"
 #include "servers/rendering/renderer_rd/storage_rd/texture_storage.h"
@@ -127,6 +128,11 @@ void RenderSceneDataRD::update_ubo(RID p_uniform_buffer, RSE::ViewportDebugDraw 
 	RendererRD::MaterialStorage::store_soft_shadow_kernel(render_scene_render->penumbra_shadow_kernel_get(), ubo.penumbra_shadow_kernel);
 	RendererRD::MaterialStorage::store_soft_shadow_kernel(render_scene_render->soft_shadow_kernel_get(), ubo.soft_shadow_kernel);
 	ubo.camera_visible_layers = camera_visible_layers;
+	ubo.editor_gizmo_layer_mask = Engine::get_singleton()->is_editor_hint() ? RSE::EDITOR_GIZMO_LAYER_MASK : 0;
+	// Materials are shared between editor viewports, so compensate using this camera's exposure.
+	const bool uses_auto_exposure = RendererSceneRenderRD::debug_draw_can_use_effects(p_debug_mode) && RSG::camera_attributes->camera_attributes_uses_auto_exposure(p_camera_attributes);
+	ubo.editor_gizmo_exposure = 1.0f / MAX(1e-8f, render_scene_render->get_camera_exposure_adjustment(p_camera_attributes, uses_auto_exposure));
+	ubo.editor_gizmo_auto_exposure_scale = uses_auto_exposure ? p_luminance_multiplier / MAX(1e-8f, RSG::camera_attributes->camera_attributes_get_auto_exposure_scale(p_camera_attributes)) : 0.0f;
 	ubo.pass_alpha_multiplier = p_opaque_render_buffers && p_apply_alpha_multiplier ? 0.0f : 1.0f;
 
 	ubo.viewport_size[0] = p_viewport_size.x;

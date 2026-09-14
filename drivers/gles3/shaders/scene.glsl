@@ -219,6 +219,10 @@ struct SceneData {
 	float z_near;
 	float IBL_exposure_normalization;
 
+	uint editor_gizmo_layer_mask;
+	float editor_gizmo_exposure;
+	vec2 editor_gizmo_padding;
+
 	bool fog_enabled;
 	uint fog_mode;
 	float fog_density;
@@ -1249,6 +1253,10 @@ struct SceneData {
 	float z_far;
 	float z_near;
 	float IBL_exposure_normalization;
+
+	uint editor_gizmo_layer_mask;
+	float editor_gizmo_exposure;
+	vec2 editor_gizmo_padding;
 
 	bool fog_enabled;
 	uint fog_mode;
@@ -2997,6 +3005,10 @@ void main() {
 
 	frag_color.rgb = mix(frag_color.rgb, fog.rgb, fog.a);
 #endif // !FOG_DISABLED
+
+	if (bool(layer_mask & scene_data_block.data.editor_gizmo_layer_mask)) {
+		frag_color.rgb *= scene_data_block.data.editor_gizmo_exposure;
+	}
 
 	// Tonemap before writing as we are writing to an sRGB framebuffer
 	frag_color.rgb *= exposure;

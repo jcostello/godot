@@ -219,6 +219,7 @@ public:
 	static constexpr int32_t GIZMO_EDIT_LAYER = 26;
 	static constexpr int32_t GIZMO_GRID_LAYER = 25;
 	static constexpr int32_t MISC_TOOL_LAYER = 24;
+	static_assert(RSE::EDITOR_GIZMO_LAYER_MASK == ((0xfU << GIZMO_BASE_LAYER) | (1U << GIZMO_EDIT_LAYER) | (1U << GIZMO_GRID_LAYER)));
 
 	static constexpr int32_t FRAME_TIME_HISTORY = 20;
 
