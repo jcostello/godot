@@ -3424,10 +3424,10 @@ void RasterizerSceneGLES3::_render_list_template(RenderListParameters *p_params,
 			material_data = surf->material_shadow;
 			mesh_surface = surf->surface_shadow;
 		} else {
-			if (unlikely(get_debug_draw_mode() == RSE::VIEWPORT_DEBUG_DRAW_OVERDRAW)) {
+			if (unlikely(get_debug_draw_mode() == RSE::VIEWPORT_DEBUG_DRAW_OVERDRAW) && !(inst->layer_mask & RSE::EDITOR_GIZMO_LAYER_MASK)) {
 				material_data = overdraw_material_data_ptr;
 				shader = material_data->shader_data;
-			} else if (unlikely(get_debug_draw_mode() == RSE::VIEWPORT_DEBUG_DRAW_LIGHTING)) {
+			} else if (unlikely(get_debug_draw_mode() == RSE::VIEWPORT_DEBUG_DRAW_LIGHTING) && !(inst->layer_mask & RSE::EDITOR_GIZMO_LAYER_MASK)) {
 				material_data = default_material_data_ptr;
 				shader = material_data->shader_data;
 			} else {
@@ -3649,7 +3649,7 @@ void RasterizerSceneGLES3::_render_list_template(RenderListParameters *p_params,
 			}
 
 			bool use_wireframe = false;
-			if (p_params->force_wireframe || shader->wireframe) {
+			if ((p_params->force_wireframe && !(inst->layer_mask & RSE::EDITOR_GIZMO_LAYER_MASK)) || shader->wireframe) {
 				GLuint wireframe_index_array_gl = mesh_storage->mesh_surface_get_index_buffer_wireframe(mesh_surface);
 				if (wireframe_index_array_gl) {
 					index_array_gl = wireframe_index_array_gl;

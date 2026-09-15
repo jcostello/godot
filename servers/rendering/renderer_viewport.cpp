@@ -209,7 +209,7 @@ void RendererViewport::_configure_3d_render_buffers(Viewport *p_viewport) {
 #endif // RD_ENABLED
 
 			bool scaling_3d_is_not_bilinear = scaling_3d_mode != RSE::VIEWPORT_SCALING_3D_MODE_OFF && scaling_3d_mode != RSE::VIEWPORT_SCALING_3D_MODE_BILINEAR;
-			bool use_taa = p_viewport->use_taa;
+			bool use_taa = p_viewport->use_taa && p_viewport->debug_draw == RSE::VIEWPORT_DEBUG_DRAW_DISABLED;
 
 			if (scaling_3d_is_not_bilinear && scaling_3d_scale >= (1.0 + EPSILON)) {
 				// FSR, MetalFX, and nearest-neighbor scaling are not designed for downsampling.
@@ -1127,7 +1127,7 @@ void RendererViewport::_viewport_set_size(Viewport *p_viewport, int p_width, int
 }
 
 bool RendererViewport::_viewport_requires_motion_vectors(Viewport *p_viewport) {
-	return p_viewport->use_taa ||
+	return (p_viewport->use_taa && p_viewport->debug_draw == RSE::VIEWPORT_DEBUG_DRAW_DISABLED) ||
 			RSE::scaling_3d_mode_type(p_viewport->scaling_3d_mode) == RSE::VIEWPORT_SCALING_3D_TYPE_TEMPORAL ||
 			p_viewport->debug_draw == RSE::VIEWPORT_DEBUG_DRAW_MOTION_VECTORS || p_viewport->force_motion_vectors;
 }
@@ -1573,9 +1573,13 @@ void RendererViewport::viewport_set_debug_draw_exposure(RID p_viewport, float p_
 void RendererViewport::viewport_set_debug_draw(RID p_viewport, RSE::ViewportDebugDraw p_draw) {
 	Viewport *viewport = viewport_owner.get_or_null(p_viewport);
 	ERR_FAIL_NULL(viewport);
+	if (viewport->debug_draw == p_draw) {
+		return;
+	}
 
 	bool motion_vectors_before = _viewport_requires_motion_vectors(viewport);
 	viewport->debug_draw = p_draw;
+	_configure_3d_render_buffers(viewport);
 
 	bool motion_vectors_after = _viewport_requires_motion_vectors(viewport);
 	if (motion_vectors_before != motion_vectors_after) {
