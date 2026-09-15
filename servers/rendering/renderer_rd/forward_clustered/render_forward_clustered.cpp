@@ -372,13 +372,13 @@ void RenderForwardClustered::_render_list_template(RenderingDevice::DrawListID p
 
 		} else {
 #ifdef DEBUG_ENABLED
-			if (unlikely(get_debug_draw_mode() == RSE::VIEWPORT_DEBUG_DRAW_LIGHTING)) {
+			if (unlikely(get_debug_draw_mode() == RSE::VIEWPORT_DEBUG_DRAW_LIGHTING) && !(surf->owner->layer_mask & RSE::EDITOR_GIZMO_LAYER_MASK)) {
 				material_uniform_set = scene_shader.default_material_uniform_set;
 				shader = scene_shader.default_material_shader_ptr;
-			} else if (unlikely(get_debug_draw_mode() == RSE::VIEWPORT_DEBUG_DRAW_OVERDRAW)) {
+			} else if (unlikely(get_debug_draw_mode() == RSE::VIEWPORT_DEBUG_DRAW_OVERDRAW) && !(surf->owner->layer_mask & RSE::EDITOR_GIZMO_LAYER_MASK)) {
 				material_uniform_set = scene_shader.overdraw_material_uniform_set;
 				shader = scene_shader.overdraw_material_shader_ptr;
-			} else if (unlikely(get_debug_draw_mode() == RSE::VIEWPORT_DEBUG_DRAW_WIREFRAME)) {
+			} else if (unlikely(get_debug_draw_mode() == RSE::VIEWPORT_DEBUG_DRAW_WIREFRAME) && !(surf->owner->layer_mask & RSE::EDITOR_GIZMO_LAYER_MASK)) {
 				material_uniform_set = scene_shader.wireframe_material_uniform_set;
 				shader = scene_shader.wireframe_material_shader_ptr;
 			} else if (unlikely(get_debug_draw_mode() == RSE::VIEWPORT_DEBUG_DRAW_PSSM_SPLITS)) {
@@ -497,7 +497,7 @@ void RenderForwardClustered::_render_list_template(RenderingDevice::DrawListID p
 		}
 
 		pipeline_key.framebuffer_format_id = framebuffer_format;
-		pipeline_key.wireframe = p_params->force_wireframe;
+		pipeline_key.wireframe = p_params->force_wireframe && !(surf->owner->layer_mask & RSE::EDITOR_GIZMO_LAYER_MASK);
 		pipeline_key.ubershader = 0;
 
 		bool emulate_point_size = shader->uses_point_size && scene_shader.emulate_point_size;
