@@ -22,10 +22,13 @@
 			[b]Note:[/b] Using negative values or values higher than [code]10.0[/code] may lead to unexpected results.
 		</member>
 		<member name="area_normalize_energy" type="bool" setter="set_area_normalize_energy" getter="is_area_normalizing_energy" default="true">
-			Defines whether the energy is normalized (divided) by the surface area of the light. If set to [code]true[/code], changing the size does not affect the total energy output, and does not dramatically alter the brightness of the scene.
+			Defines whether the energy is normalized (divided) by the surface area of the light. If set to [code]true[/code], changing the size preserves the total emitted flux. If set to [code]false[/code], the emission per unit of area remains constant, so increasing the size increases the total emitted flux. This behavior is shared by realtime lighting, GI, and [LightmapGI] baking.
 		</member>
 		<member name="area_range" type="float" setter="set_param" getter="get_param" default="5.0">
 			The range of the area in meters. This determines the maximum distance from any point on the area at which the area can still emit light.
+		</member>
+		<member name="area_range_fade_start" type="float" setter="set_param" getter="get_param" default="-1.0">
+			Normalized distance where the final range fade begins. [code]0.0[/code] fades across the full range and [code]1.0[/code] produces a hard edge. The default [code]-1.0[/code] preserves the legacy attenuation curve. This also affects indirect lighting and [LightmapGI] baking.
 		</member>
 		<member name="area_size" type="Vector2" setter="set_area_size" getter="get_area_size" default="Vector2(1, 1)">
 			The extents (width and height) of the area in meters.

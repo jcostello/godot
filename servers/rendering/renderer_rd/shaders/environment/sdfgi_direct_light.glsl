@@ -59,6 +59,7 @@ cascades;
 #define LIGHT_TYPE_SPOT 2
 #define LIGHT_TYPE_AREA 3
 
+#include "../../../shaders/spot_light_inc.glsl"
 #include "../area_lights_inc.glsl"
 
 struct Light {
@@ -75,6 +76,11 @@ struct Light {
 	float cos_spot_angle;
 	float inv_spot_attenuation;
 	float radius;
+
+	float cos_spot_inner_angle;
+	float range_fade_start;
+	float spot_pad1;
+	float spot_pad2;
 
 	vec4 area_width;
 	vec4 area_height;
@@ -122,13 +128,8 @@ vec2 octahedron_encode(vec3 n) {
 	return n.xy;
 }
 
-float get_omni_attenuation(float distance, float inv_range, float decay) {
-	float nd = distance * inv_range;
-	nd *= nd;
-	nd *= nd; // nd^4
-	nd = max(1.0 - nd, 0.0);
-	nd *= nd; // nd^2
-	return nd * pow(max(distance, 0.0001), -decay);
+float get_omni_attenuation(float distance, float inv_range, float decay, float fade_start) {
+	return light_range_fade(distance, inv_range, fade_start) * pow(max(distance, 0.0001), -decay);
 }
 
 void compute_area_light(uint index, vec3 position, out float attenuation, out vec3 light_vec, out float light_distance, out vec3 texture_color) {
@@ -169,7 +170,7 @@ void compute_area_light(uint index, vec3 position, out float attenuation, out ve
 	light_points[2] = lights.data[index].position + h_area_width + h_area_height - position;
 	light_points[3] = lights.data[index].position - h_area_width + h_area_height - position;
 
-	attenuation = get_omni_attenuation(light_distance, 1.0 / lights.data[index].radius, lights.data[index].attenuation - 2.0);
+	attenuation = get_omni_attenuation(light_distance, 1.0 / lights.data[index].radius, lights.data[index].attenuation - 2.0, lights.data[index].range_fade_start);
 	float ltc_diffuse = 0.0;
 	vec3 normal = light_vec;
 	ltc_evaluate_diff(normal, light_points, lights.data[index].area_projector_rect, max_mipmap, area_light_atlas, linear_sampler_with_mipmaps, ltc_diffuse, texture_color);
@@ -330,7 +331,7 @@ void main() {
 				direction = normalize(rel_vec);
 				light_distance = length(rel_vec);
 				rel_vec.y /= params.y_mult;
-				attenuation = get_omni_attenuation(light_distance, 1.0 / lights.data[i].radius, lights.data[i].attenuation);
+				attenuation = omni_light_attenuation(light_distance, 1.0 / lights.data[i].radius, lights.data[i].attenuation, lights.data[i].range_fade_start);
 
 			} break;
 			case LIGHT_TYPE_SPOT: {
@@ -338,18 +339,17 @@ void main() {
 				direction = normalize(rel_vec);
 				light_distance = length(rel_vec);
 				rel_vec.y /= params.y_mult;
-				attenuation = get_omni_attenuation(light_distance, 1.0 / lights.data[i].radius, lights.data[i].attenuation);
+				attenuation = get_omni_attenuation(light_distance, 1.0 / lights.data[i].radius, lights.data[i].attenuation, lights.data[i].range_fade_start);
 
 				float cos_spot_angle = lights.data[i].cos_spot_angle;
-				float cos_angle = dot(-direction, lights.data[i].direction);
+				// Evaluate the photometric angles in world space, before SDFGI Y compression.
+				float cos_angle = dot(-normalize(rel_vec), normalize(lights.data[i].direction));
 
 				if (cos_angle < cos_spot_angle) {
 					continue;
 				}
 
-				float scos = max(cos_angle, cos_spot_angle);
-				float spot_rim = max(0.0001, (1.0 - scos) / (1.0 - cos_spot_angle));
-				attenuation *= 1.0 - pow(spot_rim, lights.data[i].inv_spot_attenuation);
+				attenuation *= spot_light_attenuation(cos_angle, cos_spot_angle, lights.data[i].cos_spot_inner_angle, lights.data[i].inv_spot_attenuation);
 			} break;
 			case LIGHT_TYPE_AREA: {
 				float EPSILON = 1e-7f;

@@ -155,7 +155,8 @@ private:
 		float specular_amount;
 		float shadow_opacity;
 
-		float pad[2];
+		float cos_spot_inner_angle;
+		float range_fade_start;
 		float atlas_rect[4]; // in omni, used for atlas uv, in spot, used for projector uv
 		float shadow_matrix[16];
 		float shadow_bias;

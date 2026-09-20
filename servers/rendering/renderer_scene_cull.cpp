@@ -3969,7 +3969,10 @@ void RendererSceneCull::render_probes() {
 							cache->bake_energy != RSG::light_storage->light_get_param(instance->base, RSE::LIGHT_PARAM_INDIRECT_ENERGY) ||
 							cache->radius != RSG::light_storage->light_get_param(instance->base, RSE::LIGHT_PARAM_RANGE) ||
 							cache->attenuation != RSG::light_storage->light_get_param(instance->base, RSE::LIGHT_PARAM_ATTENUATION) ||
+							cache->range_fade_start != RSG::light_storage->light_get_param(instance->base, RSE::LIGHT_PARAM_RANGE_FADE_START) ||
 							cache->spot_angle != RSG::light_storage->light_get_param(instance->base, RSE::LIGHT_PARAM_SPOT_ANGLE) ||
+							cache->spot_inner_angle != RSG::light_storage->light_get_param(instance->base, RSE::LIGHT_PARAM_SPOT_INNER_ANGLE) ||
+							cache->spot_flux_scale != RSG::light_storage->light_get_param(instance->base, RSE::LIGHT_PARAM_SPOT_FLUX_SCALE) ||
 							cache->spot_attenuation != RSG::light_storage->light_get_param(instance->base, RSE::LIGHT_PARAM_SPOT_ATTENUATION) ||
 							cache->area_size != RSG::light_storage->light_area_get_size(instance->base) ||
 							cache->area_normalize_energy != RSG::light_storage->light_area_get_normalize_energy(instance->base) ||
@@ -4004,7 +4007,10 @@ void RendererSceneCull::render_probes() {
 							cache->bake_energy != RSG::light_storage->light_get_param(instance->base, RSE::LIGHT_PARAM_INDIRECT_ENERGY) ||
 							cache->radius != RSG::light_storage->light_get_param(instance->base, RSE::LIGHT_PARAM_RANGE) ||
 							cache->attenuation != RSG::light_storage->light_get_param(instance->base, RSE::LIGHT_PARAM_ATTENUATION) ||
+							cache->range_fade_start != RSG::light_storage->light_get_param(instance->base, RSE::LIGHT_PARAM_RANGE_FADE_START) ||
 							cache->spot_angle != RSG::light_storage->light_get_param(instance->base, RSE::LIGHT_PARAM_SPOT_ANGLE) ||
+							cache->spot_inner_angle != RSG::light_storage->light_get_param(instance->base, RSE::LIGHT_PARAM_SPOT_INNER_ANGLE) ||
+							cache->spot_flux_scale != RSG::light_storage->light_get_param(instance->base, RSE::LIGHT_PARAM_SPOT_FLUX_SCALE) ||
 							cache->spot_attenuation != RSG::light_storage->light_get_param(instance->base, RSE::LIGHT_PARAM_SPOT_ATTENUATION) ||
 							cache->sky_mode != RSG::light_storage->light_directional_get_sky_mode(instance->base)) {
 						cache_dirty = true;
@@ -4051,7 +4057,10 @@ void RendererSceneCull::render_probes() {
 					cache->bake_energy = RSG::light_storage->light_get_param(instance->base, RSE::LIGHT_PARAM_INDIRECT_ENERGY);
 					cache->radius = RSG::light_storage->light_get_param(instance->base, RSE::LIGHT_PARAM_RANGE);
 					cache->attenuation = RSG::light_storage->light_get_param(instance->base, RSE::LIGHT_PARAM_ATTENUATION);
+					cache->range_fade_start = RSG::light_storage->light_get_param(instance->base, RSE::LIGHT_PARAM_RANGE_FADE_START);
 					cache->spot_angle = RSG::light_storage->light_get_param(instance->base, RSE::LIGHT_PARAM_SPOT_ANGLE);
+					cache->spot_inner_angle = RSG::light_storage->light_get_param(instance->base, RSE::LIGHT_PARAM_SPOT_INNER_ANGLE);
+					cache->spot_flux_scale = RSG::light_storage->light_get_param(instance->base, RSE::LIGHT_PARAM_SPOT_FLUX_SCALE);
 					cache->spot_attenuation = RSG::light_storage->light_get_param(instance->base, RSE::LIGHT_PARAM_SPOT_ATTENUATION);
 					cache->area_size = RSG::light_storage->light_area_get_size(instance->base);
 					cache->area_normalize_energy = RSG::light_storage->light_area_get_normalize_energy(instance->base);
@@ -4076,7 +4085,10 @@ void RendererSceneCull::render_probes() {
 					cache->bake_energy = RSG::light_storage->light_get_param(instance->base, RSE::LIGHT_PARAM_INDIRECT_ENERGY);
 					cache->radius = RSG::light_storage->light_get_param(instance->base, RSE::LIGHT_PARAM_RANGE);
 					cache->attenuation = RSG::light_storage->light_get_param(instance->base, RSE::LIGHT_PARAM_ATTENUATION);
+					cache->range_fade_start = RSG::light_storage->light_get_param(instance->base, RSE::LIGHT_PARAM_RANGE_FADE_START);
 					cache->spot_angle = RSG::light_storage->light_get_param(instance->base, RSE::LIGHT_PARAM_SPOT_ANGLE);
+					cache->spot_inner_angle = RSG::light_storage->light_get_param(instance->base, RSE::LIGHT_PARAM_SPOT_INNER_ANGLE);
+					cache->spot_flux_scale = RSG::light_storage->light_get_param(instance->base, RSE::LIGHT_PARAM_SPOT_FLUX_SCALE);
 					cache->spot_attenuation = RSG::light_storage->light_get_param(instance->base, RSE::LIGHT_PARAM_SPOT_ATTENUATION);
 					cache->sky_mode = RSG::light_storage->light_directional_get_sky_mode(instance->base);
 

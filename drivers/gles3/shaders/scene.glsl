@@ -64,6 +64,8 @@ USE_LIGHTMAP_SPECULAR = false
 #define IN_SHADOW_PASS false
 #endif
 
+#include "../../../servers/rendering/shaders/spot_light_inc.glsl"
+
 #include "stdlib_inc.glsl"
 
 #if !defined(MODE_RENDER_DEPTH) || defined(TANGENT_USED) || defined(NORMAL_MAP_USED) || defined(BENT_NORMAL_MAP_USED) || defined(LIGHT_ANISOTROPY_USED) || defined(LIGHT_CLEARCOAT_USED)
@@ -344,11 +346,13 @@ struct LightData { // This structure needs to be as packed as possible.
 	mediump float attenuation;
 
 	mediump float cone_attenuation;
-	mediump float cone_angle;
+	highp float cone_angle;
 	mediump float specular_amount;
 	mediump float shadow_opacity;
 
-	lowp vec3 pad;
+	highp float cos_spot_inner_angle;
+	highp float range_fade_start;
+	lowp float pad1;
 	lowp uint bake_mode;
 
 	mediump vec4 area_width;
@@ -436,13 +440,8 @@ void light_compute(vec3 N, vec3 L, vec3 V, vec3 light_color, bool is_directional
 #endif
 }
 
-float get_omni_spot_attenuation(float distance, float inv_range, float decay) {
-	float nd = distance * inv_range;
-	nd *= nd;
-	nd *= nd; // nd^4
-	nd = max(1.0 - nd, 0.0);
-	nd *= nd; // nd^2
-	return nd * pow(max(distance, 0.0001), -decay);
+float get_omni_spot_attenuation(float distance, float inv_range, float decay, float fade_start) {
+	return light_range_fade(distance, inv_range, fade_start) * pow(max(distance, 0.0001), -decay);
 }
 
 #if !defined(DISABLE_LIGHT_OMNI) || (defined(ADDITIVE_OMNI) && defined(USE_ADDITIVE_LIGHTING))
@@ -450,7 +449,7 @@ void light_process_omni(uint idx, vec3 vertex, vec3 eye_vec, vec3 normal, float 
 		inout vec3 diffuse_light, inout vec3 specular_light) {
 	vec3 light_rel_vec = omni_lights[idx].position - vertex;
 	float light_length = length(light_rel_vec);
-	float omni_attenuation = get_omni_spot_attenuation(light_length, omni_lights[idx].inv_radius, omni_lights[idx].attenuation);
+	float omni_attenuation = omni_light_attenuation(light_length, omni_lights[idx].inv_radius, omni_lights[idx].attenuation, omni_lights[idx].range_fade_start);
 	vec3 color = omni_lights[idx].color * omni_attenuation; // No light shaders here, so combine.
 
 	light_compute(normal, normalize(light_rel_vec), eye_vec, color, false, roughness,
@@ -465,13 +464,11 @@ void light_process_spot(uint idx, vec3 vertex, vec3 eye_vec, vec3 normal, float 
 		inout vec3 specular_light) {
 	vec3 light_rel_vec = spot_lights[idx].position - vertex;
 	float light_length = length(light_rel_vec);
-	float spot_attenuation = get_omni_spot_attenuation(light_length, spot_lights[idx].inv_radius, spot_lights[idx].attenuation);
+	float spot_attenuation = get_omni_spot_attenuation(light_length, spot_lights[idx].inv_radius, spot_lights[idx].attenuation, spot_lights[idx].range_fade_start);
 	vec3 spot_dir = spot_lights[idx].direction;
-	float scos = max(dot(-normalize(light_rel_vec), spot_dir), spot_lights[idx].cone_angle);
-	float spot_rim = max(0.0001, (1.0 - scos) / (1.0 - spot_lights[idx].cone_angle));
-
-	mediump float cone_attenuation = spot_lights[idx].cone_attenuation;
-	spot_attenuation *= 1.0 - pow(spot_rim, cone_attenuation);
+	highp float cos_angle = dot(-normalize(light_rel_vec), spot_dir);
+	spot_attenuation *= spot_light_attenuation(cos_angle, spot_lights[idx].cone_angle,
+			spot_lights[idx].cos_spot_inner_angle, spot_lights[idx].cone_attenuation);
 
 	vec3 color = spot_lights[idx].color * spot_attenuation;
 
@@ -1040,6 +1037,8 @@ void main() {
 #ifndef MODE_RENDER_DEPTH
 #include "tonemap_inc.glsl"
 #endif
+#include "../../../servers/rendering/shaders/spot_light_inc.glsl"
+
 #include "stdlib_inc.glsl"
 
 /* texture unit usage, N is max_texture_unit-N
@@ -1360,11 +1359,13 @@ struct LightData { // This structure needs to be as packed as possible.
 	mediump float attenuation;
 
 	mediump float cone_attenuation;
-	mediump float cone_angle;
+	highp float cone_angle;
 	mediump float specular_amount;
 	mediump float shadow_opacity;
 
-	lowp vec3 pad;
+	highp float cos_spot_inner_angle;
+	highp float range_fade_start;
+	lowp float pad1;
 	lowp uint bake_mode;
 
 	mediump vec4 area_width;
@@ -1787,13 +1788,8 @@ void light_compute(vec3 N, vec3 L, vec3 V, float A, vec3 light_color, bool is_di
 #endif // LIGHT_CODE_USED
 }
 
-float get_omni_spot_attenuation(float distance, float inv_range, float decay) {
-	float nd = distance * inv_range;
-	nd *= nd;
-	nd *= nd; // nd^4
-	nd = max(1.0 - nd, 0.0);
-	nd *= nd; // nd^2
-	return nd * pow(max(distance, 0.0001), -decay);
+float get_omni_spot_attenuation(float distance, float inv_range, float decay, float fade_start) {
+	return light_range_fade(distance, inv_range, fade_start) * pow(max(distance, 0.0001), -decay);
 }
 
 #if !defined(DISABLE_LIGHT_OMNI) || defined(ADDITIVE_OMNI)
@@ -1813,7 +1809,7 @@ void light_process_omni(uint idx, vec3 vertex, vec3 eye_vec, vec3 normal, vec3 f
 		inout vec3 diffuse_light, inout vec3 specular_light) {
 	vec3 light_rel_vec = omni_lights[idx].position - vertex;
 	float light_length = length(light_rel_vec);
-	float omni_attenuation = get_omni_spot_attenuation(light_length, omni_lights[idx].inv_radius, omni_lights[idx].attenuation);
+	float omni_attenuation = omni_light_attenuation(light_length, omni_lights[idx].inv_radius, omni_lights[idx].attenuation, omni_lights[idx].range_fade_start);
 	vec3 color = omni_lights[idx].color;
 	float size_A = 0.0;
 
@@ -1902,7 +1898,7 @@ void light_process_area(uint idx, vec3 vertex, vec3 eye_vec, vec3 normal, vec3 f
 	vec3 fresnel_color = f0 * max(ltc_fresnel.x, 0.0) + (f90 - f0) * max(ltc_fresnel.y, 0.0);
 
 	float light_length = max(0.0, dist);
-	float light_attenuation_raw = get_omni_spot_attenuation(light_length, area_lights[idx].inv_radius, area_lights[idx].attenuation);
+	float light_attenuation_raw = get_omni_spot_attenuation(light_length, area_lights[idx].inv_radius, area_lights[idx].attenuation, area_lights[idx].range_fade_start);
 	float light_attenuation_ltc = light_attenuation_raw * light_length * light_length; // solid angle already decreases by inverse square, so attenuation power is 2.0 by default -> subtract 2.0
 
 	vec3 light_color = area_lights[idx].color;
@@ -2007,13 +2003,11 @@ void light_process_spot(uint idx, vec3 vertex, vec3 eye_vec, vec3 normal, vec3 f
 
 	vec3 light_rel_vec = spot_lights[idx].position - vertex;
 	float light_length = length(light_rel_vec);
-	float spot_attenuation = get_omni_spot_attenuation(light_length, spot_lights[idx].inv_radius, spot_lights[idx].attenuation);
+	float spot_attenuation = get_omni_spot_attenuation(light_length, spot_lights[idx].inv_radius, spot_lights[idx].attenuation, spot_lights[idx].range_fade_start);
 	vec3 spot_dir = spot_lights[idx].direction;
-	float scos = max(dot(-normalize(light_rel_vec), spot_dir), spot_lights[idx].cone_angle);
-	float spot_rim = max(0.0001, (1.0 - scos) / (1.0 - spot_lights[idx].cone_angle));
-
-	mediump float cone_attenuation = spot_lights[idx].cone_attenuation;
-	spot_attenuation *= 1.0 - pow(spot_rim, cone_attenuation);
+	highp float cos_angle = dot(-normalize(light_rel_vec), spot_dir);
+	spot_attenuation *= spot_light_attenuation(cos_angle, spot_lights[idx].cone_angle,
+			spot_lights[idx].cos_spot_inner_angle, spot_lights[idx].cone_attenuation);
 
 	vec3 color = spot_lights[idx].color;
 

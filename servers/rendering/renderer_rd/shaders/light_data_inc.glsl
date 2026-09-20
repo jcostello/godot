@@ -1,3 +1,5 @@
+#include "../../shaders/spot_light_inc.glsl"
+
 #define LIGHT_BAKE_DISABLED 0
 #define LIGHT_BAKE_STATIC 1
 #define LIGHT_BAKE_DYNAMIC 2
@@ -20,7 +22,8 @@ struct LightData { //this structure needs to be as packed as possible
 
 	float specular_amount;
 	float shadow_opacity;
-	float pad[2];
+	float cos_spot_inner_angle;
+	float range_fade_start;
 
 	vec4 atlas_rect; // rect in the shadow atlas
 	mat4 shadow_matrix;

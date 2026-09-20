@@ -96,7 +96,11 @@ struct Light {
 	float indirect_energy;
 	float shadow_blur;
 	bool static_bake;
-	uint pad;
+	float cos_spot_inner_angle;
+	float range_fade_start;
+	float range_fade_pad0;
+	float range_fade_pad1;
+	float range_fade_pad2;
 
 	vec4 area_width;
 	vec4 area_height;

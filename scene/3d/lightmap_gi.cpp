@@ -47,6 +47,7 @@
 #include "scene/resources/image_texture.h"
 #include "scene/resources/material.h"
 #include "scene/resources/sky.h"
+#include "servers/rendering/light_energy.h"
 #include "servers/rendering/rendering_server.h"
 
 #include "modules/modules_enabled.gen.h" // IWYU pragma: keep. For lightmapper_rd.
@@ -1500,11 +1501,15 @@ LightmapGI::BakeError LightmapGI::bake(Node *p_from_node, String p_image_data_pa
 			// For the lightmapper, the indirect energy represents the multiplier for the indirect bounces caused by the light, so the value is not converted when using physical units.
 			float indirect_energy = light->get_param(Light3D::PARAM_INDIRECT_ENERGY);
 			Color linear_color = light->get_color().srgb_to_linear();
-			float energy = light->get_param(Light3D::PARAM_ENERGY);
+			const RSE::LightType light_type = light->get_light_type();
+			const AreaLight3D *area_light = Object::cast_to<AreaLight3D>(light);
+			const Vector2 area_size = area_light ? area_light->get_area_size() : Vector2(1.0f, 1.0f);
+			float energy = light_energy_to_intensity(light_type, light->get_param(Light3D::PARAM_ENERGY), light->get_param(Light3D::PARAM_INTENSITY), use_physical_light_units, light->get_param(Light3D::PARAM_SPOT_FLUX_SCALE), area_light && area_light->is_area_normalizing_energy(), area_size.x * area_size.y);
+			// Realtime materials apply the Lambert BRDF factor. The lightmapper
+			// evaluates the cosine directly, so include 1 / PI in its input.
+			energy /= Math::PI;
 			if (use_physical_light_units) {
-				energy *= light->get_param(Light3D::PARAM_INTENSITY);
 				linear_color *= light->get_correlated_color().srgb_to_linear();
-				energy *= 1.0 / Math::PI;
 			}
 
 			if (Object::cast_to<DirectionalLight3D>(light)) {
@@ -1514,40 +1519,27 @@ LightmapGI::BakeError LightmapGI::bake(Node *p_from_node, String p_image_data_pa
 				}
 			} else if (Object::cast_to<OmniLight3D>(light)) {
 				OmniLight3D *l = Object::cast_to<OmniLight3D>(light);
-				if (use_physical_light_units) {
-					energy *= (1.0 / (Math::PI * 4.0));
-				}
 				Rect2 projector_rect;
 				if (light->get_bake_mode() == Light3D::BAKE_STATIC && light->get_projector().is_valid()) {
 					projector_rect = area_light_atlas_textures[light->get_projector()].texture_rect;
 				}
-				lightmapper->add_omni_light(light->get_name(), light->get_bake_mode() == Light3D::BAKE_STATIC, xf.origin, linear_color, energy, indirect_energy, l->get_param(Light3D::PARAM_RANGE), l->get_param(Light3D::PARAM_ATTENUATION), l->get_param(Light3D::PARAM_SIZE), l->get_param(Light3D::PARAM_SHADOW_BLUR), xf.basis, projector_rect);
+				lightmapper->add_omni_light(light->get_name(), light->get_bake_mode() == Light3D::BAKE_STATIC, xf.origin, linear_color, energy, indirect_energy, l->get_param(Light3D::PARAM_RANGE), l->get_param(Light3D::PARAM_ATTENUATION), l->get_param(Light3D::PARAM_RANGE_FADE_START), l->get_param(Light3D::PARAM_SIZE), l->get_param(Light3D::PARAM_SHADOW_BLUR), xf.basis, projector_rect);
 			} else if (Object::cast_to<SpotLight3D>(light)) {
 				SpotLight3D *l = Object::cast_to<SpotLight3D>(light);
-				if (use_physical_light_units) {
-					energy *= (1.0 / Math::PI);
-				}
 				Rect2 projector_rect;
 				if (light->get_bake_mode() == Light3D::BAKE_STATIC && light->get_projector().is_valid()) {
 					projector_rect = area_light_atlas_textures[light->get_projector()].texture_rect;
 				}
-				lightmapper->add_spot_light(light->get_name(), light->get_bake_mode() == Light3D::BAKE_STATIC, xf.origin, -xf.basis.get_column(Vector3::AXIS_Z).normalized(), linear_color, energy, indirect_energy, l->get_param(Light3D::PARAM_RANGE), l->get_param(Light3D::PARAM_ATTENUATION), l->get_param(Light3D::PARAM_SPOT_ANGLE), l->get_param(Light3D::PARAM_SPOT_ATTENUATION), l->get_param(Light3D::PARAM_SIZE), l->get_param(Light3D::PARAM_SHADOW_BLUR), xf.basis, projector_rect);
+				lightmapper->add_spot_light(light->get_name(), light->get_bake_mode() == Light3D::BAKE_STATIC, xf.origin, -xf.basis.get_column(Vector3::AXIS_Z).normalized(), linear_color, energy, indirect_energy, l->get_param(Light3D::PARAM_RANGE), l->get_param(Light3D::PARAM_ATTENUATION), l->get_param(Light3D::PARAM_RANGE_FADE_START), l->get_param(Light3D::PARAM_SPOT_ANGLE), l->get_param(Light3D::PARAM_SPOT_INNER_ANGLE), l->get_param(Light3D::PARAM_SPOT_ATTENUATION), l->get_param(Light3D::PARAM_SIZE), l->get_param(Light3D::PARAM_SHADOW_BLUR), xf.basis, projector_rect);
 			} else if (Object::cast_to<AreaLight3D>(light)) {
 				AreaLight3D *l = Object::cast_to<AreaLight3D>(light);
-				if (use_physical_light_units) {
-					energy *= (1.0 / Math::PI * 2.0);
-				}
 				Vector3 area_vec_x = xf.basis.get_column(Vector3::AXIS_X).normalized() * l->get_area_size().x;
 				Vector3 area_vec_y = xf.basis.get_column(Vector3::AXIS_Y).normalized() * l->get_area_size().y;
-				if (l->is_area_normalizing_energy()) {
-					float surface_area = l->get_area_size().x * l->get_area_size().y;
-					energy /= surface_area;
-				}
 				AreaLightAtlasTexture tex;
 				if (l->get_area_texture().is_valid()) {
 					tex = area_light_atlas_textures[l->get_area_texture()];
 				}
-				lightmapper->add_area_light(light->get_name(), light->get_bake_mode() == Light3D::BAKE_STATIC, xf.origin, -xf.basis.get_column(Vector3::AXIS_Z).normalized(), linear_color, energy, indirect_energy, l->get_param(Light3D::PARAM_RANGE), l->get_param(Light3D::PARAM_ATTENUATION), area_vec_x, area_vec_y, l->get_param(Light3D::PARAM_SIZE), l->get_param(Light3D::PARAM_SHADOW_BLUR), tex.texture_rect, tex.max_mipmap);
+				lightmapper->add_area_light(light->get_name(), light->get_bake_mode() == Light3D::BAKE_STATIC, xf.origin, -xf.basis.get_column(Vector3::AXIS_Z).normalized(), linear_color, energy, indirect_energy, l->get_param(Light3D::PARAM_RANGE), l->get_param(Light3D::PARAM_ATTENUATION), l->get_param(Light3D::PARAM_RANGE_FADE_START), area_vec_x, area_vec_y, l->get_param(Light3D::PARAM_SIZE), l->get_param(Light3D::PARAM_SHADOW_BLUR), tex.texture_rect, tex.max_mipmap);
 			}
 		}
 		for (int i = 0; i < probes_found.size(); i++) {

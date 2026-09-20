@@ -32,6 +32,7 @@
 
 #include "core/config/project_settings.h"
 #include "core/math/geometry_3d.h"
+#include "servers/rendering/light_energy.h"
 #include "servers/rendering/renderer_rd/environment/fog.h"
 #include "servers/rendering/renderer_rd/renderer_scene_render_rd.h"
 #include "servers/rendering/renderer_rd/storage_rd/material_storage.h"
@@ -1940,10 +1941,7 @@ void GI::SDFGI::pre_process_gi(const Transform3D &p_transform, RenderDataRD *p_r
 			lights[idx].color[1] = color.g;
 			lights[idx].color[2] = color.b;
 			lights[idx].type = RSE::LIGHT_DIRECTIONAL;
-			lights[idx].energy = RSG::light_storage->light_get_param(light, RSE::LIGHT_PARAM_ENERGY) * RSG::light_storage->light_get_param(light, RSE::LIGHT_PARAM_INDIRECT_ENERGY);
-			if (RendererSceneRenderRD::get_singleton()->is_using_physical_light_units()) {
-				lights[idx].energy *= RSG::light_storage->light_get_param(light, RSE::LIGHT_PARAM_INTENSITY);
-			}
+			lights[idx].energy = light_energy_to_intensity(RSE::LIGHT_DIRECTIONAL, RSG::light_storage->light_get_param(light, RSE::LIGHT_PARAM_ENERGY) * RSG::light_storage->light_get_param(light, RSE::LIGHT_PARAM_INDIRECT_ENERGY), RSG::light_storage->light_get_param(light, RSE::LIGHT_PARAM_INTENSITY), RendererSceneRenderRD::get_singleton()->is_using_physical_light_units());
 
 			if (p_render_data->camera_attributes.is_valid()) {
 				lights[idx].energy *= RSG::camera_attributes->camera_attributes_get_render_exposure_normalization_factor(p_render_data->camera_attributes);
@@ -1997,21 +1995,10 @@ void GI::SDFGI::pre_process_gi(const Transform3D &p_transform, RenderDataRD *p_r
 			lights[idx].color[0] = color.r;
 			lights[idx].color[1] = color.g;
 			lights[idx].color[2] = color.b;
-			lights[idx].type = RSG::light_storage->light_get_type(light);
+			const RSE::LightType light_type = RSG::light_storage->light_get_type(light);
+			lights[idx].type = light_type;
 
-			lights[idx].energy = RSG::light_storage->light_get_param(light, RSE::LIGHT_PARAM_ENERGY) * RSG::light_storage->light_get_param(light, RSE::LIGHT_PARAM_INDIRECT_ENERGY);
-			if (RendererSceneRenderRD::get_singleton()->is_using_physical_light_units()) {
-				lights[idx].energy *= RSG::light_storage->light_get_param(light, RSE::LIGHT_PARAM_INTENSITY);
-
-				// Convert from Luminous Power to Luminous Intensity
-				if (lights[idx].type == RSE::LIGHT_OMNI) {
-					lights[idx].energy *= 1.0 / (Math::PI * 4.0);
-				} else if (lights[idx].type == RSE::LIGHT_SPOT) {
-					// Spot Lights are not physically accurate, Luminous Intensity should change in relation to the cone angle.
-					// We make this assumption to keep them easy to control.
-					lights[idx].energy *= 1.0 / Math::PI;
-				}
-			}
+			lights[idx].energy = light_energy_to_intensity(light_type, RSG::light_storage->light_get_param(light, RSE::LIGHT_PARAM_ENERGY) * RSG::light_storage->light_get_param(light, RSE::LIGHT_PARAM_INDIRECT_ENERGY), RSG::light_storage->light_get_param(light, RSE::LIGHT_PARAM_INTENSITY), RendererSceneRenderRD::get_singleton()->is_using_physical_light_units(), RSG::light_storage->light_get_param(light, RSE::LIGHT_PARAM_SPOT_FLUX_SCALE), RSG::light_storage->light_area_get_normalize_energy(light), area_size.x * area_size.y);
 
 			if (p_render_data->camera_attributes.is_valid()) {
 				lights[idx].energy *= RSG::camera_attributes->camera_attributes_get_render_exposure_normalization_factor(p_render_data->camera_attributes);
@@ -2020,9 +2007,11 @@ void GI::SDFGI::pre_process_gi(const Transform3D &p_transform, RenderDataRD *p_r
 			lights[idx].has_shadow = RSG::light_storage->light_has_shadow(light);
 			lights[idx].attenuation = RSG::light_storage->light_get_param(light, RSE::LIGHT_PARAM_ATTENUATION);
 			lights[idx].radius = RSG::light_storage->light_get_param(light, RSE::LIGHT_PARAM_RANGE);
+			lights[idx].range_fade_start = RSG::light_storage->light_get_param(light, RSE::LIGHT_PARAM_RANGE_FADE_START);
 			lights[idx].cos_spot_angle = Math::cos(Math::deg_to_rad(RSG::light_storage->light_get_param(light, RSE::LIGHT_PARAM_SPOT_ANGLE)));
+			float inner_angle = RSG::light_storage->light_get_param(light, RSE::LIGHT_PARAM_SPOT_INNER_ANGLE);
+			lights[idx].cos_spot_inner_angle = inner_angle < 0.0f ? 2.0f : Math::cos(Math::deg_to_rad(CLAMP(inner_angle, 0.0f, RSG::light_storage->light_get_param(light, RSE::LIGHT_PARAM_SPOT_ANGLE))));
 			lights[idx].inv_spot_attenuation = 1.0f / RSG::light_storage->light_get_param(light, RSE::LIGHT_PARAM_SPOT_ATTENUATION);
-
 			if (lights[idx].type == RSE::LIGHT_AREA) {
 				Vector3 area_vec_a = light_transform.basis.get_column(0).normalized() * area_size.x;
 				Vector3 area_vec_b = light_transform.basis.get_column(1).normalized() * area_size.y;
@@ -2041,12 +2030,6 @@ void GI::SDFGI::pre_process_gi(const Transform3D &p_transform, RenderDataRD *p_r
 				Size2i texture_size = proj_rect.size * texture_storage->area_light_atlas_get_size();
 				lights[idx].cos_spot_angle = MIN(Math::floor(Math::log2(MAX(MIN(texture_size.x, texture_size.y), 1.0f))), texture_storage->area_light_atlas_get_mipmaps()) - 1.0f; // max mipmaps
 				lights[idx].inv_spot_attenuation = 1.0f / (lights[idx].radius + area_size.length() / 2.0f); // center range
-
-				if (RSG::light_storage->light_area_get_normalize_energy(light)) {
-					// normalization to make larger lights output same amount of light as smaller lights with same energy
-					float surface_area = area_size.x * area_size.y;
-					lights[idx].energy /= surface_area;
-				}
 			}
 
 			idx++;
@@ -2468,7 +2451,8 @@ void GI::SDFGI::render_static_lights(RenderDataRD *p_render_data, Ref<RenderScen
 					continue;
 				}
 
-				lights[idx].type = RSG::light_storage->light_get_type(light);
+				const RSE::LightType light_type = RSG::light_storage->light_get_type(light);
+				lights[idx].type = light_type;
 
 				Vector3 dir = -light_transform.basis.get_column(Vector3::AXIS_Z);
 				Vector2 area_size = RSG::light_storage->light_area_get_size(light);
@@ -2490,19 +2474,7 @@ void GI::SDFGI::render_static_lights(RenderDataRD *p_render_data, Ref<RenderScen
 				lights[idx].color[1] = color.g;
 				lights[idx].color[2] = color.b;
 
-				lights[idx].energy = RSG::light_storage->light_get_param(light, RSE::LIGHT_PARAM_ENERGY) * RSG::light_storage->light_get_param(light, RSE::LIGHT_PARAM_INDIRECT_ENERGY);
-				if (RendererSceneRenderRD::get_singleton()->is_using_physical_light_units()) {
-					lights[idx].energy *= RSG::light_storage->light_get_param(light, RSE::LIGHT_PARAM_INTENSITY);
-
-					// Convert from Luminous Power to Luminous Intensity
-					if (lights[idx].type == RSE::LIGHT_OMNI) {
-						lights[idx].energy *= 1.0 / (Math::PI * 4.0);
-					} else if (lights[idx].type == RSE::LIGHT_SPOT) {
-						// Spot Lights are not physically accurate, Luminous Intensity should change in relation to the cone angle.
-						// We make this assumption to keep them easy to control.
-						lights[idx].energy *= 1.0 / Math::PI;
-					}
-				}
+				lights[idx].energy = light_energy_to_intensity(light_type, RSG::light_storage->light_get_param(light, RSE::LIGHT_PARAM_ENERGY) * RSG::light_storage->light_get_param(light, RSE::LIGHT_PARAM_INDIRECT_ENERGY), RSG::light_storage->light_get_param(light, RSE::LIGHT_PARAM_INTENSITY), RendererSceneRenderRD::get_singleton()->is_using_physical_light_units(), RSG::light_storage->light_get_param(light, RSE::LIGHT_PARAM_SPOT_FLUX_SCALE), RSG::light_storage->light_area_get_normalize_energy(light), area_size.x * area_size.y);
 
 				if (p_render_data->camera_attributes.is_valid()) {
 					lights[idx].energy *= RSG::camera_attributes->camera_attributes_get_render_exposure_normalization_factor(p_render_data->camera_attributes);
@@ -2511,9 +2483,11 @@ void GI::SDFGI::render_static_lights(RenderDataRD *p_render_data, Ref<RenderScen
 				lights[idx].has_shadow = RSG::light_storage->light_has_shadow(light);
 				lights[idx].attenuation = RSG::light_storage->light_get_param(light, RSE::LIGHT_PARAM_ATTENUATION);
 				lights[idx].radius = RSG::light_storage->light_get_param(light, RSE::LIGHT_PARAM_RANGE);
+				lights[idx].range_fade_start = RSG::light_storage->light_get_param(light, RSE::LIGHT_PARAM_RANGE_FADE_START);
 				lights[idx].cos_spot_angle = Math::cos(Math::deg_to_rad(RSG::light_storage->light_get_param(light, RSE::LIGHT_PARAM_SPOT_ANGLE)));
+				float inner_angle = RSG::light_storage->light_get_param(light, RSE::LIGHT_PARAM_SPOT_INNER_ANGLE);
+				lights[idx].cos_spot_inner_angle = inner_angle < 0.0f ? 2.0f : Math::cos(Math::deg_to_rad(CLAMP(inner_angle, 0.0f, RSG::light_storage->light_get_param(light, RSE::LIGHT_PARAM_SPOT_ANGLE))));
 				lights[idx].inv_spot_attenuation = 1.0f / RSG::light_storage->light_get_param(light, RSE::LIGHT_PARAM_SPOT_ATTENUATION);
-
 				if (lights[idx].type == RSE::LIGHT_AREA) {
 					Vector3 area_vec_a = light_transform.basis.get_column(0).normalized() * area_size.x;
 					Vector3 area_vec_b = light_transform.basis.get_column(1).normalized() * area_size.y;
@@ -2532,12 +2506,6 @@ void GI::SDFGI::render_static_lights(RenderDataRD *p_render_data, Ref<RenderScen
 					Size2i texture_size = proj_rect.size * texture_storage->area_light_atlas_get_size();
 					lights[idx].cos_spot_angle = MIN(Math::floor(Math::log2(MAX(MIN(texture_size.x, texture_size.y), 1.0f))), texture_storage->area_light_atlas_get_mipmaps()) - 1.0f; // max mipmaps
 					lights[idx].inv_spot_attenuation = 1.0f / (lights[idx].radius + area_size.length() / 2.0f); // center range
-
-					if (RSG::light_storage->light_area_get_normalize_energy(light)) {
-						// normalization to make larger lights output same amount of light as smaller lights with same energy
-						float surface_area = area_size.x * area_size.y;
-						lights[idx].energy /= surface_area;
-					}
 				}
 
 				idx++;
@@ -2983,45 +2951,34 @@ void GI::VoxelGIInstance::update(bool p_update_light_instances, const Vector<RID
 				RID light_instance = p_light_instances[i];
 				RID light = light_storage->light_instance_get_base_light(light_instance);
 
-				l.type = RSG::light_storage->light_get_type(light);
+				const RSE::LightType light_type = RSG::light_storage->light_get_type(light);
+				l.type = light_type;
 				if (l.type == RSE::LIGHT_DIRECTIONAL && RSG::light_storage->light_directional_get_sky_mode(light) == RSE::LIGHT_DIRECTIONAL_SKY_MODE_SKY_ONLY) {
 					light_count--;
 					continue;
 				}
 
 				l.attenuation = RSG::light_storage->light_get_param(light, RSE::LIGHT_PARAM_ATTENUATION);
-				l.energy = RSG::light_storage->light_get_param(light, RSE::LIGHT_PARAM_ENERGY) * RSG::light_storage->light_get_param(light, RSE::LIGHT_PARAM_INDIRECT_ENERGY);
+				Vector2 area_size = RSG::light_storage->light_area_get_size(light);
+				l.energy = light_energy_to_intensity(light_type, RSG::light_storage->light_get_param(light, RSE::LIGHT_PARAM_ENERGY) * RSG::light_storage->light_get_param(light, RSE::LIGHT_PARAM_INDIRECT_ENERGY), RSG::light_storage->light_get_param(light, RSE::LIGHT_PARAM_INTENSITY), RendererSceneRenderRD::get_singleton()->is_using_physical_light_units(), RSG::light_storage->light_get_param(light, RSE::LIGHT_PARAM_SPOT_FLUX_SCALE), RSG::light_storage->light_area_get_normalize_energy(light), area_size.x * area_size.y);
 
 				if (RendererSceneRenderRD::get_singleton()->is_using_physical_light_units()) {
-					l.energy *= RSG::light_storage->light_get_param(light, RSE::LIGHT_PARAM_INTENSITY);
-
 					l.energy *= gi->voxel_gi_get_baked_exposure_normalization(probe);
-
-					// Convert from Luminous Power to Luminous Intensity
-					if (l.type == RSE::LIGHT_OMNI) {
-						l.energy *= 1.0 / (Math::PI * 4.0);
-					} else if (l.type == RSE::LIGHT_AREA) {
-						l.energy *= 1.0 / (Math::PI * 2.0);
-					} else if (l.type == RSE::LIGHT_SPOT) {
-						// Spot Lights are not physically accurate, Luminous Intensity should change in relation to the cone angle.
-						// We make this assumption to keep them easy to control.
-						l.energy *= 1.0 / Math::PI;
-					}
 				}
 
 				l.radius = to_cell.basis.xform(Vector3(RSG::light_storage->light_get_param(light, RSE::LIGHT_PARAM_RANGE), 0, 0)).length();
+				l.range_fade_start = RSG::light_storage->light_get_param(light, RSE::LIGHT_PARAM_RANGE_FADE_START);
 				Color color = RSG::light_storage->light_get_color(light).srgb_to_linear();
 				l.color[0] = color.r;
 				l.color[1] = color.g;
 				l.color[2] = color.b;
 
 				l.cos_spot_angle = Math::cos(Math::deg_to_rad(RSG::light_storage->light_get_param(light, RSE::LIGHT_PARAM_SPOT_ANGLE)));
+				float inner_angle = RSG::light_storage->light_get_param(light, RSE::LIGHT_PARAM_SPOT_INNER_ANGLE);
+				l.cos_spot_inner_angle = inner_angle < 0.0f ? 2.0f : Math::cos(Math::deg_to_rad(CLAMP(inner_angle, 0.0f, RSG::light_storage->light_get_param(light, RSE::LIGHT_PARAM_SPOT_ANGLE))));
 				l.inv_spot_attenuation = 1.0f / RSG::light_storage->light_get_param(light, RSE::LIGHT_PARAM_SPOT_ATTENUATION);
 
 				Transform3D xform = light_storage->light_instance_get_base_transform(light_instance);
-
-				Vector2 area_size = RSG::light_storage->light_area_get_size(light);
-
 				Vector3 pos = to_probe_xform.xform(xform.origin);
 				Vector3 dir = to_probe_xform.basis.xform(-xform.basis.get_column(2)).normalized();
 
@@ -3034,7 +2991,6 @@ void GI::VoxelGIInstance::update(bool p_update_light_instances, const Vector<RID
 				l.direction[2] = dir.z;
 
 				l.has_shadow = RSG::light_storage->light_has_shadow(light);
-
 				if (l.type == RSE::LIGHT_AREA) {
 					Vector3 area_vec_a = to_probe_xform.basis.xform(xform.basis.get_column(0).normalized() * area_size.x);
 					Vector3 area_vec_b = to_probe_xform.basis.xform(xform.basis.get_column(1).normalized() * area_size.y);
@@ -3054,11 +3010,6 @@ void GI::VoxelGIInstance::update(bool p_update_light_instances, const Vector<RID
 					l.inv_spot_attenuation = 1.0f / (l.radius + area_size.length() / 2.0f); // center range
 					Size2i texture_size = proj_rect.size * RendererRD::TextureStorage::get_singleton()->area_light_atlas_get_size();
 					l.cos_spot_angle = MIN(Math::floor(Math::log2(MAX(MIN(texture_size.x, texture_size.y), 1.0f))), RendererRD::TextureStorage::get_singleton()->area_light_atlas_get_mipmaps()) - 1.0f; // max mipmaps
-					if (RSG::light_storage->light_area_get_normalize_energy(light)) {
-						// normalization to make larger lights output same amount of light as smaller lights with same energy
-						float surface_area = area_size.x * area_size.y;
-						l.energy /= surface_area;
-					}
 				}
 			}
 

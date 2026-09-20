@@ -1,5 +1,5 @@
 /**************************************************************************/
-/*  light_3d_gizmo_plugin.h                                               */
+/*  light_energy.h                                                        */
 /**************************************************************************/
 /*                         This file is part of:                          */
 /*                             GODOT ENGINE                               */
@@ -30,24 +30,43 @@
 
 #pragma once
 
-#include "editor/scene/3d/node_3d_editor_gizmos.h"
+#include "core/math/math_defs.h"
+#include "core/math/math_funcs.h"
+#include "servers/rendering/rendering_server_enums.h"
 
-class Light3DGizmoPlugin : public EditorNode3DGizmoPlugin {
-	GDCLASS(Light3DGizmoPlugin, EditorNode3DGizmoPlugin);
+// Converts user-facing light energy to the common source intensity consumed by
+// realtime lighting, GI, and lightmapping. Consumer-specific BRDF or exposure
+// factors must be applied separately.
+static _FORCE_INLINE_ float light_energy_to_intensity(RSE::LightType p_type, float p_energy, float p_physical_intensity, bool p_use_physical_units, float p_spot_flux_scale = 1.0f, bool p_area_normalize_energy = false, float p_area_surface = 1.0f) {
+	float intensity = p_energy;
+	if (p_type == RSE::LIGHT_SPOT) {
+		intensity *= p_spot_flux_scale;
+	}
 
-private:
-	static float _find_closest_angle_to_arc(const Vector3 &p_from, const Vector3 &p_to, float p_arc_radius, float p_max_angle = 90.0f);
+	if (p_use_physical_units) {
+		intensity *= p_physical_intensity;
+		switch (p_type) {
+			case RSE::LIGHT_OMNI:
+				intensity /= Math::TAU * 2.0f; // 4 PI steradians.
+				break;
+			case RSE::LIGHT_AREA:
+				intensity /= Math::TAU; // One emitting hemisphere.
+				break;
+			case RSE::LIGHT_SPOT:
+				// Legacy spot intensity uses PI; spot flux normalization replaces
+				// this convention with the integrated angular distribution.
+				intensity /= Math::PI;
+				break;
+			case RSE::LIGHT_DIRECTIONAL:
+				// Directional intensity is illuminance in lux.
+				break;
+		}
+	} else {
+		intensity *= Math::PI;
+	}
 
-public:
-	bool has_gizmo(Node3D *p_spatial) override;
-	String get_gizmo_name() const override;
-	int get_priority() const override;
-
-	String get_handle_name(const EditorNode3DGizmo *p_gizmo, int p_id, bool p_secondary) const override;
-	Variant get_handle_value(const EditorNode3DGizmo *p_gizmo, int p_id, bool p_secondary) const override;
-	void set_handle(const EditorNode3DGizmo *p_gizmo, int p_id, bool p_secondary, Camera3D *p_camera, const Point2 &p_point) override;
-	void commit_handle(const EditorNode3DGizmo *p_gizmo, int p_id, bool p_secondary, const Variant &p_restore, bool p_cancel = false) override;
-	void redraw(EditorNode3DGizmo *p_gizmo) override;
-
-	Light3DGizmoPlugin();
-};
+	if (p_type == RSE::LIGHT_AREA && p_area_normalize_energy) {
+		intensity /= MAX(p_area_surface, (float)CMP_EPSILON);
+	}
+	return intensity;
+}

@@ -199,7 +199,9 @@ private:
 		float specular_amount;
 		float shadow_opacity;
 
-		float pad[3];
+		float cos_spot_inner_angle;
+		float range_fade_start;
+		float pad;
 		uint32_t bake_mode;
 
 		float area_width[4]; // 4th is padding

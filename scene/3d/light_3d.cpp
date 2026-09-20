@@ -39,11 +39,24 @@
 
 void Light3D::set_param(Param p_param, real_t p_value) {
 	ERR_FAIL_INDEX(p_param, PARAM_MAX);
+	if (p_param == PARAM_SPOT_INNER_ANGLE) {
+		ERR_FAIL_COND(!Math::is_finite(p_value));
+		p_value = p_value < 0.0 ? -1.0 : CLAMP(p_value, 0.0, param[PARAM_SPOT_ANGLE]);
+	} else if (p_param == PARAM_RANGE_FADE_START) {
+		ERR_FAIL_COND(!Math::is_finite(p_value));
+		p_value = p_value < 0.0 ? -1.0 : CLAMP(p_value, 0.0, 1.0);
+	} else if (p_param == PARAM_SPOT_ANGLE && param[PARAM_SPOT_INNER_ANGLE] >= 0.0) {
+		// Keep the inner cone valid without modifying a second property (including during undo).
+		p_value = MAX(p_value, param[PARAM_SPOT_INNER_ANGLE]);
+	}
 	param[p_param] = p_value;
 
 	RS::get_singleton()->light_set_param(light, RSE::LightParam(p_param), p_value);
+	if (p_param == PARAM_SPOT_ANGLE || p_param == PARAM_SPOT_INNER_ANGLE || p_param == PARAM_SPOT_ATTENUATION) {
+		_update_spot_flux();
+	}
 
-	if (p_param == PARAM_SPOT_ANGLE || p_param == PARAM_RANGE) {
+	if (p_param == PARAM_SPOT_ANGLE || p_param == PARAM_SPOT_INNER_ANGLE || p_param == PARAM_RANGE || p_param == PARAM_RANGE_FADE_START) {
 		update_gizmos();
 
 		if (p_param == PARAM_SPOT_ANGLE) {
@@ -460,6 +473,8 @@ void Light3D::_bind_methods() {
 	BIND_ENUM_CONSTANT(PARAM_SIZE);
 	BIND_ENUM_CONSTANT(PARAM_ATTENUATION);
 	BIND_ENUM_CONSTANT(PARAM_SPOT_ANGLE);
+	BIND_ENUM_CONSTANT(PARAM_SPOT_INNER_ANGLE);
+	BIND_ENUM_CONSTANT(PARAM_SPOT_FLUX_SCALE);
 	BIND_ENUM_CONSTANT(PARAM_SPOT_ATTENUATION);
 	BIND_ENUM_CONSTANT(PARAM_SHADOW_MAX_DISTANCE);
 	BIND_ENUM_CONSTANT(PARAM_SHADOW_SPLIT_1_OFFSET);
@@ -475,6 +490,7 @@ void Light3D::_bind_methods() {
 	BIND_ENUM_CONSTANT(PARAM_INTENSITY);
 	BIND_ENUM_CONSTANT(PARAM_CONTACT_SHADOW_OPACITY);
 	BIND_ENUM_CONSTANT(PARAM_CONTACT_SHADOW_BLUR);
+	BIND_ENUM_CONSTANT(PARAM_RANGE_FADE_START);
 	BIND_ENUM_CONSTANT(PARAM_MAX);
 
 	BIND_ENUM_CONSTANT(BAKE_DISABLED);
@@ -515,6 +531,9 @@ Light3D::Light3D(RSE::LightType p_type) {
 	set_param(PARAM_RANGE, 5);
 	set_param(PARAM_SIZE, 0);
 	set_param(PARAM_ATTENUATION, 1);
+	set_param(PARAM_RANGE_FADE_START, -1);
+	set_param(PARAM_SPOT_FLUX_SCALE, 1);
+	set_param(PARAM_SPOT_INNER_ANGLE, -1);
 	set_param(PARAM_SPOT_ANGLE, 45);
 	set_param(PARAM_SPOT_ATTENUATION, 1);
 	set_param(PARAM_SHADOW_MAX_DISTANCE, 0);
@@ -675,6 +694,7 @@ void OmniLight3D::_bind_methods() {
 
 	ADD_GROUP("Omni", "omni_");
 	ADD_PROPERTYI(PropertyInfo(Variant::FLOAT, "omni_range", PROPERTY_HINT_RANGE, "0,4096,0.001,or_greater,exp,suffix:m"), "set_param", "get_param", PARAM_RANGE);
+	ADD_PROPERTYI(PropertyInfo(Variant::FLOAT, "omni_range_fade_start", PROPERTY_HINT_RANGE, "-1,1,0.001"), "set_param", "get_param", PARAM_RANGE_FADE_START);
 	ADD_PROPERTYI(PropertyInfo(Variant::FLOAT, "omni_attenuation", PROPERTY_HINT_RANGE, "-10,10,0.001,or_greater,or_less"), "set_param", "get_param", PARAM_ATTENUATION);
 	ADD_PROPERTY(PropertyInfo(Variant::INT, "omni_shadow_mode", PROPERTY_HINT_ENUM, "Dual Paraboloid,Cube"), "set_shadow_mode", "get_shadow_mode");
 
@@ -705,11 +725,94 @@ PackedStringArray SpotLight3D::get_configuration_warnings() const {
 	return warnings;
 }
 
+void SpotLight3D::_update_spot_flux() {
+	if (!normalize_flux) {
+		set_param(PARAM_SPOT_FLUX_SCALE, 1.0);
+		return;
+	}
+	const double outer = Math::cos(Math::deg_to_rad(double(get_param(PARAM_SPOT_ANGLE))));
+	const double inner_angle = get_param(PARAM_SPOT_INNER_ANGLE);
+	const double inner = inner_angle < 0.0 ? 1.0 : Math::cos(Math::deg_to_rad(inner_angle));
+	const double outer_angle_rad = Math::deg_to_rad(double(get_param(PARAM_SPOT_ANGLE)));
+	const double inner_angle_rad = Math::deg_to_rad(inner_angle);
+	const double attenuation = get_param(PARAM_SPOT_ATTENUATION);
+	if (!Math::is_finite(attenuation) || (inner_angle < 0.0 && attenuation < 0.0)) {
+		// Negative legacy attenuation is not a non-negative distribution to normalize.
+		set_param(PARAM_SPOT_FLUX_SCALE, 1.0);
+		return;
+	}
+	const double inv = attenuation != 0.0 ? 1.0 / attenuation : 10000.0;
+	const double bias = CLAMP(inv, 0.0001, 10000.0);
+	auto intensity = [&](double p_cos) {
+		double angular = 1.0;
+		if (inner_angle < 0.0) {
+			angular = 1.0 - Math::pow(MAX(0.0001, (1.0 - p_cos) / MAX(1.0 - outer, 1e-12)), inv);
+		} else if (p_cos < inner) {
+			double angle = Math::acos(CLAMP(p_cos, -1.0, 1.0));
+			double t = CLAMP((outer_angle_rad - angle) / MAX(outer_angle_rad - inner_angle_rad, 1e-12), 0.0, 1.0);
+			t = t * bias / (1.0 - t + t * bias);
+			angular = t * t * (3.0 - 2.0 * t);
+		}
+		return angular;
+	};
+	// Adaptive Simpson integration resolves concentrated transition curves
+	// without oversampling uniform parts of the distribution.
+	auto integrate = [&](auto &&p_self, double p_a, double p_b, double p_fa, double p_fm, double p_fb, double p_estimate, double p_tolerance, int p_depth) -> double {
+		double mid = (p_a + p_b) * 0.5;
+		double left_mid = intensity((p_a + mid) * 0.5);
+		double right_mid = intensity((mid + p_b) * 0.5);
+		double left = (mid - p_a) * (p_fa + 4.0 * left_mid + p_fm) / 6.0;
+		double right = (p_b - mid) * (p_fm + 4.0 * right_mid + p_fb) / 6.0;
+		double error = left + right - p_estimate;
+		if (p_depth == 0 || Math::abs(error) <= 15.0 * p_tolerance) {
+			return left + right + error / 15.0;
+		}
+		return p_self(p_self, p_a, mid, p_fa, left_mid, p_fm, left, p_tolerance * 0.5, p_depth - 1) +
+				p_self(p_self, mid, p_b, p_fm, right_mid, p_fb, right, p_tolerance * 0.5, p_depth - 1);
+	};
+	// dOmega = 2 PI dCos. Split at the inner boundary so adaptive quadrature
+	// samples both the plateau and transition independently.
+	Vector<double> boundaries;
+	boundaries.push_back(outer);
+	if (inner > outer && inner < 1.0) {
+		boundaries.push_back(inner);
+	}
+	boundaries.push_back(1.0);
+	boundaries.sort();
+	double integral = 0.0;
+	for (int i = 0; i < boundaries.size() - 1; i++) {
+		double a = boundaries[i];
+		double b = boundaries[i + 1];
+		if (b <= a) {
+			continue;
+		}
+		double fa = intensity(a);
+		double fm = intensity((a + b) * 0.5);
+		double fb = intensity(b);
+		double estimate = (b - a) * (fa + 4.0 * fm + fb) / 6.0;
+		integral += integrate(integrate, a, b, fa, fm, fb, estimate, 1e-8 / boundaries.size(), 20);
+	}
+	// Existing physical spot units divide lumens by PI. Replace that convention
+	// with the actual solid-angle integral. Limit pathological near-zero beams.
+	double solid_angle = 2.0 * Math::PI * integral;
+	set_param(PARAM_SPOT_FLUX_SCALE, solid_angle > 0.0 ? MIN(Math::PI / solid_angle, 10000.0) : 0.0);
+}
+
+void SpotLight3D::set_spot_normalize_flux(bool p_enabled) {
+	normalize_flux = p_enabled;
+	_update_spot_flux();
+}
+
 void SpotLight3D::_bind_methods() {
+	ClassDB::bind_method(D_METHOD("set_spot_normalize_flux", "enabled"), &SpotLight3D::set_spot_normalize_flux);
+	ClassDB::bind_method(D_METHOD("is_spot_normalizing_flux"), &SpotLight3D::is_spot_normalizing_flux);
 	ADD_GROUP("Spot", "spot_");
 	ADD_PROPERTYI(PropertyInfo(Variant::FLOAT, "spot_range", PROPERTY_HINT_RANGE, "0,4096,0.001,or_greater,exp,suffix:m"), "set_param", "get_param", PARAM_RANGE);
+	ADD_PROPERTYI(PropertyInfo(Variant::FLOAT, "spot_range_fade_start", PROPERTY_HINT_RANGE, "-1,1,0.001"), "set_param", "get_param", PARAM_RANGE_FADE_START);
 	ADD_PROPERTYI(PropertyInfo(Variant::FLOAT, "spot_attenuation", PROPERTY_HINT_RANGE, "-10,10,0.01,or_greater,or_less"), "set_param", "get_param", PARAM_ATTENUATION);
 	ADD_PROPERTYI(PropertyInfo(Variant::FLOAT, "spot_angle", PROPERTY_HINT_RANGE, "0,180,0.01,degrees"), "set_param", "get_param", PARAM_SPOT_ANGLE);
+	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "spot_normalize_flux"), "set_spot_normalize_flux", "is_spot_normalizing_flux");
+	ADD_PROPERTYI(PropertyInfo(Variant::FLOAT, "spot_inner_angle", PROPERTY_HINT_RANGE, "-1,180,0.01,degrees"), "set_param", "get_param", PARAM_SPOT_INNER_ANGLE);
 	ADD_PROPERTYI(PropertyInfo(Variant::FLOAT, "spot_angle_attenuation", PROPERTY_HINT_EXP_EASING, "attenuation"), "set_param", "get_param", PARAM_SPOT_ATTENUATION);
 }
 
@@ -786,6 +889,7 @@ void AreaLight3D::_bind_methods() {
 
 	ADD_GROUP("Area", "area_");
 	ADD_PROPERTYI(PropertyInfo(Variant::FLOAT, "area_range", PROPERTY_HINT_RANGE, "0,4096,0.001,or_greater,exp,suffix:m"), "set_param", "get_param", PARAM_RANGE);
+	ADD_PROPERTYI(PropertyInfo(Variant::FLOAT, "area_range_fade_start", PROPERTY_HINT_RANGE, "-1,1,0.001"), "set_param", "get_param", PARAM_RANGE_FADE_START);
 	ADD_PROPERTYI(PropertyInfo(Variant::FLOAT, "area_attenuation", PROPERTY_HINT_RANGE, "-10,10,0.001,or_greater,or_less"), "set_param", "get_param", PARAM_ATTENUATION);
 	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "area_normalize_energy"), "set_area_normalize_energy", "is_area_normalizing_energy");
 	ADD_PROPERTY(PropertyInfo(Variant::VECTOR2, "area_size", PROPERTY_HINT_LINK, "suffix:m"), "set_area_size", "get_area_size");

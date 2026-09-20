@@ -5186,7 +5186,16 @@
 		<constant name="LIGHT_PARAM_CONTACT_SHADOW_BLUR" value="22" enum="LightParam">
 			Blurs the edges of the contact shadow. [code]0.0[/code] produces sharp shadows; higher values increase the noise magnitude.
 		</constant>
-		<constant name="LIGHT_PARAM_MAX" value="23" enum="LightParam">
+		<constant name="LIGHT_PARAM_RANGE_FADE_START" value="23" enum="LightParam">
+			The normalized distance where a positional light's final range fade begins.
+		</constant>
+		<constant name="LIGHT_PARAM_SPOT_INNER_ANGLE" value="24" enum="LightParam">
+			The spotlight inner angular radius. See [member SpotLight3D.spot_inner_angle].
+		</constant>
+		<constant name="LIGHT_PARAM_SPOT_FLUX_SCALE" value="25" enum="LightParam">
+			The angular energy compensation calculated by [member SpotLight3D.spot_normalize_flux]. Defaults to [code]1.0[/code].
+		</constant>
+		<constant name="LIGHT_PARAM_MAX" value="26" enum="LightParam">
 			Represents the size of the [enum LightParam] enum.
 		</constant>
 		<constant name="LIGHT_BAKE_DISABLED" value="0" enum="LightBakeMode">

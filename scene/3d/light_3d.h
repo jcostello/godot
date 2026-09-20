@@ -60,6 +60,9 @@ public:
 		PARAM_INTENSITY = RSE::LIGHT_PARAM_INTENSITY,
 		PARAM_CONTACT_SHADOW_OPACITY = RSE::LIGHT_PARAM_CONTACT_SHADOW_OPACITY,
 		PARAM_CONTACT_SHADOW_BLUR = RSE::LIGHT_PARAM_CONTACT_SHADOW_BLUR,
+		PARAM_RANGE_FADE_START = RSE::LIGHT_PARAM_RANGE_FADE_START,
+		PARAM_SPOT_INNER_ANGLE = RSE::LIGHT_PARAM_SPOT_INNER_ANGLE,
+		PARAM_SPOT_FLUX_SCALE = RSE::LIGHT_PARAM_SPOT_FLUX_SCALE,
 		PARAM_MAX = RSE::LIGHT_PARAM_MAX
 	};
 
@@ -95,6 +98,7 @@ private:
 
 protected:
 	RID light;
+	virtual void _update_spot_flux() {}
 
 	static void _bind_methods();
 	void _notification(int p_what);
@@ -235,11 +239,17 @@ VARIANT_ENUM_CAST(OmniLight3D::ShadowMode)
 class SpotLight3D : public Light3D {
 	GDCLASS(SpotLight3D, Light3D);
 
+	bool normalize_flux = false;
+
 protected:
+	virtual void _update_spot_flux() override;
 	static void _bind_methods();
 
 public:
 	PackedStringArray get_configuration_warnings() const override;
+
+	void set_spot_normalize_flux(bool p_enabled);
+	bool is_spot_normalizing_flux() const { return normalize_flux; }
 
 	SpotLight3D();
 };

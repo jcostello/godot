@@ -78,12 +78,13 @@
 			[b]Note:[/b] This property is ignored if [member light_energy] is equal to [code]0.0[/code], as the light won't be present at all in the GI shader.
 		</member>
 		<member name="light_intensity_lumens" type="float" setter="set_param" getter="get_param">
-			Used by positional lights ([OmniLight3D] and [SpotLight3D]) when [member ProjectSettings.rendering/lights_and_shadows/use_physical_light_units] is [code]true[/code]. Sets the intensity of the light source measured in Lumens. Lumens are a measure of luminous flux, which is the total amount of visible light emitted by a light source per unit of time.
-			For [SpotLight3D]s, we assume that the area outside the visible cone is surrounded by a perfect light absorbing material. Accordingly, the apparent brightness of the cone area does not change as the cone increases and decreases in size.
+			Used by positional lights ([OmniLight3D], [SpotLight3D], and [AreaLight3D]) when [member ProjectSettings.rendering/lights_and_shadows/use_physical_light_units] is [code]true[/code]. Sets the luminous flux of the light source measured in lumens. Equal lumen values represent equal total flux, while the illumination of a surface depends on the light type, shape, size, angle, distance, and orientation. In particular, the same numerical value does not represent the same physical quantity as [member light_intensity_lux].
+			For [SpotLight3D]s with [member SpotLight3D.spot_normalize_flux] disabled, we assume that the area outside the visible cone is surrounded by a perfect light absorbing material. Accordingly, the apparent brightness of the cone area does not change as the cone increases and decreases in size.
 			A typical household lightbulb can range from around 600 lumens to 1,200 lumens, a candle is about 13 lumens, while a streetlight can be approximately 60,000 lumens.
 		</member>
 		<member name="light_intensity_lux" type="float" setter="set_param" getter="get_param">
 			Used by [DirectionalLight3D]s when [member ProjectSettings.rendering/lights_and_shadows/use_physical_light_units] is [code]true[/code]. Sets the intensity of the light source measured in Lux. Lux is a measure of luminous flux per unit area, it is equal to one lumen per square meter. Lux is the measure of how much light hits a surface at a given time.
+			This value is used directly as illuminance and is not normalized by distance or surface area. Its numerical value is therefore not comparable to the lumen value used by positional lights.
 			On a clear sunny day a surface in direct sunlight may be approximately 100,000 lux, a typical room in a home may be approximately 50 lux, while the moonlit ground may be approximately 0.1 lux.
 		</member>
 		<member name="light_negative" type="bool" setter="set_negative" getter="is_negative" default="false">
@@ -213,7 +214,16 @@
 		<constant name="PARAM_CONTACT_SHADOW_BLUR" value="22" enum="Param">
 			Constant for accessing [member shadow_contact_shadows_blur].
 		</constant>
-		<constant name="PARAM_MAX" value="23" enum="Param">
+		<constant name="PARAM_RANGE_FADE_START" value="23" enum="Param">
+			The normalized distance where a positional light's final range fade begins.
+		</constant>
+		<constant name="PARAM_SPOT_INNER_ANGLE" value="24" enum="Param">
+			The spotlight inner angular radius. See [member SpotLight3D.spot_inner_angle].
+		</constant>
+		<constant name="PARAM_SPOT_FLUX_SCALE" value="25" enum="Param">
+			The angular energy compensation calculated by [member SpotLight3D.spot_normalize_flux]. Defaults to [code]1.0[/code].
+		</constant>
+		<constant name="PARAM_MAX" value="26" enum="Param">
 			Represents the size of the [enum Param] enum.
 		</constant>
 		<constant name="BAKE_DISABLED" value="0" enum="BakeMode">

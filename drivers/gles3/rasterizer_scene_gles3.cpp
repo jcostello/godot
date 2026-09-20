@@ -48,6 +48,7 @@
 #include "drivers/gles3/storage/utilities.h"
 #include "servers/camera/camera_feed.h"
 #include "servers/camera/camera_server.h"
+#include "servers/rendering/light_energy.h"
 #include "servers/rendering/rendering_server_default.h"
 #include "servers/rendering/rendering_server_globals.h"
 #include "servers/rendering/rendering_server_types.h"
@@ -1795,13 +1796,7 @@ void RasterizerSceneGLES3::_setup_lights(const RenderDataGLES3 *p_render_data, b
 
 				float sign = light_storage->light_is_negative(base) ? -1 : 1;
 
-				light_data.energy = sign * light_storage->light_get_param(base, RSE::LIGHT_PARAM_ENERGY);
-
-				if (is_using_physical_light_units()) {
-					light_data.energy *= light_storage->light_get_param(base, RSE::LIGHT_PARAM_INTENSITY);
-				} else {
-					light_data.energy *= Math::PI;
-				}
+				light_data.energy = light_energy_to_intensity(RSE::LIGHT_DIRECTIONAL, sign * light_storage->light_get_param(base, RSE::LIGHT_PARAM_ENERGY), light_storage->light_get_param(base, RSE::LIGHT_PARAM_INTENSITY), is_using_physical_light_units());
 
 				if (p_render_data->camera_attributes.is_valid()) {
 					light_data.energy *= RSG::camera_attributes->camera_attributes_get_render_exposure_normalization_factor(p_render_data->camera_attributes);
@@ -2038,24 +2033,7 @@ void RasterizerSceneGLES3::_setup_lights(const RenderDataGLES3 *p_render_data, b
 			}
 		}
 
-		float energy = sign * light_storage->light_get_param(base, RSE::LIGHT_PARAM_ENERGY) * fade;
-
-		if (is_using_physical_light_units()) {
-			energy *= light_storage->light_get_param(base, RSE::LIGHT_PARAM_INTENSITY);
-
-			// Convert from Luminous Power to Luminous Intensity
-			if (type == RSE::LIGHT_OMNI) {
-				energy *= 1.0 / (Math::PI * 4.0);
-			} else if (type == RSE::LIGHT_AREA) {
-				energy *= 1.0 / (Math::PI * 2.0);
-			} else {
-				// Spot Lights are not physically accurate, Luminous Intensity should change in relation to the cone angle.
-				// We make this assumption to keep them easy to control.
-				energy *= 1.0 / Math::PI;
-			}
-		} else {
-			energy *= Math::PI;
-		}
+		float energy = light_energy_to_intensity(type, sign * light_storage->light_get_param(base, RSE::LIGHT_PARAM_ENERGY) * fade, light_storage->light_get_param(base, RSE::LIGHT_PARAM_INTENSITY), is_using_physical_light_units(), light_storage->light_get_param(base, RSE::LIGHT_PARAM_SPOT_FLUX_SCALE), light->area_normalize_energy, area_size.x * area_size.y);
 
 		if (p_render_data->camera_attributes.is_valid()) {
 			energy *= RSG::camera_attributes->camera_attributes_get_render_exposure_normalization_factor(p_render_data->camera_attributes);
@@ -2071,7 +2049,9 @@ void RasterizerSceneGLES3::_setup_lights(const RenderDataGLES3 *p_render_data, b
 
 		float spot_angle = light_storage->light_get_param(base, RSE::LIGHT_PARAM_SPOT_ANGLE);
 		light_data.cos_spot_angle = Math::cos(Math::deg_to_rad(spot_angle));
-
+		float inner_angle = light_storage->light_get_param(base, RSE::LIGHT_PARAM_SPOT_INNER_ANGLE);
+		light_data.cos_spot_inner_angle = inner_angle < 0.0f ? 2.0f : Math::cos(Math::deg_to_rad(CLAMP(inner_angle, 0.0f, spot_angle)));
+		light_data.range_fade_start = light_storage->light_get_param(base, RSE::LIGHT_PARAM_RANGE_FADE_START);
 		light_data.specular_amount = light_storage->light_get_param(base, RSE::LIGHT_PARAM_SPECULAR) * 2.0;
 
 		if (type == RSE::LIGHT_AREA) {
@@ -2086,14 +2066,6 @@ void RasterizerSceneGLES3::_setup_lights(const RenderDataGLES3 *p_render_data, b
 			light_data.area_height[1] = area_vec_b.y;
 			light_data.area_height[2] = area_vec_b.z;
 			light_data.inv_spot_attenuation = 1.0f / (radius + area_size.length() / 2.0f); // center range
-
-			if (light->area_normalize_energy) {
-				// normalization to make larger lights output same amount of light as smaller lights with same energy
-				float surface_area = area_size.x * area_size.y;
-				light_data.color[0] /= surface_area;
-				light_data.color[1] /= surface_area;
-				light_data.color[2] /= surface_area;
-			}
 		}
 
 		// Setup shadows

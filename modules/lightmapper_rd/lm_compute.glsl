@@ -35,6 +35,7 @@ layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 
 #endif
 
+#include "../../servers/rendering/shaders/spot_light_inc.glsl"
 #include "lm_area_lights_inc.glsl"
 #include "lm_common_inc.glsl"
 
@@ -481,13 +482,8 @@ vec3 generate_ray_dir_from_normal(vec3 normal, inout uint noise) {
 
 #if defined(MODE_DIRECT_LIGHT) || defined(MODE_BOUNCE_LIGHT) || defined(MODE_LIGHT_PROBES)
 
-float get_omni_attenuation(float distance, float inv_range, float decay) {
-	float nd = distance * inv_range;
-	nd *= nd;
-	nd *= nd; // nd^4
-	nd = max(1.0 - nd, 0.0);
-	nd *= nd; // nd^2
-	return nd * pow(max(distance, 0.0001), -decay);
+float get_omni_attenuation(float distance, float inv_range, float decay, float fade_start) {
+	return light_range_fade(distance, inv_range, fade_start) * pow(max(distance, 0.0001), -decay);
 }
 
 const int AA_SAMPLES = 16;
@@ -584,7 +580,7 @@ void trace_direct_light(vec3 p_position, vec3 p_normal, vec3 p_geometry_normal, 
 		vec3 closest_point = light_data.position + closest_point_local_to_light.x * area_width_norm + closest_point_local_to_light.y * area_height_norm;
 		r_light_dir = normalize(closest_point - p_position);
 		shadow_dir = normalize(light_pos - p_position);
-		attenuation = get_omni_attenuation(dist, 1.0 / light_data.range, light_data.attenuation) * dist * dist; // LTC integral already decreases by inverse square, so attenuation power is 2.0 by default -> subtract 2.0
+		attenuation = get_omni_attenuation(dist, 1.0 / light_data.range, light_data.attenuation, light_data.range_fade_start) * dist * dist; // LTC integral already decreases by inverse square, so attenuation power is 2.0 by default -> subtract 2.0
 		attenuation *= ltc_diffuse;
 		soft_shadowing_disk_size = light_data.size / dist;
 	} else {
@@ -598,7 +594,7 @@ void trace_direct_light(vec3 p_position, vec3 p_normal, vec3 p_geometry_normal, 
 
 		soft_shadowing_disk_size = light_data.size / dist;
 
-		attenuation = get_omni_attenuation(dist, 1.0 / light_data.range, light_data.attenuation);
+		attenuation = light_data.type == LIGHT_TYPE_OMNI ? omni_light_attenuation(dist, 1.0 / light_data.range, light_data.attenuation, light_data.range_fade_start) : get_omni_attenuation(dist, 1.0 / light_data.range, light_data.attenuation, light_data.range_fade_start);
 
 		if (light_data.type == LIGHT_TYPE_SPOT) {
 			vec3 rel = normalize(p_position - light_pos);
@@ -609,9 +605,7 @@ void trace_direct_light(vec3 p_position, vec3 p_normal, vec3 p_geometry_normal, 
 				return;
 			}
 
-			float scos = max(cos_angle, cos_spot_angle);
-			float spot_rim = max(0.0001, (1.0 - scos) / (1.0 - cos_spot_angle));
-			attenuation *= 1.0 - pow(spot_rim, light_data.inv_spot_attenuation);
+			attenuation *= spot_light_attenuation(cos_angle, cos_spot_angle, light_data.cos_spot_inner_angle, light_data.inv_spot_attenuation);
 		}
 
 		if (light_data.projector_rect.z > 0.0 && light_data.projector_rect.w > 0.0) {

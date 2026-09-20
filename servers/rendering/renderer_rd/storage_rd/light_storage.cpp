@@ -33,6 +33,7 @@
 #include "core/config/project_settings.h"
 #include "core/math/geometry_3d.h"
 #include "core/os/os.h"
+#include "servers/rendering/light_energy.h"
 #include "servers/rendering/renderer_rd/renderer_scene_render_rd.h"
 #include "servers/rendering/renderer_rd/storage_rd/texture_storage.h"
 #include "servers/rendering/rendering_server_globals.h"
@@ -149,6 +150,9 @@ void LightStorage::_light_initialize(RID p_light, RSE::LightType p_type) {
 	light.param[RSE::LIGHT_PARAM_RANGE] = 1.0;
 	light.param[RSE::LIGHT_PARAM_SIZE] = 0.0;
 	light.param[RSE::LIGHT_PARAM_ATTENUATION] = 1.0;
+	light.param[RSE::LIGHT_PARAM_RANGE_FADE_START] = -1.0;
+	light.param[RSE::LIGHT_PARAM_SPOT_FLUX_SCALE] = 1.0;
+	light.param[RSE::LIGHT_PARAM_SPOT_INNER_ANGLE] = -1.0;
 	light.param[RSE::LIGHT_PARAM_SPOT_ANGLE] = 45;
 	light.param[RSE::LIGHT_PARAM_SPOT_ATTENUATION] = 1.0;
 	light.param[RSE::LIGHT_PARAM_SHADOW_MAX_DISTANCE] = 0;
@@ -229,7 +233,10 @@ void LightStorage::light_set_param(RID p_light, RSE::LightParam p_param, float p
 
 	switch (p_param) {
 		case RSE::LIGHT_PARAM_RANGE:
+		case RSE::LIGHT_PARAM_RANGE_FADE_START:
 		case RSE::LIGHT_PARAM_SPOT_ANGLE:
+		case RSE::LIGHT_PARAM_SPOT_INNER_ANGLE:
+		case RSE::LIGHT_PARAM_SPOT_FLUX_SCALE:
 		case RSE::LIGHT_PARAM_SHADOW_MAX_DISTANCE:
 		case RSE::LIGHT_PARAM_SHADOW_SPLIT_1_OFFSET:
 		case RSE::LIGHT_PARAM_SHADOW_SPLIT_2_OFFSET:
@@ -770,13 +777,7 @@ void LightStorage::update_light_buffers(RenderDataRD *p_render_data, const Paged
 
 				float sign = light->negative ? -1 : 1;
 
-				light_data.energy = sign * light->param[RSE::LIGHT_PARAM_ENERGY];
-
-				if (RendererSceneRenderRD::get_singleton()->is_using_physical_light_units()) {
-					light_data.energy *= light->param[RSE::LIGHT_PARAM_INTENSITY];
-				} else {
-					light_data.energy *= Math::PI;
-				}
+				light_data.energy = light_energy_to_intensity(light->type, sign * light->param[RSE::LIGHT_PARAM_ENERGY], light->param[RSE::LIGHT_PARAM_INTENSITY], RendererSceneRenderRD::get_singleton()->is_using_physical_light_units());
 
 				if (p_render_data->camera_attributes.is_valid()) {
 					light_data.energy *= RSG::camera_attributes->camera_attributes_get_render_exposure_normalization_factor(p_render_data->camera_attributes);
@@ -1045,24 +1046,7 @@ void LightStorage::update_light_buffers(RenderDataRD *p_render_data, const Paged
 			}
 		}
 
-		float energy = sign * light->param[RSE::LIGHT_PARAM_ENERGY] * fade;
-
-		if (RendererSceneRenderRD::get_singleton()->is_using_physical_light_units()) {
-			energy *= light->param[RSE::LIGHT_PARAM_INTENSITY];
-
-			// Convert from Luminous Power to Luminous Intensity
-			if (type == RSE::LIGHT_OMNI) {
-				energy *= 1.0 / (Math::PI * 4.0);
-			} else if (type == RSE::LIGHT_AREA) {
-				energy *= 1.0 / (Math::PI * 2.0);
-			} else {
-				// Spot Lights are not physically accurate, Luminous Intensity should change in relation to the cone angle.
-				// We make this assumption to keep them easy to control.
-				energy *= 1.0 / Math::PI;
-			}
-		} else {
-			energy *= Math::PI;
-		}
+		float energy = light_energy_to_intensity(type, sign * light->param[RSE::LIGHT_PARAM_ENERGY] * fade, light->param[RSE::LIGHT_PARAM_INTENSITY], RendererSceneRenderRD::get_singleton()->is_using_physical_light_units(), light->param[RSE::LIGHT_PARAM_SPOT_FLUX_SCALE], light->area_normalize_energy, light->area_size.x * light->area_size.y);
 
 		if (p_render_data->camera_attributes.is_valid()) {
 			energy *= RSG::camera_attributes->camera_attributes_get_render_exposure_normalization_factor(p_render_data->camera_attributes);
@@ -1096,6 +1080,9 @@ void LightStorage::update_light_buffers(RenderDataRD *p_render_data, const Paged
 		light_data.inv_spot_attenuation = 1.0f / light->param[RSE::LIGHT_PARAM_SPOT_ATTENUATION];
 		float spot_angle = light->param[RSE::LIGHT_PARAM_SPOT_ANGLE];
 		light_data.cos_spot_angle = Math::cos(Math::deg_to_rad(spot_angle));
+		float inner_angle = light->param[RSE::LIGHT_PARAM_SPOT_INNER_ANGLE];
+		light_data.cos_spot_inner_angle = inner_angle < 0.0f ? 2.0f : Math::cos(Math::deg_to_rad(CLAMP(inner_angle, 0.0f, spot_angle)));
+		light_data.range_fade_start = light->param[RSE::LIGHT_PARAM_RANGE_FADE_START];
 		if (type == RSE::LIGHT_AREA) {
 			Vector3 area_vec_a = inverse_transform.basis.xform(light_transform.basis.xform(Vector3(1, 0, 0))).normalized() * area_size.x;
 			Vector3 area_vec_b = inverse_transform.basis.xform(light_transform.basis.xform(Vector3(0, 1, 0))).normalized() * area_size.y;
@@ -1108,14 +1095,6 @@ void LightStorage::update_light_buffers(RenderDataRD *p_render_data, const Paged
 			light_data.area_height[1] = area_vec_b.y;
 			light_data.area_height[2] = area_vec_b.z;
 			light_data.inv_spot_attenuation = 1.0 / (radius + area_size.length() / 2.0); // center range
-
-			if (light->area_normalize_energy) {
-				// normalization to make larger lights output same amount of light as smaller lights with same energy
-				float surface_area = area_size.x * area_size.y;
-				light_data.color[0] /= surface_area;
-				light_data.color[1] /= surface_area;
-				light_data.color[2] /= surface_area;
-			}
 		}
 		light_data.mask = light->cull_mask;
 

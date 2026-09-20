@@ -454,13 +454,8 @@ half sample_directional_soft_shadow(texture2D shadow, vec3 pssm_coord, vec2 tex_
 
 #endif // SHADOWS_DISABLED
 
-half get_omni_attenuation(float distance, float inv_range, float decay) {
-	float nd = distance * inv_range;
-	nd *= nd;
-	nd *= nd; // nd^4
-	nd = max(1.0 - nd, 0.0);
-	nd *= nd; // nd^2
-	return half(nd * pow(max(distance, 0.0001), -decay));
+half get_omni_attenuation(float distance, float inv_range, float decay, float fade_start) {
+	return half(light_range_fade(distance, inv_range, fade_start) * pow(max(distance, 0.0001), -decay));
 }
 
 void light_process_omni(uint idx, vec3 vertex, hvec3 eye_vec, hvec3 normal, vec3 vertex_ddx, vec3 vertex_ddy, hvec3 f0, half roughness, half metallic, float taa_frame_count, hvec3 albedo, inout half alpha, vec2 screen_uv, hvec3 energy_compensation,
@@ -486,7 +481,7 @@ void light_process_omni(uint idx, vec3 vertex, hvec3 eye_vec, hvec3 normal, vec3
 	// Omni light attenuation.
 	vec3 light_rel_vec = omni_lights.data[idx].position - vertex;
 	float light_length = length(light_rel_vec);
-	half omni_attenuation = get_omni_attenuation(light_length, omni_lights.data[idx].inv_radius, omni_lights.data[idx].attenuation);
+	half omni_attenuation = half(omni_light_attenuation(light_length, omni_lights.data[idx].inv_radius, omni_lights.data[idx].attenuation, omni_lights.data[idx].range_fade_start));
 
 	// Compute size.
 	half size = half(0.0);
@@ -789,14 +784,11 @@ void light_process_spot(uint idx, vec3 vertex, hvec3 eye_vec, hvec3 normal, vec3
 	vec3 light_rel_vec = spot_lights.data[idx].position - vertex;
 	float light_length = length(light_rel_vec);
 	hvec3 light_rel_vec_norm = hvec3(light_rel_vec / light_length);
-	half spot_attenuation = get_omni_attenuation(light_length, spot_lights.data[idx].inv_radius, spot_lights.data[idx].attenuation);
+	half spot_attenuation = get_omni_attenuation(light_length, spot_lights.data[idx].inv_radius, spot_lights.data[idx].attenuation, spot_lights.data[idx].range_fade_start);
 	vec3 spot_dir = spot_lights.data[idx].direction;
-	float cone_angle = spot_lights.data[idx].cone_angle;
-	float scos = max(dot(-vec3(light_rel_vec_norm), spot_dir), cone_angle);
-
-	// This conversion to a highp float is crucial to prevent light leaking due to precision errors.
-	float spot_rim = max(1e-4, (1.0 - scos) / (1.0 - cone_angle));
-	spot_attenuation *= half(1.0 - pow(spot_rim, spot_lights.data[idx].cone_attenuation));
+	float cos_angle = dot(-normalize(light_rel_vec), spot_dir);
+	spot_attenuation *= half(spot_light_attenuation(cos_angle, spot_lights.data[idx].cone_angle,
+			spot_lights.data[idx].cos_spot_inner_angle, spot_lights.data[idx].cone_attenuation));
 
 	// Compute size.
 	half size = half(0.0);
@@ -1001,7 +993,7 @@ void light_process_area(uint idx, vec3 vertex, hvec3 eye_vec, hvec3 normal, vec3
 	half dist = length(closest_point_local_to_light - pos_local_to_light);
 
 	half light_length = max(half(0.0), dist);
-	half light_attenuation_raw = get_omni_attenuation(float(light_length), area_lights.data[idx].inv_radius, area_lights.data[idx].attenuation);
+	half light_attenuation_raw = get_omni_attenuation(float(light_length), area_lights.data[idx].inv_radius, area_lights.data[idx].attenuation, area_lights.data[idx].range_fade_start);
 	half light_attenuation_ltc = light_attenuation_raw * half(light_length * light_length); // solid angle already decreases by inverse square, so attenuation power is 2.0 by default -> subtract 2.0
 	half shadow = half(1.0);
 

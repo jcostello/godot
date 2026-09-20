@@ -75,6 +75,9 @@ void LightStorage::_light_initialize(RID p_light, RSE::LightType p_type) {
 	light.param[RSE::LIGHT_PARAM_RANGE] = 1.0;
 	light.param[RSE::LIGHT_PARAM_SIZE] = 0.0;
 	light.param[RSE::LIGHT_PARAM_ATTENUATION] = 1.0;
+	light.param[RSE::LIGHT_PARAM_RANGE_FADE_START] = -1.0;
+	light.param[RSE::LIGHT_PARAM_SPOT_FLUX_SCALE] = 1.0;
+	light.param[RSE::LIGHT_PARAM_SPOT_INNER_ANGLE] = -1.0;
 	light.param[RSE::LIGHT_PARAM_SPOT_ANGLE] = 45;
 	light.param[RSE::LIGHT_PARAM_SPOT_ATTENUATION] = 1.0;
 	light.param[RSE::LIGHT_PARAM_SHADOW_MAX_DISTANCE] = 0;
@@ -154,7 +157,10 @@ void LightStorage::light_set_param(RID p_light, RSE::LightParam p_param, float p
 
 	switch (p_param) {
 		case RSE::LIGHT_PARAM_RANGE:
+		case RSE::LIGHT_PARAM_RANGE_FADE_START:
 		case RSE::LIGHT_PARAM_SPOT_ANGLE:
+		case RSE::LIGHT_PARAM_SPOT_INNER_ANGLE:
+		case RSE::LIGHT_PARAM_SPOT_FLUX_SCALE:
 		case RSE::LIGHT_PARAM_SHADOW_MAX_DISTANCE:
 		case RSE::LIGHT_PARAM_SHADOW_SPLIT_1_OFFSET:
 		case RSE::LIGHT_PARAM_SHADOW_SPLIT_2_OFFSET:

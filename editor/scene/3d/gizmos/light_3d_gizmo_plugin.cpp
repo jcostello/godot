@@ -65,6 +65,12 @@ int Light3DGizmoPlugin::get_priority() const {
 }
 
 String Light3DGizmoPlugin::get_handle_name(const EditorNode3DGizmo *p_gizmo, int p_id, bool p_secondary) const {
+	if (p_id == 2 && Object::cast_to<SpotLight3D>(p_gizmo->get_node_3d())) {
+		return "Inner aperture";
+	}
+	if (p_id == 1 && Object::cast_to<OmniLight3D>(p_gizmo->get_node_3d())) {
+		return "Inner radius";
+	}
 	if (p_id == 0) {
 		if (Object::cast_to<AreaLight3D>(p_gizmo->get_node_3d())) {
 			return "Area width";
@@ -91,12 +97,19 @@ Variant Light3DGizmoPlugin::get_handle_value(const EditorNode3DGizmo *p_gizmo, i
 		}
 	}
 	if (p_id == 1) {
+		if (Object::cast_to<OmniLight3D>(light)) {
+			return light->get_param(Light3D::PARAM_RANGE_FADE_START);
+		}
 		AreaLight3D *al = Object::cast_to<AreaLight3D>(light);
 		if (al) {
 			return al->get_area_size();
 		} else {
 			return light->get_param(Light3D::PARAM_SPOT_ANGLE);
 		}
+	}
+
+	if (p_id == 2 && Object::cast_to<SpotLight3D>(light)) {
+		return light->get_param(Light3D::PARAM_SPOT_INNER_ANGLE);
 	}
 
 	return Variant();
@@ -111,6 +124,29 @@ void Light3DGizmoPlugin::set_handle(const EditorNode3DGizmo *p_gizmo, int p_id, 
 	Vector3 ray_dir = p_camera->project_ray_normal(p_point);
 
 	Vector3 s[2] = { gi.xform(ray_from), gi.xform(ray_from + ray_dir * 4096) };
+	if (p_id == 2 && Object::cast_to<SpotLight3D>(light)) {
+		// The inner handle is on the opposite side and closer to the origin,
+		// so coincident cones and a zero inner angle remain independently editable.
+		s[0].x = -s[0].x;
+		s[1].x = -s[1].x;
+		float outer_angle = light->get_param(Light3D::PARAM_SPOT_ANGLE);
+		float a = _find_closest_angle_to_arc(s[0], s[1], light->get_param(Light3D::PARAM_RANGE) * 0.8, outer_angle);
+		light->set_param(Light3D::PARAM_SPOT_INNER_ANGLE, CLAMP(a, 0.0f, outer_angle));
+		return;
+	}
+	if (p_id == 1 && Object::cast_to<OmniLight3D>(light)) {
+		Plane cp = Plane(p_camera->get_transform().basis.get_column(2), gt.origin);
+		Vector3 inters;
+		if (cp.intersects_ray(ray_from, ray_dir, &inters)) {
+			float radius = inters.distance_to(gt.origin);
+			if (Node3DEditor::get_singleton()->is_snap_enabled()) {
+				radius = Math::snapped(radius, Node3DEditor::get_singleton()->get_translate_snap());
+			}
+			float outer = light->get_param(Light3D::PARAM_RANGE);
+			light->set_param(Light3D::PARAM_RANGE_FADE_START, outer > 0.0f ? CLAMP(radius / outer, 0.0f, 1.0f) : 0.0f);
+		}
+		return;
+	}
 	if (p_id == 0) {
 		if (Object::cast_to<SpotLight3D>(light)) {
 			Vector3 ra, rb;
@@ -169,7 +205,7 @@ void Light3DGizmoPlugin::set_handle(const EditorNode3DGizmo *p_gizmo, int p_id, 
 		}
 	} else if (p_id == 1) {
 		if (Object::cast_to<SpotLight3D>(light)) {
-			float a = _find_closest_angle_to_half_pi_arc(s[0], s[1], light->get_param(Light3D::PARAM_RANGE), gt);
+			float a = _find_closest_angle_to_arc(s[0], s[1], light->get_param(Light3D::PARAM_RANGE));
 			light->set_param(Light3D::PARAM_SPOT_ANGLE, CLAMP(a, 0.01, 89.99));
 		} else if (Object::cast_to<AreaLight3D>(light)) {
 			Vector3 cfv = p_camera->get_transform().basis.get_column(2);
@@ -209,7 +245,7 @@ void Light3DGizmoPlugin::commit_handle(const EditorNode3DGizmo *p_gizmo, int p_i
 		if (al) {
 			al->set_area_size(p_restore);
 		} else {
-			light->set_param(p_id == 0 ? Light3D::PARAM_RANGE : Light3D::PARAM_SPOT_ANGLE, p_restore);
+			light->set_param(p_id == 0 ? Light3D::PARAM_RANGE : (p_id == 2 ? Light3D::PARAM_SPOT_INNER_ANGLE : (Object::cast_to<OmniLight3D>(light) ? Light3D::PARAM_RANGE_FADE_START : Light3D::PARAM_SPOT_ANGLE)), p_restore);
 		}
 	} else if (p_id == 0) {
 		EditorUndoRedoManager *ur = EditorUndoRedoManager::get_singleton();
@@ -225,6 +261,18 @@ void Light3DGizmoPlugin::commit_handle(const EditorNode3DGizmo *p_gizmo, int p_i
 			ur->add_undo_method(light, "set_param", Light3D::PARAM_RANGE, p_restore);
 			ur->commit_action();
 		}
+	} else if (p_id == 1 && Object::cast_to<OmniLight3D>(light)) {
+		EditorUndoRedoManager *ur = EditorUndoRedoManager::get_singleton();
+		ur->create_action(TTR("Change Omni Light Inner Radius"));
+		ur->add_do_method(light, "set_param", Light3D::PARAM_RANGE_FADE_START, light->get_param(Light3D::PARAM_RANGE_FADE_START));
+		ur->add_undo_method(light, "set_param", Light3D::PARAM_RANGE_FADE_START, p_restore);
+		ur->commit_action();
+	} else if (p_id == 2 && Object::cast_to<SpotLight3D>(light)) {
+		EditorUndoRedoManager *ur = EditorUndoRedoManager::get_singleton();
+		ur->create_action(TTR("Change Spot Light Inner Angle"));
+		ur->add_do_method(light, "set_param", Light3D::PARAM_SPOT_INNER_ANGLE, light->get_param(Light3D::PARAM_SPOT_INNER_ANGLE));
+		ur->add_undo_method(light, "set_param", Light3D::PARAM_SPOT_INNER_ANGLE, p_restore);
+		ur->commit_action();
 	} else if (p_id == 1) {
 		EditorUndoRedoManager *ur = EditorUndoRedoManager::get_singleton();
 		AreaLight3D *al = Object::cast_to<AreaLight3D>(light);
@@ -234,7 +282,7 @@ void Light3DGizmoPlugin::commit_handle(const EditorNode3DGizmo *p_gizmo, int p_i
 			ur->add_undo_method(al, "set_area_size", p_restore);
 			ur->commit_action();
 		} else {
-			ur->create_action(TTR("Change Light Radius"));
+			ur->create_action(TTR("Change Spot Light Outer Angle"));
 			ur->add_do_method(light, "set_param", Light3D::PARAM_SPOT_ANGLE, light->get_param(Light3D::PARAM_SPOT_ANGLE));
 			ur->add_undo_method(light, "set_param", Light3D::PARAM_SPOT_ANGLE, p_restore);
 			ur->commit_action();
@@ -300,6 +348,9 @@ void Light3DGizmoPlugin::redraw(EditorNode3DGizmo *p_gizmo) {
 
 			OmniLight3D *on = Object::cast_to<OmniLight3D>(light);
 			const float r = on->get_param(Light3D::PARAM_RANGE);
+			const float fade_start = on->get_param(Light3D::PARAM_RANGE_FADE_START);
+			const float inner_r = r * (fade_start < 0.0f ? 0.5f : fade_start);
+			Vector<Vector3> inner_points;
 			Vector<Vector3> points;
 			Vector<Vector3> points_billboard;
 
@@ -318,6 +369,11 @@ void Light3DGizmoPlugin::redraw(EditorNode3DGizmo *p_gizmo) {
 				points.push_back(Vector3(a.x, a.y, 0));
 				points.push_back(Vector3(b.x, b.y, 0));
 
+				if (fade_start >= 0.0f && i % 2 == 0) {
+					inner_points.push_back(Vector3(a.x * fade_start, a.y * fade_start, 0));
+					inner_points.push_back(Vector3(b.x * fade_start, b.y * fade_start, 0));
+				}
+
 				// Draw a billboarded circle
 				points_billboard.push_back(Vector3(a.x, a.y, 0));
 				points_billboard.push_back(Vector3(b.x, b.y, 0));
@@ -325,9 +381,13 @@ void Light3DGizmoPlugin::redraw(EditorNode3DGizmo *p_gizmo) {
 
 			p_gizmo->add_lines(points, lines_material, true, color);
 			p_gizmo->add_lines(points_billboard, lines_billboard_material, true, color);
+			if (fade_start >= 0.0f) {
+				p_gizmo->add_lines(inner_points, lines_material, true, color);
+			}
 
 			Vector<Vector3> handles;
 			handles.push_back(Vector3(r, 0, 0));
+			handles.push_back(Vector3(-inner_r, 0, 0));
 			p_gizmo->add_handles(handles, get_material("handles_billboard"), Vector<int>(), true);
 		}
 
@@ -347,6 +407,27 @@ void Light3DGizmoPlugin::redraw(EditorNode3DGizmo *p_gizmo) {
 			float r = sl->get_param(Light3D::PARAM_RANGE);
 			float w = r * Math::sin(Math::deg_to_rad(sl->get_param(Light3D::PARAM_SPOT_ANGLE)));
 			float d = r * Math::cos(Math::deg_to_rad(sl->get_param(Light3D::PARAM_SPOT_ANGLE)));
+			float inner_angle = sl->get_param(Light3D::PARAM_SPOT_INNER_ANGLE);
+			// In legacy mode, offer a handle halfway into the cone to enable the new profile.
+			float handle_angle = inner_angle < 0.0f ? sl->get_param(Light3D::PARAM_SPOT_ANGLE) * 0.5f : inner_angle;
+			float inner_w = r * 0.8f * Math::sin(Math::deg_to_rad(handle_angle));
+			float inner_d = r * 0.8f * Math::cos(Math::deg_to_rad(handle_angle));
+			if (inner_angle >= 0.0f) {
+				for (int i = 0; i < 120; i++) {
+					const float a = Math::deg_to_rad(float(i * 3));
+					const float b = Math::deg_to_rad(float((i + 1) * 3));
+					Vector3 from(Math::sin(a) * inner_w, Math::cos(a) * inner_w, -inner_d);
+					Vector3 to(Math::sin(b) * inner_w, Math::cos(b) * inner_w, -inner_d);
+					if (i % 2 == 0) {
+						points_secondary.push_back(from);
+						points_secondary.push_back(to);
+					}
+					if (i % 30 == 0) {
+						points_secondary.push_back(Vector3());
+						points_secondary.push_back(from);
+					}
+				}
+			}
 
 			for (int i = 0; i < 120; i++) {
 				// Draw a circle
@@ -373,7 +454,8 @@ void Light3DGizmoPlugin::redraw(EditorNode3DGizmo *p_gizmo) {
 
 			Vector<Vector3> handles = {
 				Vector3(0, 0, -r),
-				Vector3(w, 0, -d)
+				Vector3(w, 0, -d),
+				Vector3(-inner_w, 0, -inner_d)
 			};
 
 			p_gizmo->add_handles(handles, get_material("handles"));
@@ -418,17 +500,17 @@ void Light3DGizmoPlugin::redraw(EditorNode3DGizmo *p_gizmo) {
 	}
 }
 
-float Light3DGizmoPlugin::_find_closest_angle_to_half_pi_arc(const Vector3 &p_from, const Vector3 &p_to, float p_arc_radius, const Transform3D &p_arc_xform) {
-	//bleh, discrete is simpler
+float Light3DGizmoPlugin::_find_closest_angle_to_arc(const Vector3 &p_from, const Vector3 &p_to, float p_arc_radius, float p_max_angle) {
+	// Approximate the arc with segments for stable dragging.
 	static const int arc_test_points = 64;
 	float min_d = 1e20;
 	Vector3 min_p;
 
 	for (int i = 0; i < arc_test_points; i++) {
-		float a = i * Math::PI * 0.5 / arc_test_points;
-		float an = (i + 1) * Math::PI * 0.5 / arc_test_points;
-		Vector3 p = Vector3(Math::cos(a), 0, -Math::sin(a)) * p_arc_radius;
-		Vector3 n = Vector3(Math::cos(an), 0, -Math::sin(an)) * p_arc_radius;
+		float a = i * Math::deg_to_rad(p_max_angle) / arc_test_points;
+		float an = (i + 1) * Math::deg_to_rad(p_max_angle) / arc_test_points;
+		Vector3 p = Vector3(Math::sin(a), 0, -Math::cos(a)) * p_arc_radius;
+		Vector3 n = Vector3(Math::sin(an), 0, -Math::cos(an)) * p_arc_radius;
 
 		Vector3 ra, rb;
 		Geometry3D::get_closest_points_between_segments(p, n, p_from, p_to, ra, rb);
@@ -440,7 +522,6 @@ float Light3DGizmoPlugin::_find_closest_angle_to_half_pi_arc(const Vector3 &p_fr
 		}
 	}
 
-	//min_p = p_arc_xform.affine_inverse().xform(min_p);
-	float a = (Math::PI * 0.5) - Vector2(min_p.x, -min_p.z).angle();
+	float a = Vector2(-min_p.z, MAX(min_p.x, 0.0f)).angle();
 	return Math::rad_to_deg(a);
 }

@@ -148,7 +148,7 @@ void LightmapperRD::add_directional_light(const String &p_name, bool p_static, c
 	light_metadata.push_back(md);
 }
 
-void LightmapperRD::add_omni_light(const String &p_name, bool p_static, const Vector3 &p_position, const Color &p_color, float p_energy, float p_indirect_energy, float p_range, float p_attenuation, float p_size, float p_shadow_blur, const Basis &p_projector_basis, const Rect2 &p_projector_rect) {
+void LightmapperRD::add_omni_light(const String &p_name, bool p_static, const Vector3 &p_position, const Color &p_color, float p_energy, float p_indirect_energy, float p_range, float p_attenuation, float p_range_fade_start, float p_size, float p_shadow_blur, const Basis &p_projector_basis, const Rect2 &p_projector_rect) {
 	Light l;
 	l.type = LIGHT_TYPE_OMNI;
 	l.position[0] = p_position.x;
@@ -156,6 +156,7 @@ void LightmapperRD::add_omni_light(const String &p_name, bool p_static, const Ve
 	l.position[2] = p_position.z;
 	l.range = p_range;
 	l.attenuation = p_attenuation;
+	l.range_fade_start = p_range_fade_start;
 	l.color[0] = p_color.r;
 	l.color[1] = p_color.g;
 	l.color[2] = p_color.b;
@@ -188,7 +189,7 @@ void LightmapperRD::add_omni_light(const String &p_name, bool p_static, const Ve
 	light_metadata.push_back(md);
 }
 
-void LightmapperRD::add_spot_light(const String &p_name, bool p_static, const Vector3 &p_position, const Vector3 &p_direction, const Color &p_color, float p_energy, float p_indirect_energy, float p_range, float p_attenuation, float p_spot_angle, float p_spot_attenuation, float p_size, float p_shadow_blur, const Basis &p_projector_basis, const Rect2 &p_projector_rect) {
+void LightmapperRD::add_spot_light(const String &p_name, bool p_static, const Vector3 &p_position, const Vector3 &p_direction, const Color &p_color, float p_energy, float p_indirect_energy, float p_range, float p_attenuation, float p_range_fade_start, float p_spot_angle, float p_spot_inner_angle, float p_spot_attenuation, float p_size, float p_shadow_blur, const Basis &p_projector_basis, const Rect2 &p_projector_rect) {
 	Light l;
 	l.type = LIGHT_TYPE_SPOT;
 	l.position[0] = p_position.x;
@@ -200,6 +201,8 @@ void LightmapperRD::add_spot_light(const String &p_name, bool p_static, const Ve
 	l.range = p_range;
 	l.attenuation = p_attenuation;
 	l.cos_spot_angle = Math::cos(Math::deg_to_rad(p_spot_angle));
+	l.range_fade_start = p_range_fade_start;
+	l.cos_spot_inner_angle = p_spot_inner_angle < 0.0f ? 2.0f : Math::cos(Math::deg_to_rad(CLAMP(p_spot_inner_angle, 0.0f, p_spot_angle)));
 	l.inv_spot_attenuation = 1.0f / p_spot_attenuation;
 	l.color[0] = p_color.r;
 	l.color[1] = p_color.g;
@@ -233,7 +236,7 @@ void LightmapperRD::add_spot_light(const String &p_name, bool p_static, const Ve
 	light_metadata.push_back(md);
 }
 
-void LightmapperRD::add_area_light(const String &p_name, bool p_static, const Vector3 &p_position, const Vector3 &p_direction, const Color &p_color, float p_energy, float p_indirect_energy, float p_range, float p_attenuation, const Vector3 &p_area_width, const Vector3 &p_area_height, float p_size, float p_shadow_blur, const Rect2 &p_texture_rect, float p_max_mipmap) {
+void LightmapperRD::add_area_light(const String &p_name, bool p_static, const Vector3 &p_position, const Vector3 &p_direction, const Color &p_color, float p_energy, float p_indirect_energy, float p_range, float p_attenuation, float p_range_fade_start, const Vector3 &p_area_width, const Vector3 &p_area_height, float p_size, float p_shadow_blur, const Rect2 &p_texture_rect, float p_max_mipmap) {
 	Light l;
 	l.type = LIGHT_TYPE_AREA;
 	l.position[0] = p_position.x;
@@ -250,6 +253,7 @@ void LightmapperRD::add_area_light(const String &p_name, bool p_static, const Ve
 	l.area_height[2] = p_area_height.z;
 	l.range = p_range;
 	l.attenuation = p_attenuation;
+	l.range_fade_start = p_range_fade_start;
 	l.color[0] = p_color.r;
 	l.color[1] = p_color.g;
 	l.color[2] = p_color.b;
