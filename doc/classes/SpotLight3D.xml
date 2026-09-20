@@ -23,7 +23,7 @@
 			[b]Note:[/b] [member spot_angle] is not affected by [member Node3D.scale] (the light's scale or its parent's scale).
 		</member>
 		<member name="spot_angle_attenuation" type="float" setter="set_param" getter="get_param" default="1.0">
-			The spotlight's [i]angular[/i] attenuation curve. See also [member spot_attenuation].
+			The spotlight's [i]angular[/i] attenuation curve. See also [member spot_attenuation]. When [member spot_inner_angle] is non-negative, this biases the smooth transition between the inner and outer cones. Higher values concentrate the light closer to the inner cone; [code]1.0[/code] gives a smooth cubic transition in angle space.
 		</member>
 		<member name="spot_attenuation" type="float" setter="set_param" getter="get_param" default="1.0">
 			Controls the distance attenuation function for spotlights.
@@ -31,9 +31,21 @@
 			[b]Note:[/b] Setting attenuation to [code]2.0[/code] or higher may result in distant objects receiving minimal light, even within range. For example, with a range of [code]4096[/code], an object at [code]100[/code] units is attenuated by a factor of [code]0.0001[/code]. With a default brightness of [code]1[/code], the light would not be visible at that distance.
 			[b]Note:[/b] Using negative or values higher than [code]10.0[/code] may lead to unexpected results.
 		</member>
+		<member name="spot_inner_angle" type="float" setter="set_param" getter="get_param" default="-1.0">
+			The inner cone's angular radius in degrees, measured from the -Z axis. Inside this cone there is no angular attenuation. Between this angle and [member spot_angle], intensity smoothly decreases to zero, shaped by [member spot_angle_attenuation]. Distance attenuation still applies throughout the cone.
+			The default [code]-1.0[/code] preserves the original angular attenuation profile. Set a non-negative value, or drag the inner aperture gizmo, to enable the two-cone profile. The inner angle is clamped to the outer angle; the outer angle cannot be reduced below an enabled inner angle. Equal angles produce a hard edge.
+			This profile also applies to [LightmapGI] baking. Existing lightmaps must be baked again after changing the profile.
+		</member>
+		<member name="spot_normalize_flux" type="bool" setter="set_spot_normalize_flux" getter="is_spot_normalizing_flux" default="false">
+			If [code]true[/code], compensates intensity for the solid angle of the combined cone. Closing the cone concentrates the same flux into a smaller region. With physical light units, [member Light3D.light_intensity_lumens] describes the emitted flux before distance/range attenuation, shadows and projector filtering. The compensation is also applied to indirect lighting and [LightmapGI] baking.
+			If [code]false[/code], preserves the original intensity convention. Compensation is capped at 10,000 to keep nearly closed or almost completely dark beams finite. A zero-width cone emits no light. Use positive [member spot_angle_attenuation] values when normalizing the legacy profile.
+		</member>
 		<member name="spot_range" type="float" setter="set_param" getter="get_param" default="5.0">
 			The maximal range that can be reached by the spotlight. Note that the effectively lit area may appear to be smaller depending on the [member spot_attenuation] in use. No matter the [member spot_attenuation] in use, the light will never reach anything outside this range.
 			[b]Note:[/b] [member spot_range] is not affected by [member Node3D.scale] (the light's scale or its parent's scale).
+		</member>
+		<member name="spot_range_fade_start" type="float" setter="set_param" getter="get_param" default="-1.0">
+			Normalized distance where the final range fade begins. [code]0.0[/code] fades across the full range and [code]1.0[/code] produces a hard edge. The default [code]-1.0[/code] preserves the legacy attenuation curve. This also affects indirect lighting and [LightmapGI] baking.
 		</member>
 	</members>
 </class>

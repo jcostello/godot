@@ -778,7 +778,10 @@ public:
 			float bake_energy;
 			float radius;
 			float attenuation;
+			float range_fade_start;
 			float spot_angle;
+			float spot_inner_angle;
+			float spot_flux_scale;
 			float spot_attenuation;
 			bool has_shadow;
 			RSE::LightDirectionalSkyMode sky_mode;

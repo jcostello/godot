@@ -38,13 +38,8 @@ void light_compute_vertex(hvec3 N, hvec3 L, hvec3 V, hvec3 light_color, bool is_
 #endif
 }
 
-half get_omni_attenuation(float distance, float inv_range, float decay) {
-	float nd = distance * inv_range;
-	nd *= nd;
-	nd *= nd; // nd^4
-	nd = max(1.0 - nd, 0.0);
-	nd *= nd; // nd^2
-	return half(nd * pow(max(distance, 0.0001), -decay));
+half get_omni_attenuation(float distance, float inv_range, float decay, float fade_start) {
+	return half(light_range_fade(distance, inv_range, fade_start) * pow(max(distance, 0.0001), -decay));
 }
 
 void light_process_omni_vertex(uint idx, vec3 vertex, hvec3 eye_vec, hvec3 normal, half roughness,
@@ -52,7 +47,7 @@ void light_process_omni_vertex(uint idx, vec3 vertex, hvec3 eye_vec, hvec3 norma
 	vec3 light_rel_vec = omni_lights.data[idx].position - vertex;
 	float light_length = length(light_rel_vec);
 	hvec3 light_rel_vec_norm = hvec3(light_rel_vec / light_length);
-	half omni_attenuation = get_omni_attenuation(light_length, omni_lights.data[idx].inv_radius, omni_lights.data[idx].attenuation);
+	half omni_attenuation = half(omni_light_attenuation(light_length, omni_lights.data[idx].inv_radius, omni_lights.data[idx].attenuation, omni_lights.data[idx].range_fade_start));
 	hvec3 color = hvec3(omni_lights.data[idx].color * omni_attenuation);
 
 	light_compute_vertex(normal, light_rel_vec_norm, eye_vec, color, false, roughness,
@@ -66,15 +61,10 @@ void light_process_spot_vertex(uint idx, vec3 vertex, hvec3 eye_vec, hvec3 norma
 	vec3 light_rel_vec = spot_lights.data[idx].position - vertex;
 	float light_length = length(light_rel_vec);
 	hvec3 light_rel_vec_norm = hvec3(light_rel_vec / light_length);
-	half spot_attenuation = get_omni_attenuation(light_length, spot_lights.data[idx].inv_radius, spot_lights.data[idx].attenuation);
-	hvec3 spot_dir = hvec3(spot_lights.data[idx].direction);
-
-	half cone_angle = half(spot_lights.data[idx].cone_angle);
-	half scos = max(dot(-light_rel_vec_norm, spot_dir), cone_angle);
-
-	// This conversion to a highp float is crucial to prevent light leaking due to precision errors.
-	float spot_rim = max(1e-4, float(half(1.0) - scos) / float(half(1.0) - cone_angle));
-	spot_attenuation *= half(1.0 - pow(spot_rim, spot_lights.data[idx].cone_attenuation));
+	half spot_attenuation = get_omni_attenuation(light_length, spot_lights.data[idx].inv_radius, spot_lights.data[idx].attenuation, spot_lights.data[idx].range_fade_start);
+	float cos_angle = dot(-normalize(light_rel_vec), spot_lights.data[idx].direction);
+	spot_attenuation *= half(spot_light_attenuation(cos_angle, spot_lights.data[idx].cone_angle,
+			spot_lights.data[idx].cos_spot_inner_angle, spot_lights.data[idx].cone_attenuation));
 
 	hvec3 color = hvec3(spot_lights.data[idx].color * spot_attenuation);
 

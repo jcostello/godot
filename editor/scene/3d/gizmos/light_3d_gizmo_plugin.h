@@ -36,7 +36,7 @@ class Light3DGizmoPlugin : public EditorNode3DGizmoPlugin {
 	GDCLASS(Light3DGizmoPlugin, EditorNode3DGizmoPlugin);
 
 private:
-	static float _find_closest_angle_to_half_pi_arc(const Vector3 &p_from, const Vector3 &p_to, float p_arc_radius, const Transform3D &p_arc_xform);
+	static float _find_closest_angle_to_arc(const Vector3 &p_from, const Vector3 &p_to, float p_arc_radius, float p_max_angle = 90.0f);
 
 public:
 	bool has_gizmo(Node3D *p_spatial) override;

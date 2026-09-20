@@ -42,6 +42,7 @@ cell_data;
 #define LIGHT_TYPE_SPOT 2
 #define LIGHT_TYPE_AREA 3
 
+#include "../../../shaders/spot_light_inc.glsl"
 #include "../area_lights_inc.glsl"
 
 #if defined(MODE_COMPUTE_LIGHT) || defined(MODE_DYNAMIC_LIGHTING)
@@ -60,6 +61,11 @@ struct Light {
 
 	vec3 direction;
 	bool has_shadow;
+
+	float cos_spot_inner_angle;
+	float range_fade_start;
+	float spot_pad1;
+	float spot_pad2;
 
 	vec4 area_width;
 	vec4 area_height;
@@ -198,13 +204,8 @@ float raymarch(float distance, float distance_adv, vec3 from, vec3 direction) {
 	return occlusion; //max(0.0,distance);
 }
 
-float get_omni_attenuation(float distance, float inv_range, float decay) {
-	float nd = distance * inv_range;
-	nd *= nd;
-	nd *= nd; // nd^4
-	nd = max(1.0 - nd, 0.0);
-	nd *= nd; // nd^2
-	return nd * pow(max(distance, 0.0001), -decay);
+float get_omni_attenuation(float distance, float inv_range, float decay, float fade_start) {
+	return light_range_fade(distance, inv_range, fade_start) * pow(max(distance, 0.0001), -decay);
 }
 
 bool compute_light_vector(uint light, vec3 pos, out float attenuation, out vec3 light_pos) {
@@ -219,10 +220,15 @@ bool compute_light_vector(uint light, vec3 pos, out float attenuation, out vec3 
 			return false;
 		}
 
-		attenuation = get_omni_attenuation(
+		attenuation = (lights.data[light].type == LIGHT_TYPE_OMNI ? omni_light_attenuation(
 				distance * params.cell_size,
 				1.0 / (lights.data[light].radius * params.cell_size),
-				lights.data[light].attenuation);
+				lights.data[light].attenuation,
+				lights.data[light].range_fade_start) : get_omni_attenuation(
+				distance * params.cell_size,
+				1.0 / (lights.data[light].radius * params.cell_size),
+				lights.data[light].attenuation,
+				lights.data[light].range_fade_start));
 
 		if (lights.data[light].type == LIGHT_TYPE_SPOT) {
 			vec3 rel = normalize(pos - light_pos);
@@ -232,9 +238,7 @@ bool compute_light_vector(uint light, vec3 pos, out float attenuation, out vec3 
 				return false;
 			}
 
-			float scos = max(cos_angle, cos_spot_angle);
-			float spot_rim = max(0.0001, (1.0 - scos) / (1.0 - cos_spot_angle));
-			attenuation *= 1.0 - pow(spot_rim, lights.data[light].inv_spot_attenuation);
+			attenuation *= spot_light_attenuation(cos_angle, cos_spot_angle, lights.data[light].cos_spot_inner_angle, lights.data[light].inv_spot_attenuation);
 		}
 	}
 
@@ -373,7 +377,7 @@ bool compute_area_light(uint index, vec3 pos, vec3 normal, inout vec3 light) {
 	if (light_length >= lights.data[index].radius) {
 		return false;
 	}
-	float attenuation = get_omni_attenuation(light_length * params.cell_size, 1.0 / (lights.data[index].radius * params.cell_size), lights.data[index].attenuation) * light_length * light_length * params.cell_size * params.cell_size; // LTC integral already decreases by inverse square, so attenuation power is 2.0 by default -> subtract 2.0
+	float attenuation = get_omni_attenuation(light_length * params.cell_size, 1.0 / (lights.data[index].radius * params.cell_size), lights.data[index].attenuation, lights.data[index].range_fade_start) * light_length * light_length * params.cell_size * params.cell_size; // LTC integral already decreases by inverse square, so attenuation power is 2.0 by default -> subtract 2.0
 
 	if (attenuation < 0.01) {
 		return false;

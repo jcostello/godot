@@ -234,13 +234,8 @@ vec3 hash3f(uvec3 x) {
 	return vec3(x & 0xFFFFF) / vec3(float(0xFFFFF));
 }
 
-float get_omni_attenuation(float dist, float inv_range, float decay) {
-	float nd = dist * inv_range;
-	nd *= nd;
-	nd *= nd; // nd^4
-	nd = max(1.0 - nd, 0.0);
-	nd *= nd; // nd^2
-	return nd * pow(max(dist, 0.0001), -decay);
+float get_omni_attenuation(float dist, float inv_range, float decay, float fade_start) {
+	return light_range_fade(dist, inv_range, fade_start) * pow(max(dist, 0.0001), -decay);
 }
 
 void cluster_get_item_range(uint p_offset, out uint item_min, out uint item_max, out uint item_from, out uint item_to) {
@@ -492,7 +487,7 @@ void main() {
 					float shadow_attenuation = 1.0;
 
 					if (omni_lights.data[light_index].volumetric_fog_energy > 0.001 && d * omni_lights.data[light_index].inv_radius < 1.0) {
-						float attenuation = get_omni_attenuation(d, omni_lights.data[light_index].inv_radius, omni_lights.data[light_index].attenuation);
+						float attenuation = omni_light_attenuation(d, omni_lights.data[light_index].inv_radius, omni_lights.data[light_index].attenuation, omni_lights.data[light_index].range_fade_start);
 
 						vec3 light = omni_lights.data[light_index].color;
 
@@ -560,13 +555,12 @@ void main() {
 					float shadow_attenuation = 1.0;
 
 					if (spot_lights.data[light_index].volumetric_fog_energy > 0.001 && d * spot_lights.data[light_index].inv_radius < 1.0) {
-						float attenuation = get_omni_attenuation(d, spot_lights.data[light_index].inv_radius, spot_lights.data[light_index].attenuation);
+						float attenuation = get_omni_attenuation(d, spot_lights.data[light_index].inv_radius, spot_lights.data[light_index].attenuation, spot_lights.data[light_index].range_fade_start);
 
 						vec3 spot_dir = spot_lights.data[light_index].direction;
 						float cone_angle = spot_lights.data[light_index].cone_angle;
-						float scos = max(dot(-safe_normalize(light_rel_vec), spot_dir), cone_angle);
-						float spot_rim = max(0.0001, (1.0 - scos) / (1.0 - cone_angle));
-						attenuation *= 1.0 - pow(spot_rim, spot_lights.data[light_index].cone_attenuation);
+						float cos_angle = dot(-safe_normalize(light_rel_vec), spot_dir);
+						attenuation *= spot_light_attenuation(cos_angle, cone_angle, spot_lights.data[light_index].cos_spot_inner_angle, spot_lights.data[light_index].cone_attenuation);
 
 						vec3 light = spot_lights.data[light_index].color;
 
@@ -649,7 +643,7 @@ void main() {
 
 						if (d * inv_center_range < 1.0) { // view_pos in range
 							// solid angle already decreases by inverse square, but subtracting 1 leads to results closer to spotlight, I'm somewhat unsure why
-							float attenuation = get_omni_attenuation(d, area_lights.data[light_index].inv_radius, area_lights.data[light_index].attenuation - 1.0);
+							float attenuation = get_omni_attenuation(d, area_lights.data[light_index].inv_radius, area_lights.data[light_index].attenuation - 1.0, area_lights.data[light_index].range_fade_start);
 							vec3 h_area_width = area_width / 2.0;
 							vec3 h_area_height = area_height / 2.0;
 							vec3 light_points[4];
