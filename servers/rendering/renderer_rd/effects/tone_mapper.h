@@ -30,6 +30,7 @@
 
 #pragma once
 
+#include "servers/rendering/multi_uma_buffer.h"
 #include "servers/rendering/renderer_rd/pipeline_cache_rd.h"
 #include "servers/rendering/renderer_rd/shaders/effects/tonemap.glsl.gen.h"
 #include "servers/rendering/renderer_rd/shaders/effects/tonemap_mobile.glsl.gen.h"
@@ -129,16 +130,13 @@ private:
 		float offset[4]; // 16 - 128
 		float tint_midtones_range[4]; // 16 - 144
 		float tonal_softness[4]; // 16 - 160
-		float shadows[4]; // 16 - 176
-		float midtones[4]; // 16 - 192
-		float highlights[4]; // 16 - 208
-		float tonemap_temperature[3]; // 12 - 220
-		float vibrance; // 4 - 224
-		float local_contrast; // 4 - 228
-		float local_contrast_fine; // 4 - 232
-		float vignette; // 4 - 236
-		float pad; // 4 - 240
-		float vignette_range[2]; // 8 - 248
+		float tonemap_temperature[3];
+		float vibrance;
+		float grading_pad_0;
+		float grading_pad_1;
+		float vignette;
+		float pad;
+		float vignette_range[2];
 	};
 
 	struct TonemapPushConstantMobile {
@@ -159,16 +157,31 @@ private:
 		float tonal_softness[4]; // 16 - 112
 		float tonemap_temperature[3]; // 12 - 124
 		float output_max_value; // 4 - 128
-		float shadows[4]; // 16 - 144
-		float midtones[4]; // 16 - 160
-		float highlights[4]; // 16 - 176
-		float vibrance; // 4 - 180
-		float local_contrast; // 4 - 184
-		float local_contrast_fine; // 4 - 188
-		float vignette; // 4 - 192
-		float vignette_range[2]; // 8 - 200
+		float vibrance;
+		float grading_pad_0;
+		float grading_pad_1;
+		float vignette;
+		float vignette_range[2];
 	};
-	static_assert(sizeof(TonemapPushConstantMobile) == 200, "TonemapPushConstantMobile must match the shader layout.");
+
+public:
+	struct TonemapSettings;
+	struct GradingData {
+		float shadows[4];
+		float midtones[4];
+		float highlights[4];
+		float lift[4];
+		float gamma[4];
+		float gain[4]; // Alpha indicates whether lift/gamma/gain is non-neutral.
+		float white_balance[3][4]; // Three rows; first row alpha enables chromatic adaptation.
+	};
+
+private:
+	static_assert(sizeof(GradingData) == 144, "GradingData must match the shader layout.");
+	static_assert(sizeof(TonemapPushConstant) == 200, "TonemapPushConstant must match the shader layout.");
+	static_assert(sizeof(TonemapPushConstantMobile) == 152, "TonemapPushConstantMobile must match the shader layout.");
+	MultiUmaBuffer<1, 8> grading_buffers = MultiUmaBuffer<1, 8>("ToneMapper::grading_buffers");
+	RID _upload_grading_buffer(const TonemapSettings &p_settings);
 
 	/* tonemap actually writes to a framebuffer, which is
 	 * better to do using the raster pipeline rather than
@@ -225,9 +238,9 @@ public:
 		float offset_luminance = 1.0;
 		float tint = 0.0;
 		float shadows_start = 0.0;
-		float shadows_end = 0.45;
+		float shadows_end = 0.3;
 		Vector2 tonal_softness = Vector2(0.1f, 0.1f);
-		float midtones_start = 0.45;
+		float midtones_start = 0.3;
 		float midtones_end = 0.55;
 		float highlights_start = 0.55;
 		float highlights_end = 1.0;
@@ -237,6 +250,11 @@ public:
 		float midtones_luminance = 1.0;
 		Color highlights_color = Color(1, 1, 1);
 		float highlights_luminance = 1.0;
+		Color lift = Color(0, 0, 0);
+		Color gamma = Color(1, 1, 1);
+		Color gain = Color(1, 1, 1);
+		bool use_chromatic_adaptation = false;
+		Basis white_balance_matrix;
 		bool use_color_grading_curves = false;
 		RID hue_vs_hue_texture;
 		RID hue_vs_saturation_texture;
@@ -260,8 +278,6 @@ public:
 		bool bilinear_filtering = true;
 
 		float vibrance = 0.0;
-		float local_contrast = 0.0;
-		float local_contrast_fine = 1.0;
 		float vignette = 0.0;
 		float vignette_start = 0.6;
 		float vignette_end = 1.0;

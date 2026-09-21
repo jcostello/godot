@@ -25,34 +25,24 @@ vec3 apply_grading_vibrance(vec3 color, float vibrance) {
 	return grading_hsv_to_rgb(hsv);
 }
 
-float grading_tonal_transition(float luminance, float center, float softness) {
-	float half_width = clamp(softness, 0.0, 1.0) * 0.5;
-	float start = center - half_width;
-	float end = center + half_width;
-	if (end <= start) {
-		return step(center, luminance);
-	}
-	return smoothstep(start, end, luminance);
+vec3 grading_tonal_weights(float luminance, vec4 limits) {
+	float shadows_transition = limits.y > limits.x ? smoothstep(limits.x, limits.y, luminance) : step(limits.x, luminance);
+	float highlights_transition = limits.w > limits.z ? smoothstep(limits.z, limits.w, luminance) : step(limits.z, luminance);
+	float shadows = 1.0 - shadows_transition;
+	float highlights = highlights_transition;
+	return vec3(shadows, 1.0 - shadows - highlights, highlights);
 }
 
-vec3 grading_tonal_weights(float luminance, vec2 midtones_range, vec2 softness) {
-	float midtones_start = clamp(midtones_range.x, 0.0, 1.0);
-	float highlights_start = clamp(midtones_range.y, midtones_start, 1.0);
-	float shadows_to_midtones = grading_tonal_transition(luminance, midtones_start, softness.x);
-	float midtones_to_highlights = grading_tonal_transition(luminance, highlights_start, softness.y);
-	vec3 weights = vec3(1.0 - shadows_to_midtones, shadows_to_midtones * (1.0 - midtones_to_highlights), midtones_to_highlights);
-	// Independent widths may overlap. Normalize to preserve neutral grading;
-	// the sum is always at least one, including hard or coincident cutoffs.
-	return weights / dot(weights, vec3(1.0));
+vec3 apply_grading_tonal_wheels(vec3 color, vec3 weights, vec4 shadows, vec4 midtones, vec4 highlights) {
+	return color * (shadows.rgb * weights.x + midtones.rgb * weights.y + highlights.rgb * weights.z);
 }
 
-float grading_local_contrast(float center_luminance, float average_luminance, float strength, float fine_strength) {
-	// Compare local differences in stops; reduce amplification near black and white.
-	float fine_detail = log2(max(center_luminance, 0.0) + 0.001) - log2(max(average_luminance, 0.0) + 0.001);
-	float tonal_protection = smoothstep(0.01, 0.08, center_luminance) * (1.0 - smoothstep(0.75, 1.0, center_luminance));
-	fine_detail *= mix(0.5, 1.0, tonal_protection);
-	float master_strength = 1.0 - exp2(-max(strength, 0.0));
-	return exp2(clamp(fine_detail * clamp(fine_strength, 0.0, 3.0) * master_strength, -0.75, 0.75));
+vec3 apply_grading_lift_gamma_gain(vec3 color, vec3 lift, vec3 inverse_gamma, vec3 gain) {
+	vec3 lifted = color * gain + lift;
+	// Match Unity's sign(x) * pow(abs(x), gamma) and only cap values that cannot
+	// be represented by the half-float HDR targets used by these render paths.
+	vec3 powered = pow(abs(lifted), inverse_gamma);
+	return sign(lifted) * min(powered, vec3(65504.0));
 }
 
 float grading_vignette(vec2 uv, float aspect, float strength, vec2 range) {

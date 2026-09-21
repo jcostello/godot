@@ -49,16 +49,43 @@
 			If [code]true[/code], enables advanced color grading controls under [b]Color Grading[/b]. If [code]false[/code], only basic adjustments (brightness, contrast, saturation) remain active.
 		</member>
 		<member name="adjustment_color_grading_intensity" type="float" setter="set_adjustment_color_grading_intensity" getter="get_adjustment_color_grading_intensity" default="1.0">
-			Controls the strength of all advanced color grading effects. At [code]0.0[/code], temperature, local contrast, tint, tonal wheels, curves, vibrance and vignette have no effect. At [code]1.0[/code], they are applied fully. Temperature and local contrast are blended at their respective stages; tonal wheels, curves, vibrance and vignette are blended together after the basic adjustments. Brightness, contrast, saturation and the color-correction LUT are independent of this setting.
+			Controls the strength of all advanced color grading effects. At [code]0.0[/code], temperature, tint, tonal wheels, lift/gamma/gain, curves, vibrance and vignette have no effect. At [code]1.0[/code], they are applied fully. Shadows/midtones/highlights and lift/gamma/gain are blended in scene-linear HDR before tonemapping; the remaining grading effects are blended at their respective stages. Brightness, contrast, saturation and the color-correction LUT are independent of this setting.
 		</member>
 		<member name="adjustment_enabled" type="bool" setter="set_adjustment_enabled" getter="is_adjustment_enabled" default="false">
-			If [code]true[/code], enables the [code]adjustment_*[/code] properties provided by this resource. If [code]false[/code], modifications to the [code]adjustment_*[/code] properties will have no effect on the rendered scene. Operations are applied in this order: white balance temperature, tonemapping, local contrast, brightness/contrast/saturation, advanced tonal grading, grading curves, vibrance, vignette, then the color-correction LUT.
+			If [code]true[/code], enables the [code]adjustment_*[/code] properties provided by this resource. If [code]false[/code], modifications to the [code]adjustment_*[/code] properties will have no effect on the rendered scene. Operations are applied in this order: white balance temperature, shadows/midtones/highlights, lift/gamma/gain, tonemapping, brightness/contrast/saturation, offset and tint, grading curves, vibrance, vignette, then the color-correction LUT.
 		</member>
 		<member name="adjustment_highlights_color" type="Color" setter="set_adjustment_highlights_color" getter="get_adjustment_highlights_color" default="Color(1, 1, 1, 1)">
-			Tints the brightest range of the rendered image. Effective only if [member adjustment_enabled] and [member adjustment_advanced] are [code]true[/code].
+			Unity-style color wheel for the brightest scene-linear luminance range. Effective only if [member adjustment_enabled] and [member adjustment_advanced] are [code]true[/code].
+		</member>
+		<member name="adjustment_highlights_intensity" type="float" setter="set_adjustment_highlights_intensity" getter="get_adjustment_highlights_intensity" default="0.0">
+			Signed highlights wheel intensity in the range [code]-1.0[/code] to [code]1.0[/code]. Positive values use Unity's four-times response; [code]0.0[/code] is neutral.
+		</member>
+		<member name="adjustment_highlights_start" type="float" setter="set_adjustment_highlights_start" getter="get_adjustment_highlights_start" default="0.55">
+			Scene-linear luminance where the smooth transition into highlights begins.
+		</member>
+		<member name="adjustment_highlights_end" type="float" setter="set_adjustment_highlights_end" getter="get_adjustment_highlights_end" default="1.0">
+			Scene-linear luminance where the transition into highlights is complete.
 		</member>
 		<member name="adjustment_highlights_luminance" type="float" setter="set_adjustment_highlights_luminance" getter="get_adjustment_highlights_luminance" default="1.0">
-			Multiplies the brightness of the brightest range of the rendered image. Effective only if [member adjustment_enabled] and [member adjustment_advanced] are [code]true[/code].
+			Legacy alias for [member adjustment_highlights_intensity], expressed as [code]intensity + 1.0[/code].
+		</member>
+		<member name="adjustment_lift_color" type="Color" setter="set_adjustment_lift_color" getter="get_adjustment_lift_color" default="Color(1, 1, 1, 1)">
+			Color tint used by the lift control. Lift primarily changes the darkest values and can move absolute black.
+		</member>
+		<member name="adjustment_lift_intensity" type="float" setter="set_adjustment_lift_intensity" getter="get_adjustment_lift_intensity" default="0.0">
+			Signed lift amount. A value of [code]0.0[/code] is neutral.
+		</member>
+		<member name="adjustment_gamma_color" type="Color" setter="set_adjustment_gamma_color" getter="get_adjustment_gamma_color" default="Color(1, 1, 1, 1)">
+			Color tint used by the gamma power curve, which primarily changes midtones.
+		</member>
+		<member name="adjustment_gamma_intensity" type="float" setter="set_adjustment_gamma_intensity" getter="get_adjustment_gamma_intensity" default="0.0">
+			Signed gamma amount. A value of [code]0.0[/code] is neutral. Extreme corrections are limited to the largest finite value representable by HDR half-float render targets.
+		</member>
+		<member name="adjustment_gain_color" type="Color" setter="set_adjustment_gain_color" getter="get_adjustment_gain_color" default="Color(1, 1, 1, 1)">
+			Color tint used by the gain multiplier, which primarily changes highlights.
+		</member>
+		<member name="adjustment_gain_intensity" type="float" setter="set_adjustment_gain_intensity" getter="get_adjustment_gain_intensity" default="0.0">
+			Signed gain amount. A value of [code]0.0[/code] is neutral.
 		</member>
 		<member name="adjustment_highlights_softness" type="float" setter="set_adjustment_highlights_softness" getter="get_adjustment_highlights_softness" default="0.1">
 			Total width of the transition centered at [member adjustment_midtones_end]. For example, a center of [code]0.3[/code] with softness [code]0.1[/code] blends from [code]0.25[/code] to [code]0.35[/code]. Zero produces an exact cutoff. The width does not move either transition center. Overlapping transitions are normalized so neutral grading preserves brightness. Effective only if [member adjustment_enabled] and [member adjustment_advanced] are [code]true[/code].
@@ -73,15 +100,18 @@
 			Adjusts saturation according to perceptual luma computed from sRGB-encoded color, matching the tonal wheel ranges. The input is clamped to [code]0.0[/code] through [code]1.0[/code]; it is not linear-light luminance. A curve value of [code]0.5[/code] is neutral. Effective only if [member adjustment_enabled] and [member adjustment_advanced] are [code]true[/code].
 		</member>
 		<member name="adjustment_midtones_color" type="Color" setter="set_adjustment_midtones_color" getter="get_adjustment_midtones_color" default="Color(1, 1, 1, 1)">
-			Tints the mid-range luminance of the rendered image while approximately preserving luminance. Effective only if [member adjustment_enabled] and [member adjustment_advanced] are [code]true[/code].
+			Unity-style color wheel for the mid-range scene-linear luminance. Effective only if [member adjustment_enabled] and [member adjustment_advanced] are [code]true[/code].
+		</member>
+		<member name="adjustment_midtones_intensity" type="float" setter="set_adjustment_midtones_intensity" getter="get_adjustment_midtones_intensity" default="0.0">
+			Signed midtones wheel intensity in the range [code]-1.0[/code] to [code]1.0[/code]. Positive values use Unity's four-times response; [code]0.0[/code] is neutral.
 		</member>
 		<member name="adjustment_midtones_end" type="float" setter="set_adjustment_midtones_end" getter="get_adjustment_midtones_end" default="0.55">
 			Sets the center of the midtones-to-highlights transition in perceptual sRGB luma. [member adjustment_highlights_softness] controls its width. With zero softness, values at or above this cutoff belong to highlights. Effective only if [member adjustment_enabled] and [member adjustment_advanced] are [code]true[/code].
 		</member>
 		<member name="adjustment_midtones_luminance" type="float" setter="set_adjustment_midtones_luminance" getter="get_adjustment_midtones_luminance" default="1.0">
-			Multiplies the brightness of the mid-range luminance of the rendered image. Effective only if [member adjustment_enabled] and [member adjustment_advanced] are [code]true[/code].
+			Legacy alias for [member adjustment_midtones_intensity], expressed as [code]intensity + 1.0[/code].
 		</member>
-		<member name="adjustment_midtones_start" type="float" setter="set_adjustment_midtones_start" getter="get_adjustment_midtones_start" default="0.45">
+		<member name="adjustment_midtones_start" type="float" setter="set_adjustment_midtones_start" getter="get_adjustment_midtones_start" default="0.3">
 			Sets the center of the shadows-to-midtones transition in perceptual sRGB luma after brightness, contrast, saturation, offset and tint. [member adjustment_shadows_softness] controls its width. With zero softness, values below this cutoff belong to shadows and values at or above it belong to midtones until [member adjustment_midtones_end]. Effective only if [member adjustment_enabled] and [member adjustment_advanced] are [code]true[/code].
 		</member>
 		<member name="adjustment_offset_color" type="Color" setter="set_adjustment_offset_color" getter="get_adjustment_offset_color" default="Color(1, 1, 1, 1)">
@@ -99,14 +129,26 @@
 		<member name="adjustment_tint" type="float" setter="set_adjustment_tint" getter="get_adjustment_tint" default="0.0">
 			Adjusts the green-magenta axis to compensate color temperature. Positive values push toward magenta, while negative values push toward green. Effective only if [member adjustment_enabled] and [member adjustment_advanced] are [code]true[/code].
 		</member>
+		<member name="adjustment_white_balance_mode" type="int" setter="set_adjustment_white_balance_mode" getter="get_adjustment_white_balance_mode" enum="Environment.WhiteBalanceMode" default="0">
+			Selects whether temperature and tint retain the previous split processing or use joint Bradford chromatic adaptation in linear color space.
+		</member>
 		<member name="adjustment_saturation_vs_saturation" type="CurveTexture" setter="set_adjustment_saturation_vs_saturation" getter="get_adjustment_saturation_vs_saturation">
 			Adjusts saturation according to input saturation. A curve value of [code]0.5[/code] is neutral. Effective only if [member adjustment_enabled] and [member adjustment_advanced] are [code]true[/code].
 		</member>
 		<member name="adjustment_shadows_color" type="Color" setter="set_adjustment_shadows_color" getter="get_adjustment_shadows_color" default="Color(1, 1, 1, 1)">
-			Tints the darkest range of the rendered image while approximately preserving luminance. Effective only if [member adjustment_enabled] and [member adjustment_advanced] are [code]true[/code].
+			Unity-style color wheel for the darkest scene-linear luminance range. Effective only if [member adjustment_enabled] and [member adjustment_advanced] are [code]true[/code].
+		</member>
+		<member name="adjustment_shadows_intensity" type="float" setter="set_adjustment_shadows_intensity" getter="get_adjustment_shadows_intensity" default="0.0">
+			Signed shadows wheel intensity in the range [code]-1.0[/code] to [code]1.0[/code]. Positive values use Unity's four-times response; [code]0.0[/code] is neutral.
+		</member>
+		<member name="adjustment_shadows_start" type="float" setter="set_adjustment_shadows_start" getter="get_adjustment_shadows_start" default="0.0">
+			Scene-linear luminance where the shadows weight starts decreasing.
+		</member>
+		<member name="adjustment_shadows_end" type="float" setter="set_adjustment_shadows_end" getter="get_adjustment_shadows_end" default="0.3">
+			Scene-linear luminance where the smooth transition out of shadows is complete.
 		</member>
 		<member name="adjustment_shadows_luminance" type="float" setter="set_adjustment_shadows_luminance" getter="get_adjustment_shadows_luminance" default="1.0">
-			Multiplies the brightness of the darkest range of the rendered image. Effective only if [member adjustment_enabled] and [member adjustment_advanced] are [code]true[/code].
+			Legacy alias for [member adjustment_shadows_intensity], expressed as [code]intensity + 1.0[/code].
 		</member>
 		<member name="adjustment_shadows_softness" type="float" setter="set_adjustment_shadows_softness" getter="get_adjustment_shadows_softness" default="0.1">
 			Total width of the transition centered at [member adjustment_midtones_start]. For example, a center of [code]0.3[/code] with softness [code]0.1[/code] blends from [code]0.25[/code] to [code]0.35[/code]. Zero produces an exact cutoff. The width does not move either transition center. Overlapping transitions are normalized so neutral grading preserves brightness. Effective only if [member adjustment_enabled] and [member adjustment_advanced] are [code]true[/code].
@@ -503,6 +545,12 @@
 		</constant>
 		<constant name="TONE_MAPPER_AGX" value="4" enum="ToneMapper">
 			Uses an adjustable film-like tonemapping curve and desaturates bright values for a more realistic appearance. Better than other tonemappers at maintaining the hue of colors as they become brighter. The slowest tonemapping option.
+		</constant>
+		<constant name="WHITE_BALANCE_LEGACY" value="0" enum="WhiteBalanceMode">
+			Uses the previous temperature and tint processing for compatibility with existing projects.
+		</constant>
+		<constant name="WHITE_BALANCE_CHROMATIC_ADAPTATION" value="1" enum="WhiteBalanceMode">
+			Applies temperature and tint together as a Bradford chromatic adaptation in linear color space before tonal grading and tonemapping.
 		</constant>
 		<constant name="GLOW_BLEND_MODE_ADDITIVE" value="0" enum="GlowBlendMode">
 			Adds the glow effect to the scene.

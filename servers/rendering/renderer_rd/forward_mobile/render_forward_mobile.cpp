@@ -1030,11 +1030,6 @@ void RenderForwardMobile::_render_scene(RenderDataRD *p_render_data, const Color
 			using_subpass_post_process = false;
 		}
 
-		if (p_render_data->environment.is_valid() && environment_get_adjustments_enabled(p_render_data->environment) && environment_get_adjustment_advance(p_render_data->environment) && environment_get_adjustment_color_grading_intensity(p_render_data->environment) > 0.0f && environment_get_adjustment_local_contrast(p_render_data->environment) > 0.001f && environment_get_adjustment_local_contrast_fine(p_render_data->environment) > 0.0f) {
-			// Local contrast samples neighboring pixels, which a subpass cannot access.
-			using_subpass_post_process = false;
-		}
-
 		if (rb->get_screen_space_aa() != RSE::VIEWPORT_SCREEN_SPACE_AA_DISABLED) {
 			// Can't do blit subpass because we're using screen space AA.
 			using_subpass_post_process = false;

@@ -30,6 +30,7 @@
 
 #pragma once
 
+#include "core/math/basis.h"
 #include "core/math/color.h"
 #include "core/math/vector2.h"
 #include "core/math/vector3.h"
@@ -38,50 +39,80 @@ namespace EnvironmentColorGrading {
 
 struct TonalRanges {
 	float shadows_start = 0.0f;
-	float shadows_end = 0.45f;
-	float midtones_start = 0.45f;
+	float shadows_end = 0.3f;
+	float midtones_start = 0.3f;
 	float midtones_end = 0.55f;
 	float highlights_start = 0.55f;
 	float highlights_end = 1.0f;
 };
 
-inline Vector2 clamp_midtones_range(float p_start, float p_end) {
+inline Vector2 clamp_tonal_range(float p_start, float p_end) {
 	const float start = CLAMP(p_start, 0.0f, 1.0f);
 	return Vector2(start, CLAMP(p_end, start, 1.0f));
 }
 
-// Keep these weights in sync with grading_tonal_weights() in color_grading_inc.glsl.
-// The inspector uses the same masks to preview the rendered transition bands.
-inline float tonal_transition(float p_luminance, float p_center, float p_softness) {
-	const float half_width = CLAMP(p_softness, 0.0f, 1.0f) * 0.5f;
-	const float start = p_center - half_width;
-	const float end = p_center + half_width;
-	if (end <= start) {
-		return p_luminance >= p_center ? 1.0f : 0.0f;
+inline float tonal_smoothstep(float p_start, float p_end, float p_luminance) {
+	if (p_end <= p_start) {
+		return p_luminance >= p_start ? 1.0f : 0.0f;
 	}
-	const float t = CLAMP((p_luminance - start) / (end - start), 0.0f, 1.0f);
+	const float t = CLAMP((p_luminance - p_start) / (p_end - p_start), 0.0f, 1.0f);
 	return t * t * (3.0f - 2.0f * t);
 }
 
-inline Vector3 tonal_weights(float p_luminance, const Vector2 &p_centers, const Vector2 &p_softness) {
-	const Vector2 centers = clamp_midtones_range(p_centers.x, p_centers.y);
-	const float shadows_to_midtones = tonal_transition(p_luminance, centers.x, p_softness.x);
-	const float midtones_to_highlights = tonal_transition(p_luminance, centers.y, p_softness.y);
-	const Vector3 weights(1.0f - shadows_to_midtones, shadows_to_midtones * (1.0f - midtones_to_highlights), midtones_to_highlights);
-	return weights / (weights.x + weights.y + weights.z);
+// Unity Graphics 6000.0/staging snapshot 48a8a5b, ColorGrading.hlsl and LutBuilderHdr.shader.
+// Keep this in sync with grading_tonal_weights() in color_grading_inc.glsl.
+inline Vector3 tonal_weights(float p_luminance, const Vector2 &p_shadows_limits, const Vector2 &p_highlights_limits) {
+	const Vector2 shadows = clamp_tonal_range(p_shadows_limits.x, p_shadows_limits.y);
+	const Vector2 highlights = clamp_tonal_range(p_highlights_limits.x, p_highlights_limits.y);
+	const float shadows_weight = 1.0f - tonal_smoothstep(shadows.x, shadows.y, p_luminance);
+	const float highlights_weight = tonal_smoothstep(highlights.x, highlights.y, p_luminance);
+	return Vector3(shadows_weight, 1.0f - shadows_weight - highlights_weight, highlights_weight);
+}
+
+inline float unity_luminance(const Color &p_color) {
+	return p_color.r * 0.2126729f + p_color.g * 0.7151522f + p_color.b * 0.0721750f;
+}
+
+inline Color prepare_shadows_midtones_highlights(const Color &p_color, float p_intensity) {
+	const Color linear = p_color.srgb_to_linear();
+	const float intensity = CLAMP(p_intensity, -1.0f, 1.0f);
+	const float weight = intensity * (intensity < 0.0f ? 1.0f : 4.0f);
+	return Color(MAX(linear.r + weight, 0.0f), MAX(linear.g + weight, 0.0f), MAX(linear.b + weight, 0.0f));
+}
+
+// Unity Graphics 6000.0/staging snapshot 48a8a5b, ColorUtils.PrepareLiftGammaGain().
+inline Color prepare_lift(const Color &p_color, float p_intensity) {
+	const Color linear = p_color.srgb_to_linear() * 0.15f;
+	const float luminance = unity_luminance(linear);
+	return Color(linear.r - luminance + p_intensity, linear.g - luminance + p_intensity, linear.b - luminance + p_intensity);
+}
+
+inline Color prepare_gamma(const Color &p_color, float p_intensity) {
+	const Color linear = p_color.srgb_to_linear() * 0.8f;
+	const float luminance = unity_luminance(linear);
+	const float base = 1.0f + p_intensity - luminance;
+	return Color(1.0f / MAX(linear.r + base, 0.001f), 1.0f / MAX(linear.g + base, 0.001f), 1.0f / MAX(linear.b + base, 0.001f));
+}
+
+inline Color prepare_gain(const Color &p_color, float p_intensity) {
+	const Color linear = p_color.srgb_to_linear() * 0.8f;
+	const float luminance = unity_luminance(linear);
+	return Color(linear.r - luminance + 1.0f + p_intensity, linear.g - luminance + 1.0f + p_intensity, linear.b - luminance + 1.0f + p_intensity);
 }
 
 inline TonalRanges clamp_tonal_ranges(float p_shadows_start, float p_shadows_end, float p_midtones_start, float p_midtones_end, float p_highlights_start, float p_highlights_end) {
 	TonalRanges ranges;
-	const Vector2 midtones_range = clamp_midtones_range(p_midtones_start, p_midtones_end);
+	const Vector2 midtones_range = clamp_tonal_range(p_midtones_start, p_midtones_end);
 	ranges.midtones_start = midtones_range.x;
 	ranges.midtones_end = midtones_range.y;
 
-	ranges.shadows_start = CLAMP(p_shadows_start, 0.0f, ranges.midtones_start);
-	ranges.shadows_end = CLAMP(p_shadows_end, ranges.shadows_start, ranges.midtones_start);
+	const Vector2 shadows_range = clamp_tonal_range(p_shadows_start, p_shadows_end);
+	ranges.shadows_start = shadows_range.x;
+	ranges.shadows_end = shadows_range.y;
 
-	ranges.highlights_start = CLAMP(p_highlights_start, ranges.midtones_end, 1.0f);
-	ranges.highlights_end = CLAMP(p_highlights_end, ranges.highlights_start, 1.0f);
+	const Vector2 highlights_range = clamp_tonal_range(p_highlights_start, p_highlights_end);
+	ranges.highlights_start = highlights_range.x;
+	ranges.highlights_end = highlights_range.y;
 
 	return ranges;
 }
@@ -119,6 +150,48 @@ inline Vector3 temperature_balance(float p_temperature) {
 			current.r / MAX(neutral.r, 1e-5f),
 			current.g / MAX(neutral.g, 1e-5f),
 			current.b / MAX(neutral.b, 1e-5f));
+}
+
+inline Basis white_balance_matrix(float p_temperature, float p_tint, float p_intensity) {
+	const auto white_xyz = [](float p_temperature_value, float p_tint_value) {
+		const float temperature = CLAMP(p_temperature_value, 1000.0f, 15000.0f);
+		const float temperature_squared = temperature * temperature;
+		const float u = (0.860117757f + 1.54118254e-4f * temperature + 1.28641212e-7f * temperature_squared) /
+				(1.0f + 8.42420235e-4f * temperature + 7.08145163e-7f * temperature_squared);
+		const float v = (0.317398726f + 4.22806245e-5f * temperature + 4.20481691e-8f * temperature_squared) /
+						(1.0f - 2.89741816e-5f * temperature + 1.61456053e-7f * temperature_squared) -
+				CLAMP(p_tint_value, -1.0f, 1.0f) * 0.05f;
+		const float d = 1.0f / MAX(2.0f * u - 8.0f * v + 4.0f, 1e-5f);
+		const float x = 3.0f * u * d;
+		const float y = MAX(2.0f * v * d, 1e-5f);
+		return Vector3(x / y, 1.0f, (1.0f - x - y) / y);
+	};
+
+	const Basis rgb_to_xyz(
+			0.4124564f, 0.3575761f, 0.1804375f,
+			0.2126729f, 0.7151522f, 0.0721750f,
+			0.0193339f, 0.1191920f, 0.9503041f);
+	const Basis xyz_to_rgb = rgb_to_xyz.inverse();
+	const Basis bradford(
+			0.8951f, 0.2664f, -0.1614f,
+			-0.7502f, 1.7135f, 0.0367f,
+			0.0389f, -0.0685f, 1.0296f);
+	const Basis inverse_bradford = bradford.inverse();
+	const Vector3 source_lms = bradford.xform(white_xyz(6500.0f, 0.0f));
+	const Vector3 target_lms = bradford.xform(white_xyz(p_temperature, p_tint));
+	const Basis scale(
+			target_lms.x / MAX(source_lms.x, 1e-5f), 0.0f, 0.0f,
+			0.0f, target_lms.y / MAX(source_lms.y, 1e-5f), 0.0f,
+			0.0f, 0.0f, target_lms.z / MAX(source_lms.z, 1e-5f));
+	const Basis adapted = xyz_to_rgb * inverse_bradford * scale * bradford * rgb_to_xyz;
+	const float intensity = CLAMP(p_intensity, 0.0f, 1.0f);
+	Basis result;
+	for (int row = 0; row < 3; row++) {
+		for (int column = 0; column < 3; column++) {
+			result[row][column] = Math::lerp(row == column ? 1.0f : 0.0f, adapted[row][column], intensity);
+		}
+	}
+	return result;
 }
 
 } // namespace EnvironmentColorGrading
