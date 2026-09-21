@@ -21,11 +21,15 @@ class EnvironmentColorGradingTrackballControl : public Control {
 	Button *reset_buttons[TRACKBALL_COUNT] = {};
 	Color colors[TRACKBALL_COUNT];
 	int dragging_trackball = -1;
+	Vector2 drag_color_position;
 	bool updating = false;
+	int trackball_count = 4;
+	bool lift_gamma_gain = false;
+	float neutral_value = 1.0f;
 
 	bool _is_vertical_layout() const;
 	Rect2 _get_trackball_rect(int p_index) const;
-	void _set_trackball_from_position(int p_index, const Vector2 &p_position, bool p_changing);
+	void _apply_trackball_motion(int p_index, const Vector2 &p_relative, bool p_fine, bool p_changing);
 	void _luminance_changed(double p_value, int p_index);
 	void _reset_trackball(int p_index);
 
@@ -35,7 +39,8 @@ protected:
 
 public:
 	void set_values(const Color p_colors[TRACKBALL_COUNT], const float p_luminances[TRACKBALL_COUNT]);
-	EnvironmentColorGradingTrackballControl(EnvironmentColorGradingEditor *p_editor);
+	void set_read_only(bool p_read_only);
+	EnvironmentColorGradingTrackballControl(EnvironmentColorGradingEditor *p_editor, int p_count, float p_neutral_value, bool p_lift_gamma_gain);
 };
 
 class EnvironmentColorGradingEditor : public EditorProperty {
@@ -44,24 +49,27 @@ class EnvironmentColorGradingEditor : public EditorProperty {
 	friend class EnvironmentColorGradingTrackballControl;
 
 	static constexpr int TRACKBALL_COUNT = 4;
-	static const char *color_properties[TRACKBALL_COUNT];
-	static const char *luminance_properties[TRACKBALL_COUNT];
+	const char *color_properties[TRACKBALL_COUNT] = {};
+	const char *luminance_properties[TRACKBALL_COUNT] = {};
+	int trackball_count = 4;
 	EnvironmentColorGradingTrackballControl *trackballs = nullptr;
+
+protected:
+	void _set_read_only(bool p_read_only) override;
 
 public:
 	void update_property() override;
 	void set_trackball_color(int p_index, const Color &p_color, bool p_changing);
 	void set_trackball_luminance(int p_index, float p_luminance);
-	EnvironmentColorGradingEditor();
+	void reset_trackball(int p_index);
+	EnvironmentColorGradingEditor(bool p_lift_gamma_gain = false);
 };
 
 class EnvironmentTonalRangesControl : public Control {
 	GDCLASS(EnvironmentTonalRangesControl, Control);
 
 	EnvironmentTonalRangesEditor *editor = nullptr;
-	float midtones_start = 0.45f;
-	float midtones_end = 0.55f;
-	Vector2 softness = Vector2(0.1f, 0.1f);
+	float limits[4] = { 0.0f, 0.3f, 0.55f, 1.0f };
 	int dragging_handle = -1;
 	float drag_offset = 0.0f;
 
@@ -75,7 +83,7 @@ protected:
 	void gui_input(const Ref<InputEvent> &p_event) override;
 
 public:
-	void set_values(float p_midtones_start, float p_midtones_end, const Vector2 &p_softness);
+	void set_values(const float p_limits[4]);
 	EnvironmentTonalRangesControl(EnvironmentTonalRangesEditor *p_editor);
 };
 
@@ -85,9 +93,7 @@ class EnvironmentTonalRangesEditor : public EditorProperty {
 	friend class EnvironmentTonalRangesControl;
 
 	EnvironmentTonalRangesControl *ranges_control = nullptr;
-	EditorSpinSlider *cutoff_sliders[2] = {};
-	EditorSpinSlider *softness_sliders[2] = {};
-	void _softness_changed(double p_value, int p_handle);
+	EditorSpinSlider *cutoff_sliders[4] = {};
 	void _cutoff_changed(double p_value, int p_handle);
 
 protected:

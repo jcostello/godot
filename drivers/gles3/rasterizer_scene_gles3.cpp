@@ -2586,6 +2586,26 @@ void RasterizerSceneGLES3::render_scene(const Ref<RenderSceneBuffers> &p_render_
 		tonemap_ubo.highlights[1] = highlights.g;
 		tonemap_ubo.highlights[2] = highlights.b;
 		tonemap_ubo.highlights[3] = environment_get_adjustments_highlights_luminance(render_data.environment);
+		const Color lift = environment_get_adjustments_lift(render_data.environment);
+		const Color gamma = environment_get_adjustments_gamma(render_data.environment);
+		const Color gain = environment_get_adjustments_gain(render_data.environment);
+		tonemap_ubo.lift[0] = lift.r;
+		tonemap_ubo.lift[1] = lift.g;
+		tonemap_ubo.lift[2] = lift.b;
+		tonemap_ubo.gamma[0] = gamma.r;
+		tonemap_ubo.gamma[1] = gamma.g;
+		tonemap_ubo.gamma[2] = gamma.b;
+		tonemap_ubo.gain[0] = gain.r;
+		tonemap_ubo.gain[1] = gain.g;
+		tonemap_ubo.gain[2] = gain.b;
+		tonemap_ubo.gain[3] = !(lift.is_equal_approx(Color(0, 0, 0)) && gamma.is_equal_approx(Color(1, 1, 1)) && gain.is_equal_approx(Color(1, 1, 1)));
+		const Basis white_balance = environment_get_adjustment_white_balance_matrix(render_data.environment);
+		for (int row = 0; row < 3; row++) {
+			for (int column = 0; column < 3; column++) {
+				tonemap_ubo.white_balance[row * 4 + column] = white_balance[row][column];
+			}
+		}
+		tonemap_ubo.white_balance[3] = environment_get_adjustment_white_balance_enabled(render_data.environment);
 		tonemap_ubo.offset[0] = offset.r;
 		tonemap_ubo.offset[1] = offset.g;
 		tonemap_ubo.offset[2] = offset.b;
@@ -2594,12 +2614,13 @@ void RasterizerSceneGLES3::render_scene(const Ref<RenderSceneBuffers> &p_render_
 		tonemap_ubo.tint_midtones_range[1] = environment_get_adjustment_midtones_start(render_data.environment);
 		tonemap_ubo.tint_midtones_range[2] = environment_get_adjustment_midtones_end(render_data.environment);
 		tonemap_ubo.tint_midtones_range[3] = environment_get_adjustment_color_grading_intensity(render_data.environment);
-		const Vector2 tonal_softness = environment_get_adjustment_tonal_softness(render_data.environment);
-		tonemap_ubo.tonal_softness[0] = tonal_softness.x;
-		tonemap_ubo.tonal_softness[1] = tonal_softness.y;
+		tonemap_ubo.tonal_softness[0] = environment_get_adjustment_shadows_start(render_data.environment);
+		tonemap_ubo.tonal_softness[1] = environment_get_adjustment_shadows_end(render_data.environment);
+		tonemap_ubo.tonal_softness[2] = environment_get_adjustment_highlights_start(render_data.environment);
+		tonemap_ubo.tonal_softness[3] = environment_get_adjustment_highlights_end(render_data.environment);
 		tonemap_ubo.grading_effects[0] = environment_get_adjustment_vibrance(render_data.environment);
-		tonemap_ubo.grading_effects[1] = environment_get_adjustment_local_contrast(render_data.environment);
-		tonemap_ubo.grading_effects[2] = environment_get_adjustment_local_contrast_fine(render_data.environment);
+		tonemap_ubo.grading_effects[1] = 0.0f;
+		tonemap_ubo.grading_effects[2] = 0.0f;
 		tonemap_ubo.grading_effects[3] = environment_get_adjustment_vignette(render_data.environment);
 		tonemap_ubo.vignette_range[0] = environment_get_adjustment_vignette_start(render_data.environment);
 		tonemap_ubo.vignette_range[1] = environment_get_adjustment_vignette_end(render_data.environment);

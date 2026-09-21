@@ -181,10 +181,12 @@ private:
 		float adjustments_contrast = 1.0f;
 		float adjustments_saturation = 1.0f;
 		float adjustments_tint = 0.0f;
+		bool adjustments_white_balance_enabled = false;
+		Basis adjustments_white_balance_matrix;
 		float adjustments_shadows_start = 0.0f;
-		float adjustments_shadows_end = 0.45f;
+		float adjustments_shadows_end = 0.3f;
 		Vector2 adjustments_tonal_softness = Vector2(0.1f, 0.1f);
-		float adjustments_midtones_start = 0.45f;
+		float adjustments_midtones_start = 0.3f;
 		float adjustments_midtones_end = 0.55f;
 		float adjustments_highlights_start = 0.55f;
 		float adjustments_highlights_end = 1.0f;
@@ -196,6 +198,9 @@ private:
 		float adjustments_midtones_luminance = 1.0f;
 		Color adjustments_highlights_color = Color(1, 1, 1);
 		float adjustments_highlights_luminance = 1.0f;
+		Color adjustments_lift = Color(0, 0, 0);
+		Color adjustments_gamma = Color(1, 1, 1);
+		Color adjustments_gain = Color(1, 1, 1);
 		RID adjustments_hue_vs_hue;
 		RID adjustments_hue_vs_saturation;
 		RID adjustments_saturation_vs_saturation;
@@ -203,8 +208,6 @@ private:
 		bool use_1d_color_correction = false;
 		RID color_correction;
 		float adjustments_vibrance = 0.0f;
-		float adjustments_local_contrast = 0.0f;
-		float adjustments_local_contrast_fine = 1.0f;
 		float adjustments_vignette = 0.0f;
 		float adjustments_vignette_start = 0.6f;
 		float adjustments_vignette_end = 1.0f;
@@ -358,14 +361,14 @@ public:
 	// Adjustment
 	void environment_set_adjustment(RID p_env, bool p_enable, float p_brightness, float p_contrast, float p_saturation, bool p_use_1d_color_correction, RID p_color_correction, const Color &p_shadows_color, float p_shadows_luminance, const Color &p_midtones_color, float p_midtones_luminance, const Color &p_highlights_color, float p_highlights_luminance);
 	void environment_set_adjustment_offset(RID p_env, const Color &p_color, float p_luminance);
+	void environment_set_adjustment_lift_gamma_gain(RID p_env, const Color &p_lift_color, float p_lift_intensity, const Color &p_gamma_color, float p_gamma_intensity, const Color &p_gain_color, float p_gain_intensity);
 	void environment_set_adjustment_tint(RID p_env, float p_tint);
+	void environment_set_adjustment_white_balance(RID p_env, bool p_chromatic_adaptation, float p_temperature, float p_tint, float p_intensity);
 	void environment_set_adjustment_tonal_softness(RID p_env, float p_shadows_softness, float p_highlights_softness);
 	void environment_set_adjustment_midtones_range(RID p_env, float p_shadows_start, float p_shadows_end, float p_midtones_start, float p_midtones_end, float p_highlights_start, float p_highlights_end);
 	void environment_set_adjustment_advance(RID p_env, bool p_enable, float p_intensity);
 	void environment_set_adjustment_curves(RID p_env, RID p_hue_vs_hue, RID p_hue_vs_saturation, RID p_saturation_vs_saturation, RID p_luminance_vs_saturation);
 	void environment_set_adjustment_vibrance(RID p_env, float p_vibrance);
-	void environment_set_adjustment_local_contrast(RID p_env, float p_local_contrast);
-	void environment_set_adjustment_local_contrast_fine(RID p_env, float p_local_contrast_fine);
 	void environment_set_adjustment_vignette(RID p_env, float p_vignette, float p_start, float p_end);
 	bool environment_get_adjustments_enabled(RID p_env) const;
 	float environment_get_adjustments_brightness(RID p_env) const;
@@ -374,6 +377,8 @@ public:
 	bool environment_get_adjustment_advance(RID p_env) const;
 	float environment_get_adjustment_color_grading_intensity(RID p_env) const;
 	float environment_get_adjustment_tint(RID p_env) const;
+	bool environment_get_adjustment_white_balance_enabled(RID p_env) const;
+	Basis environment_get_adjustment_white_balance_matrix(RID p_env) const;
 	float environment_get_adjustment_shadows_start(RID p_env) const;
 	float environment_get_adjustment_shadows_end(RID p_env) const;
 	Vector2 environment_get_adjustment_tonal_softness(RID p_env) const;
@@ -383,6 +388,9 @@ public:
 	float environment_get_adjustment_highlights_end(RID p_env) const;
 	Color environment_get_adjustments_offset_color(RID p_env) const;
 	float environment_get_adjustments_offset_luminance(RID p_env) const;
+	Color environment_get_adjustments_lift(RID p_env) const;
+	Color environment_get_adjustments_gamma(RID p_env) const;
+	Color environment_get_adjustments_gain(RID p_env) const;
 	Color environment_get_adjustments_shadows_color(RID p_env) const;
 	float environment_get_adjustments_shadows_luminance(RID p_env) const;
 	Color environment_get_adjustments_midtones_color(RID p_env) const;
@@ -396,8 +404,6 @@ public:
 	bool environment_get_use_1d_color_correction(RID p_env) const;
 	RID environment_get_color_correction(RID p_env) const;
 	float environment_get_adjustment_vibrance(RID p_env) const;
-	float environment_get_adjustment_local_contrast(RID p_env) const;
-	float environment_get_adjustment_local_contrast_fine(RID p_env) const;
 	float environment_get_adjustment_vignette(RID p_env) const;
 	float environment_get_adjustment_vignette_start(RID p_env) const;
 	float environment_get_adjustment_vignette_end(RID p_env) const;

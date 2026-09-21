@@ -887,14 +887,14 @@ public:
 
 	FUNC13(environment_set_adjustment, RID, bool, float, float, float, bool, RID, const Color &, float, const Color &, float, const Color &, float)
 	FUNC3(environment_set_adjustment_offset, RID, const Color &, float)
+	FUNC7(environment_set_adjustment_lift_gamma_gain, RID, const Color &, float, const Color &, float, const Color &, float)
 	FUNC2(environment_set_adjustment_tint, RID, float)
+	FUNC5(environment_set_adjustment_white_balance, RID, bool, float, float, float)
 	FUNC3(environment_set_adjustment_tonal_softness, RID, float, float)
 	FUNC7(environment_set_adjustment_midtones_range, RID, float, float, float, float, float, float)
 	FUNC3(environment_set_adjustment_advance, RID, bool, float)
 	FUNC5(environment_set_adjustment_curves, RID, RID, RID, RID, RID)
 	FUNC2(environment_set_adjustment_vibrance, RID, float)
-	FUNC2(environment_set_adjustment_local_contrast, RID, float)
-	FUNC2(environment_set_adjustment_local_contrast_fine, RID, float)
 	FUNC4(environment_set_adjustment_vignette, RID, float, float, float)
 
 	FUNC11(environment_set_fog, RID, bool, const Color &, float, float, float, float, float, float, float, RSE::EnvironmentFogMode)

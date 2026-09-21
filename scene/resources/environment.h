@@ -40,6 +40,10 @@ class Environment : public Resource {
 	GDCLASS(Environment, Resource);
 
 public:
+	enum WhiteBalanceMode {
+		WHITE_BALANCE_LEGACY,
+		WHITE_BALANCE_CHROMATIC_ADAPTATION,
+	};
 	enum BGMode {
 		BG_CLEAR_COLOR,
 		BG_COLOR,
@@ -226,22 +230,29 @@ private:
 	float adjustment_contrast = 1.0;
 	float adjustment_saturation = 1.0;
 	float adjustment_tint = 0.0;
+	WhiteBalanceMode adjustment_white_balance_mode = WHITE_BALANCE_LEGACY;
 	float adjustment_shadows_start = 0.0;
-	float adjustment_shadows_end = 0.45;
+	float adjustment_shadows_end = 0.3;
 	float adjustment_shadows_softness = 0.1f;
 	float adjustment_highlights_softness = 0.1f;
-	float adjustment_midtones_start = 0.45;
+	float adjustment_midtones_start = 0.3;
 	float adjustment_midtones_end = 0.55;
 	float adjustment_highlights_start = 0.55;
 	float adjustment_highlights_end = 1.0;
 	Color adjustment_offset_color = Color(1, 1, 1);
 	float adjustment_offset_luminance = 1.0;
 	Color adjustment_shadows_color = Color(1, 1, 1);
-	float adjustment_shadows_luminance = 1.0;
+	float adjustment_shadows_intensity = 0.0;
 	Color adjustment_midtones_color = Color(1, 1, 1);
-	float adjustment_midtones_luminance = 1.0;
+	float adjustment_midtones_intensity = 0.0;
 	Color adjustment_highlights_color = Color(1, 1, 1);
-	float adjustment_highlights_luminance = 1.0;
+	float adjustment_highlights_intensity = 0.0;
+	Color adjustment_lift_color = Color(1, 1, 1);
+	float adjustment_lift_intensity = 0.0;
+	Color adjustment_gamma_color = Color(1, 1, 1);
+	float adjustment_gamma_intensity = 0.0;
+	Color adjustment_gain_color = Color(1, 1, 1);
+	float adjustment_gain_intensity = 0.0;
 	Ref<CurveTexture> adjustment_hue_vs_hue;
 	Ref<CurveTexture> adjustment_hue_vs_saturation;
 	Ref<CurveTexture> adjustment_saturation_vs_saturation;
@@ -253,8 +264,6 @@ private:
 	bool use_1d_color_correction = true;
 	Ref<Texture> adjustment_color_correction;
 	float adjustment_vibrance = 0.0;
-	float adjustment_local_contrast = 0.0;
-	float adjustment_local_contrast_fine = 1.0;
 	float adjustment_vignette = 0.0;
 	float adjustment_vignette_start = 0.6;
 	float adjustment_vignette_end = 1.0;
@@ -493,6 +502,8 @@ public:
 	float get_adjustment_saturation() const;
 	void set_adjustment_tint(float p_tint);
 	float get_adjustment_tint() const;
+	void set_adjustment_white_balance_mode(WhiteBalanceMode p_mode);
+	WhiteBalanceMode get_adjustment_white_balance_mode() const;
 	void set_adjustment_shadows_start(float p_shadows_start);
 	float get_adjustment_shadows_start() const;
 	void set_adjustment_shadows_end(float p_shadows_end);
@@ -517,14 +528,32 @@ public:
 	Color get_adjustment_shadows_color() const;
 	void set_adjustment_shadows_luminance(float p_luminance);
 	float get_adjustment_shadows_luminance() const;
+	void set_adjustment_shadows_intensity(float p_intensity);
+	float get_adjustment_shadows_intensity() const;
 	void set_adjustment_midtones_color(const Color &p_color);
 	Color get_adjustment_midtones_color() const;
 	void set_adjustment_midtones_luminance(float p_luminance);
 	float get_adjustment_midtones_luminance() const;
+	void set_adjustment_midtones_intensity(float p_intensity);
+	float get_adjustment_midtones_intensity() const;
 	void set_adjustment_highlights_color(const Color &p_color);
 	Color get_adjustment_highlights_color() const;
 	void set_adjustment_highlights_luminance(float p_luminance);
 	float get_adjustment_highlights_luminance() const;
+	void set_adjustment_highlights_intensity(float p_intensity);
+	float get_adjustment_highlights_intensity() const;
+	void set_adjustment_lift_color(const Color &p_color);
+	Color get_adjustment_lift_color() const;
+	void set_adjustment_lift_intensity(float p_intensity);
+	float get_adjustment_lift_intensity() const;
+	void set_adjustment_gamma_color(const Color &p_color);
+	Color get_adjustment_gamma_color() const;
+	void set_adjustment_gamma_intensity(float p_intensity);
+	float get_adjustment_gamma_intensity() const;
+	void set_adjustment_gain_color(const Color &p_color);
+	Color get_adjustment_gain_color() const;
+	void set_adjustment_gain_intensity(float p_intensity);
+	float get_adjustment_gain_intensity() const;
 	void set_adjustment_hue_vs_hue(const Ref<CurveTexture> &p_curve);
 	Ref<CurveTexture> get_adjustment_hue_vs_hue() const;
 	void set_adjustment_hue_vs_saturation(const Ref<CurveTexture> &p_curve);
@@ -537,10 +566,6 @@ public:
 	Ref<Texture> get_adjustment_color_correction() const;
 	void set_adjustment_vibrance(float p_vibrance);
 	float get_adjustment_vibrance() const;
-	void set_adjustment_local_contrast(float p_local_contrast);
-	float get_adjustment_local_contrast() const;
-	void set_adjustment_local_contrast_fine(float p_local_contrast_fine);
-	float get_adjustment_local_contrast_fine() const;
 	void set_adjustment_vignette(float p_vignette);
 	float get_adjustment_vignette() const;
 	void set_adjustment_vignette_start(float p_start);
@@ -551,6 +576,8 @@ public:
 	Environment();
 	~Environment();
 };
+
+VARIANT_ENUM_CAST(Environment::WhiteBalanceMode);
 
 VARIANT_ENUM_CAST(Environment::BGMode)
 VARIANT_ENUM_CAST(Environment::AmbientSource)

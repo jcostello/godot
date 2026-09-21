@@ -48,6 +48,18 @@ layout(set = 3, binding = 2) uniform sampler2D hue_vs_saturation_curve;
 layout(set = 3, binding = 3) uniform sampler2D saturation_vs_saturation_curve;
 layout(set = 3, binding = 4) uniform sampler2D luminance_vs_saturation_curve;
 
+layout(set = 3, binding = 5, std140) uniform GradingData {
+	vec4 shadows;
+	vec4 midtones;
+	vec4 highlights;
+	vec4 lift;
+	vec4 gamma;
+	vec4 gain;
+	vec4 white_balance_0;
+	vec4 white_balance_1;
+	vec4 white_balance_2;
+} grading;
+
 layout(set = 0, binding = 0) uniform SAMPLER_FORMAT source_color;
 layout(set = 1, binding = 0) uniform sampler2D source_auto_exposure;
 layout(set = 2, binding = 0) uniform SAMPLER_FORMAT source_glow;
@@ -93,13 +105,10 @@ layout(push_constant, std430) uniform Params {
 	vec4 offset;
 	vec4 tint_midtones_range;
 	vec4 tonal_softness;
-	vec4 shadows;
-	vec4 midtones;
-	vec4 highlights;
 	vec3 tonemap_temperature;
 	float vibrance;
-	float local_contrast;
-	float local_contrast_fine;
+	float grading_pad_0;
+	float grading_pad_1;
 	float vignette;
 	vec2 vignette_range;
 }
@@ -282,20 +291,10 @@ vec3 apply_tonemapping(vec3 color) { // inputs are LINEAR
 }
 
 vec3 apply_temperature_balance(vec3 color) {
+	if (grading.white_balance_0.w > 0.5) {
+		return vec3(dot(grading.white_balance_0.xyz, color), dot(grading.white_balance_1.xyz, color), dot(grading.white_balance_2.xyz, color));
+	}
 	return color * params.tonemap_temperature;
-}
-
-float sample_source_tonemapped_luminance(vec2 p_uv, float p_exposure) {
-#ifdef USE_MULTIVIEW
-	vec3 sample_color = textureLod(source_color, vec3(p_uv, ViewIndex), 0.0).rgb;
-#else
-	vec3 sample_color = textureLod(source_color, p_uv, 0.0).rgb;
-#endif
-	sample_color *= params.luminance_multiplier;
-	sample_color *= p_exposure;
-	sample_color = apply_temperature_balance(sample_color);
-	sample_color = apply_tonemapping(sample_color);
-	return dot(sample_color, vec3(0.2126, 0.7152, 0.0722));
 }
 
 #ifdef USE_GLOW_FILTER_BICUBIC
@@ -928,23 +927,22 @@ void main() {
 		}
 	}
 
+	// Unity 6 URP applies shadows/midtones/highlights and lift/gamma/gain to
+	// scene-linear HDR color before tonemapping.
+	if (bool(params.flags & FLAG_USE_BCS) && bool(params.flags & FLAG_USE_COLOR_GRADING)) {
+		vec3 color_before_linear_grading = color.rgb;
+		float grading_luminance = dot(color.rgb, vec3(0.2126729, 0.7151522, 0.0721750));
+		vec3 weights = grading_tonal_weights(grading_luminance, params.tonal_softness);
+		color.rgb = apply_grading_tonal_wheels(color.rgb, weights, grading.shadows, grading.midtones, grading.highlights);
+		if (grading.gain.a > 0.5) {
+			color.rgb = apply_grading_lift_gamma_gain(color.rgb, grading.lift.rgb, grading.gamma.rgb, grading.gain.rgb);
+		}
+		color.rgb = mix(color_before_linear_grading, color.rgb, params.tint_midtones_range.w);
+	}
+
 	// Tonemap to lower dynamic range.
 
 	color.rgb = apply_tonemapping(color.rgb);
-
-	if (bool(params.flags & FLAG_USE_BCS) && bool(params.flags & FLAG_USE_COLOR_GRADING) && params.local_contrast > 0.001 && params.local_contrast_fine > 0.0) {
-		float center_luminance = sample_source_tonemapped_luminance(uv_interp, exposure);
-		vec2 texel = params.pixel_size;
-		float luma_small = center_luminance;
-		luma_small += sample_source_tonemapped_luminance(clamp(uv_interp + vec2(texel.x, 0.0), vec2(0.0), vec2(1.0)), exposure);
-		luma_small += sample_source_tonemapped_luminance(clamp(uv_interp - vec2(texel.x, 0.0), vec2(0.0), vec2(1.0)), exposure);
-		luma_small += sample_source_tonemapped_luminance(clamp(uv_interp + vec2(0.0, texel.y), vec2(0.0), vec2(1.0)), exposure);
-		luma_small += sample_source_tonemapped_luminance(clamp(uv_interp - vec2(0.0, texel.y), vec2(0.0), vec2(1.0)), exposure);
-		luma_small *= 0.2;
-
-		float multiplier = grading_local_contrast(center_luminance, luma_small, params.local_contrast, params.local_contrast_fine);
-		color.rgb *= mix(1.0, multiplier, params.tint_midtones_range.w);
-	}
 
 	// Post-tonemap glow.
 
@@ -989,24 +987,10 @@ void main() {
 		if (bool(params.flags & FLAG_USE_COLOR_GRADING)) {
 			color.rgb += params.offset.rgb - vec3(1.0);
 			color.rgb *= params.offset.a;
-			float tint = params.tint_midtones_range.x;
+			float tint = grading.white_balance_0.w > 0.5 ? 0.0 : params.tint_midtones_range.x;
 			vec3 tint_balance = vec3(1.0 + tint, 1.0 - tint, 1.0 + tint);
 			color.rgb *= tint_balance;
 
-			float luminance = dot(color.rgb, vec3(0.2126, 0.7152, 0.0722));
-			vec3 weights = grading_tonal_weights(luminance, params.tint_midtones_range.yz, params.tonal_softness.xy);
-			float shadows_weight = weights.x;
-			float midtones_weight = weights.y;
-			float highlights_weight = weights.z;
-			vec3 wheel_color = params.shadows.rgb * shadows_weight;
-			wheel_color += params.midtones.rgb * midtones_weight;
-			wheel_color += params.highlights.rgb * highlights_weight;
-			float wheel_neutral = dot(wheel_color, vec3(0.2126, 0.7152, 0.0722));
-			color.rgb += (wheel_color - vec3(wheel_neutral)) * max(luminance, 0.01);
-			float wheel_luminance = params.shadows.a * shadows_weight;
-			wheel_luminance += params.midtones.a * midtones_weight;
-			wheel_luminance += params.highlights.a * highlights_weight;
-			color.rgb *= wheel_luminance;
 		}
 
 		if (bool(params.flags & FLAG_USE_COLOR_GRADING_CURVES)) {

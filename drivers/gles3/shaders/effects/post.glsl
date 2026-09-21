@@ -132,18 +132,6 @@ in vec2 uv_interp;
 layout(location = 0) out vec4 frag_color;
 
 #ifdef USE_COLOR_GRADING
-float sample_source_tonemapped_luminance(vec2 uv) {
-#ifdef USE_MULTIVIEW
-	vec3 color = textureLod(source_color, vec3(uv, view), 0.0).rgb;
-#else
-	vec3 color = textureLod(source_color, uv, 0.0).rgb;
-#endif
-#ifdef USE_LUMINANCE_MULTIPLIER
-	color /= luminance_multiplier;
-#endif
-	color = apply_tonemapping(srgb_to_linear(color) * tonemap_temperature.rgb);
-	return dot(color, vec3(0.2126, 0.7152, 0.0722));
-}
 #endif
 
 void main() {
@@ -186,27 +174,29 @@ void main() {
 #endif // USE_GLOW
 
 	color.rgb = srgb_to_linear(color.rgb);
-	color.rgb *= tonemap_temperature.rgb;
+	if (white_balance_0.w > 0.5) {
+		color.rgb = vec3(dot(white_balance_0.xyz, color.rgb), dot(white_balance_1.xyz, color.rgb), dot(white_balance_2.xyz, color.rgb));
+	} else {
+		color.rgb *= tonemap_temperature.rgb;
+	}
 
 #if defined(USE_SOME_SSAO)
 	// Putting SSAO after the conversion to linear color, though it might be better before the glow.
 	color.rgb *= s4ao(uv_interp); // The USE_SSAO_X controls the number of samples.
 #endif
 
-	color.rgb = apply_tonemapping(color.rgb);
-
 #ifdef USE_COLOR_GRADING
-	if (grading_effects.y > 0.001 && grading_effects.z > 0.0) {
-		float center_luminance = sample_source_tonemapped_luminance(uv_interp);
-		float average_luminance = center_luminance;
-		average_luminance += sample_source_tonemapped_luminance(clamp(uv_interp + vec2(pixel_size.x, 0.0), vec2(0.0), vec2(1.0)));
-		average_luminance += sample_source_tonemapped_luminance(clamp(uv_interp - vec2(pixel_size.x, 0.0), vec2(0.0), vec2(1.0)));
-		average_luminance += sample_source_tonemapped_luminance(clamp(uv_interp + vec2(0.0, pixel_size.y), vec2(0.0), vec2(1.0)));
-		average_luminance += sample_source_tonemapped_luminance(clamp(uv_interp - vec2(0.0, pixel_size.y), vec2(0.0), vec2(1.0)));
-		float multiplier = grading_local_contrast(center_luminance, average_luminance * 0.2, grading_effects.y, grading_effects.z);
-		color.rgb *= mix(1.0, multiplier, tint_midtones_range.w);
+	vec3 color_before_linear_grading = color.rgb;
+	float linear_grading_luminance = dot(color.rgb, vec3(0.2126729, 0.7151522, 0.0721750));
+	vec3 linear_grading_weights = grading_tonal_weights(linear_grading_luminance, tonal_softness);
+	color.rgb = apply_grading_tonal_wheels(color.rgb, linear_grading_weights, shadows, midtones, highlights);
+	if (gain.a > 0.5) {
+		color.rgb = apply_grading_lift_gamma_gain(color.rgb, lift.rgb, gamma.rgb, gain.rgb);
 	}
+	color.rgb = mix(color_before_linear_grading, color.rgb, tint_midtones_range.w);
 #endif
+
+	color.rgb = apply_tonemapping(color.rgb);
 
 #ifdef USE_BCS
 	// Apply brightness:
@@ -236,23 +226,9 @@ void main() {
 #ifdef USE_COLOR_GRADING
 	color.rgb += offset.rgb - vec3(1.0);
 	color.rgb *= offset.a;
-	float tint = tint_midtones_range.x;
+	float tint = white_balance_0.w > 0.5 ? 0.0 : tint_midtones_range.x;
 	color.rgb *= vec3(1.0 + tint, 1.0 - tint, 1.0 + tint);
 
-	float grading_luminance = dot(color.rgb, vec3(0.2126, 0.7152, 0.0722));
-	vec3 weights = grading_tonal_weights(grading_luminance, tint_midtones_range.yz, tonal_softness.xy);
-	float shadows_weight = weights.x;
-	float midtones_weight = weights.y;
-	float highlights_weight = weights.z;
-	vec3 wheel_color = shadows.rgb * shadows_weight;
-	wheel_color += midtones.rgb * midtones_weight;
-	wheel_color += highlights.rgb * highlights_weight;
-	float wheel_neutral = dot(wheel_color, vec3(0.2126, 0.7152, 0.0722));
-	color.rgb += (wheel_color - vec3(wheel_neutral)) * max(grading_luminance, 0.01);
-	float wheel_luminance = shadows.a * shadows_weight;
-	wheel_luminance += midtones.a * midtones_weight;
-	wheel_luminance += highlights.a * highlights_weight;
-	color.rgb *= wheel_luminance;
 #endif
 
 #ifdef USE_COLOR_GRADING_CURVES
