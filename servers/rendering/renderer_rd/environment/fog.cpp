@@ -573,6 +573,33 @@ void Fog::volumetric_fog_update(const VolumetricFogSettings &p_settings, const P
 	RD::get_singleton()->draw_command_begin_label("Volumetric Fog");
 
 	Ref<VolumetricFog> fog = p_settings.vfog;
+	RendererRD::LightStorage *light_storage = RendererRD::LightStorage::get_singleton();
+	RID lightmap_probe_textures[VolumetricFogShader::MAX_LIGHTMAP_PROBE_VOLUMES];
+	RID lightmap_probe_instances[VolumetricFogShader::MAX_LIGHTMAP_PROBE_VOLUMES];
+	int lightmap_probe_count = 0;
+	if (p_settings.lightmaps != nullptr && RendererSceneRenderRD::get_singleton()->environment_get_volumetric_fog_gi_inject(p_settings.env) > 0.001f) {
+		for (uint32_t i = 0; i < p_settings.lightmaps->size() && lightmap_probe_count < VolumetricFogShader::MAX_LIGHTMAP_PROBE_VOLUMES; i++) {
+			RID instance = (*p_settings.lightmaps)[i];
+			RID lightmap = light_storage->lightmap_instance_get_lightmap(instance);
+			RID texture = light_storage->lightmap_get_probe_volume_texture(lightmap);
+			if (texture.is_valid()) {
+				lightmap_probe_instances[lightmap_probe_count] = instance;
+				lightmap_probe_textures[lightmap_probe_count++] = texture;
+			}
+		}
+	}
+	RID default_probe_texture = texture_storage->texture_rd_get_default(RendererRD::TextureStorage::DEFAULT_RD_TEXTURE_3D_BLACK);
+	bool lightmap_probe_textures_changed = false;
+	for (int i = 0; i < VolumetricFogShader::MAX_LIGHTMAP_PROBE_VOLUMES; i++) {
+		RID texture = i < lightmap_probe_count ? lightmap_probe_textures[i] : default_probe_texture;
+		if (fog->lightmap_probe_textures[i] != texture) {
+			fog->lightmap_probe_textures[i] = texture;
+			lightmap_probe_textures_changed = true;
+		}
+	}
+	if (lightmap_probe_textures_changed) {
+		fog->sync_gi_dependent_sets_validity(true);
+	}
 
 	if (p_fog_volumes.size() > 0) {
 		RD::get_singleton()->draw_command_begin_label("Render Volumetric Fog Volumes");
@@ -1005,6 +1032,15 @@ void Fog::volumetric_fog_update(const VolumetricFogSettings &p_settings, const P
 			uniforms.push_back(u);
 			copy_uniforms.push_back(u);
 		}
+		{
+			RD::Uniform u;
+			u.uniform_type = RD::UNIFORM_TYPE_TEXTURE;
+			u.binding = 22;
+			for (int i = 0; i < VolumetricFogShader::MAX_LIGHTMAP_PROBE_VOLUMES; i++) {
+				u.append_id(fog->lightmap_probe_textures[i]);
+			}
+			uniforms.push_back(u);
+		}
 
 		if (fog->copy_uniform_set.is_valid() && RD::get_singleton()->uniform_set_is_valid(fog->copy_uniform_set)) {
 			RD::get_singleton()->free_rid(fog->copy_uniform_set);
@@ -1133,6 +1169,17 @@ void Fog::volumetric_fog_update(const VolumetricFogSettings &p_settings, const P
 	params.cam_rotation[11] = 0;
 	params.filter_axis = 0;
 	params.max_voxel_gi_instances = RendererSceneRenderRD::get_singleton()->environment_get_volumetric_fog_gi_inject(p_settings.env) > 0.001 ? p_voxel_gi_count : 0;
+	params.lightmap_probe_params[0] = lightmap_probe_count;
+	for (int i = 0; i < lightmap_probe_count; i++) {
+		RID lightmap = light_storage->lightmap_instance_get_lightmap(lightmap_probe_instances[i]);
+		const AABB bounds = light_storage->lightmap_get_aabb(lightmap);
+		Transform3D to_local = light_storage->lightmap_instance_get_transform(lightmap_probe_instances[i]).affine_inverse();
+		Transform3D to_probe_volume;
+		to_probe_volume.basis = Basis::from_scale(Vector3(1.0f / bounds.size.x, 1.0f / bounds.size.y, 1.0f / bounds.size.z)) * to_local.basis;
+		to_probe_volume.origin = (to_local.xform(p_cam_transform.origin) - bounds.position) / bounds.size;
+		RendererRD::MaterialStorage::store_transform(to_probe_volume, params.lightmap_probe_xforms[i]);
+		params.lightmap_probe_exposures[i][0] = p_settings.exposure_normalization / MAX(1e-20f, light_storage->lightmap_get_baked_exposure_normalization(lightmap));
+	}
 	params.temporal_frame = RSG::rasterizer->get_frame_number() % VolumetricFog::MAX_TEMPORAL_FRAMES;
 
 	Transform3D to_prev_cam_view = p_prev_cam_inv_transform * p_cam_transform;

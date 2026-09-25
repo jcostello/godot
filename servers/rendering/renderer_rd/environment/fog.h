@@ -78,6 +78,7 @@ private:
 
 	/* Volumetric Fog */
 	struct VolumetricFogShader {
+		static constexpr int MAX_LIGHTMAP_PROBE_VOLUMES = 8;
 		enum ShaderGroup {
 			SHADER_GROUP_BASE,
 			SHADER_GROUP_NO_ATOMICS,
@@ -188,6 +189,10 @@ private:
 			float cam_rotation[12];
 			float to_prev_view[16];
 			float radiance_inverse_xform[12];
+
+			uint32_t lightmap_probe_params[4];
+			float lightmap_probe_xforms[MAX_LIGHTMAP_PROBE_VOLUMES][16];
+			float lightmap_probe_exposures[MAX_LIGHTMAP_PROBE_VOLUMES][4];
 		};
 
 		VolumetricFogProcessShaderRD process_shader;
@@ -328,6 +333,7 @@ public:
 
 		RID sdfgi_uniform_set;
 		RID sky_uniform_set;
+		RID lightmap_probe_textures[VolumetricFogShader::MAX_LIGHTMAP_PROBE_VOLUMES];
 
 		int last_shadow_filter = -1;
 
@@ -361,6 +367,8 @@ public:
 		RID area_light_atlas;
 		RID directional_shadow_depth;
 		RID directional_light_buffer;
+		const PagedArray<RID> *lightmaps = nullptr;
+		float exposure_normalization = 1.0f;
 
 		// Objects related to our render buffer
 		Ref<VolumetricFog> vfog;
