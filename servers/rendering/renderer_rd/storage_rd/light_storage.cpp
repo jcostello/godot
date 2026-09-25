@@ -2069,6 +2069,9 @@ void LightStorage::lightmap_initialize(RID p_lightmap) {
 void LightStorage::lightmap_free(RID p_rid) {
 	lightmap_set_textures(p_rid, RID(), false);
 	Lightmap *lightmap = lightmap_owner.get_or_null(p_rid);
+	if (lightmap->probe_volume_texture.is_valid()) {
+		RD::get_singleton()->free_rid(lightmap->probe_volume_texture);
+	}
 	lightmap->dependency.deleted_notify(p_rid);
 	lightmap_owner.free(p_rid);
 }
@@ -2128,6 +2131,7 @@ void LightStorage::lightmap_set_probe_bounds(RID p_lightmap, const AABB &p_bound
 	Lightmap *lm = lightmap_owner.get_or_null(p_lightmap);
 	ERR_FAIL_NULL(lm);
 	lm->bounds = p_bounds;
+	_lightmap_update_probe_volume(lm);
 }
 
 void LightStorage::lightmap_set_probe_interior(RID p_lightmap, bool p_interior) {
@@ -2150,6 +2154,7 @@ void LightStorage::lightmap_set_probe_capture_data(RID p_lightmap, const PackedV
 	lm->bsp_tree = p_bsp_tree;
 	lm->point_sh = p_point_sh;
 	lm->tetrahedra = p_tetrahedra;
+	_lightmap_update_probe_volume(lm);
 }
 
 void LightStorage::lightmap_set_baked_exposure_normalization(RID p_lightmap, float p_exposure) {
@@ -2195,16 +2200,15 @@ Dependency *LightStorage::lightmap_get_dependency(RID p_lightmap) const {
 	return &lm->dependency;
 }
 
-void LightStorage::lightmap_tap_sh_light(RID p_lightmap, const Vector3 &p_point, Color *r_sh) {
-	Lightmap *lm = lightmap_owner.get_or_null(p_lightmap);
-	ERR_FAIL_NULL(lm);
+bool LightStorage::_lightmap_tap_sh_light(const Lightmap *p_lightmap, const Vector3 &p_point, Color *r_sh) const {
+	const Lightmap *lm = p_lightmap;
 
 	for (int i = 0; i < 9; i++) {
 		r_sh[i] = Color(0, 0, 0, 0);
 	}
 
 	if (!lm->points.size() || !lm->bsp_tree.size() || !lm->tetrahedra.size()) {
-		return;
+		return false;
 	}
 
 	static_assert(sizeof(Lightmap::BSP) == 24);
@@ -2214,25 +2218,25 @@ void LightStorage::lightmap_tap_sh_light(RID p_lightmap, const Vector3 &p_point,
 	while (node >= 0) {
 		if (Plane(bsp[node].plane[0], bsp[node].plane[1], bsp[node].plane[2], bsp[node].plane[3]).is_point_over(p_point)) {
 #ifdef DEBUG_ENABLED
-			ERR_FAIL_COND(bsp[node].over >= 0 && bsp[node].over < node);
+			ERR_FAIL_COND_V(bsp[node].over >= 0 && bsp[node].over < node, false);
 #endif
 
 			node = bsp[node].over;
 		} else {
 #ifdef DEBUG_ENABLED
-			ERR_FAIL_COND(bsp[node].under >= 0 && bsp[node].under < node);
+			ERR_FAIL_COND_V(bsp[node].under >= 0 && bsp[node].under < node, false);
 #endif
 			node = bsp[node].under;
 		}
 	}
 
 	if (node == Lightmap::BSP::EMPTY_LEAF) {
-		return; //nothing could be done
+		return false; //nothing could be done
 	}
 
 	node = Math::abs(node) - 1;
 
-	uint32_t *tetrahedron = (uint32_t *)&lm->tetrahedra[node * 4];
+	const uint32_t *tetrahedron = (const uint32_t *)&lm->tetrahedra[node * 4];
 	Vector3 points[4] = { lm->points[tetrahedron[0]], lm->points[tetrahedron[1]], lm->points[tetrahedron[2]], lm->points[tetrahedron[3]] };
 	const Color *sh_colors[4]{ &lm->point_sh[tetrahedron[0] * 9], &lm->point_sh[tetrahedron[1] * 9], &lm->point_sh[tetrahedron[2] * 9], &lm->point_sh[tetrahedron[3] * 9] };
 	Color barycentric = Geometry3D::tetrahedron_get_barycentric_coords(points[0], points[1], points[2], points[3], p_point);
@@ -2243,6 +2247,65 @@ void LightStorage::lightmap_tap_sh_light(RID p_lightmap, const Vector3 &p_point,
 			r_sh[j] += sh_colors[i][j] * c;
 		}
 	}
+	return true;
+}
+
+void LightStorage::lightmap_tap_sh_light(RID p_lightmap, const Vector3 &p_point, Color *r_sh) {
+	Lightmap *lm = lightmap_owner.get_or_null(p_lightmap);
+	ERR_FAIL_NULL(lm);
+	_lightmap_tap_sh_light(lm, p_point, r_sh);
+}
+
+void LightStorage::_lightmap_update_probe_volume(Lightmap *p_lightmap) {
+	if (p_lightmap->probe_volume_texture.is_valid()) {
+		RD::get_singleton()->free_rid(p_lightmap->probe_volume_texture);
+		p_lightmap->probe_volume_texture = RID();
+	}
+
+	if (p_lightmap->points.is_empty() || p_lightmap->tetrahedra.is_empty() || p_lightmap->bsp_tree.is_empty() || p_lightmap->bounds.size.x <= 0.0 || p_lightmap->bounds.size.y <= 0.0 || p_lightmap->bounds.size.z <= 0.0) {
+		return;
+	}
+
+	const float longest_axis = MAX(p_lightmap->bounds.size.x, MAX(p_lightmap->bounds.size.y, p_lightmap->bounds.size.z));
+	Vector3i volume_size;
+	for (int axis = 0; axis < 3; axis++) {
+		volume_size[axis] = CLAMP(int(Math::round(Lightmap::PROBE_VOLUME_MAX_SIZE * p_lightmap->bounds.size[axis] / longest_axis)), Lightmap::PROBE_VOLUME_MIN_SIZE, Lightmap::PROBE_VOLUME_MAX_SIZE);
+	}
+
+	Vector<float> texels;
+	texels.resize(volume_size.x * volume_size.y * volume_size.z * 4);
+	float *texel_data = texels.ptrw();
+	for (int z = 0; z < volume_size.z; z++) {
+		for (int y = 0; y < volume_size.y; y++) {
+			for (int x = 0; x < volume_size.x; x++) {
+				const Vector3 uvw = (Vector3(x, y, z) + Vector3(0.5, 0.5, 0.5)) / Vector3(volume_size);
+				Color sh[9];
+				const bool valid = _lightmap_tap_sh_light(p_lightmap, p_lightmap->bounds.position + uvw * p_lightmap->bounds.size, sh);
+				const int offset = ((z * volume_size.y + y) * volume_size.x + x) * 4;
+				// The L0 coefficient represents the direction-independent irradiance.
+				texel_data[offset + 0] = sh[0].r * 0.886227f;
+				texel_data[offset + 1] = sh[0].g * 0.886227f;
+				texel_data[offset + 2] = sh[0].b * 0.886227f;
+				texel_data[offset + 3] = valid ? 1.0f : 0.0f;
+			}
+		}
+	}
+
+	RD::TextureFormat format;
+	format.format = RD::DATA_FORMAT_R32G32B32A32_SFLOAT;
+	format.width = volume_size.x;
+	format.height = volume_size.y;
+	format.depth = volume_size.z;
+	format.texture_type = RD::TEXTURE_TYPE_3D;
+	format.usage_bits = RD::TEXTURE_USAGE_SAMPLING_BIT;
+
+	Vector<uint8_t> data;
+	data.resize(texels.size() * sizeof(float));
+	memcpy(data.ptrw(), texels.ptr(), data.size());
+	Vector<Vector<uint8_t>> initial_data;
+	initial_data.push_back(data);
+	p_lightmap->probe_volume_texture = RD::get_singleton()->texture_create(format, RD::TextureView(), initial_data);
+	p_lightmap->probe_volume_size = volume_size;
 }
 
 bool LightStorage::lightmap_is_interior(RID p_lightmap) const {

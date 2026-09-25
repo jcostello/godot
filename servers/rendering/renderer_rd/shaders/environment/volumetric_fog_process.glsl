@@ -191,6 +191,10 @@ layout(set = 0, binding = 15, std140) uniform Params {
 	mat4 to_prev_view;
 
 	mat3 radiance_inverse_xform;
+
+	uvec4 lightmap_probe_params;
+	mat4 lightmap_probe_xforms[8];
+	vec4 lightmap_probe_exposures[8];
 }
 params;
 #ifndef MODE_COPY
@@ -220,6 +224,10 @@ layout(set = 0, binding = 20) uniform texture2D sky_texture;
 #endif // MODE_COPY
 
 layout(set = 0, binding = 21) uniform texture2D area_light_atlas;
+
+#ifndef MODE_COPY
+layout(set = 0, binding = 22) uniform texture3D lightmap_probe_volumes[8];
+#endif
 
 float get_depth_at_pos(float cell_depth_size, int z) {
 	float d = float(z) * cell_depth_size + cell_depth_size * 0.5; //center of voxels
@@ -713,6 +721,20 @@ void main() {
 
 				total_light += light.rgb;
 			}
+		}
+
+		vec3 lightmap_probe_light = vec3(0.0);
+		float lightmap_probe_weight = 0.0;
+		for (uint i = 0; i < params.lightmap_probe_params.x; i++) {
+			vec3 uvw = (params.lightmap_probe_xforms[i] * vec4(world_pos, 1.0)).xyz;
+			if (all(greaterThanEqual(uvw, vec3(0.0))) && all(lessThanEqual(uvw, vec3(1.0)))) {
+				vec4 probe_light = texture(sampler3D(lightmap_probe_volumes[i], linear_sampler), uvw);
+				lightmap_probe_light += probe_light.rgb * probe_light.a * params.lightmap_probe_exposures[i].x;
+				lightmap_probe_weight += probe_light.a;
+			}
+		}
+		if (lightmap_probe_weight > 0.0) {
+			total_light += lightmap_probe_light / lightmap_probe_weight * params.gi_inject;
 		}
 
 		//sdfgi

@@ -352,8 +352,13 @@ private:
 	/* LIGHTMAP */
 
 	struct Lightmap {
+		static constexpr int PROBE_VOLUME_MAX_SIZE = 32;
+		static constexpr int PROBE_VOLUME_MIN_SIZE = 4;
+
 		RID light_texture;
 		RID shadow_texture;
+		RID probe_volume_texture;
+		Vector3i probe_volume_size;
 		RSE::ShadowmaskMode shadowmask_mode = RSE::SHADOWMASK_MODE_NONE;
 		bool uses_spherical_harmonics = false;
 		bool interior = false;
@@ -382,6 +387,9 @@ private:
 	float lightmap_probe_capture_update_speed = 4;
 
 	mutable RID_Owner<Lightmap, true> lightmap_owner;
+
+	bool _lightmap_tap_sh_light(const Lightmap *p_lightmap, const Vector3 &p_point, Color *r_sh) const;
+	void _lightmap_update_probe_volume(Lightmap *p_lightmap);
 
 	Vector<RID> shadowmask_textures;
 
@@ -1058,6 +1066,11 @@ public:
 		const Lightmap *lm = lightmap_owner.get_or_null(p_lightmap);
 		ERR_FAIL_NULL_V(lm, 1.0);
 		return lm->baked_exposure;
+	}
+	_FORCE_INLINE_ RID lightmap_get_probe_volume_texture(RID p_lightmap) const {
+		const Lightmap *lm = lightmap_owner.get_or_null(p_lightmap);
+		ERR_FAIL_NULL_V(lm, RID());
+		return lm->probe_volume_texture;
 	}
 
 	_FORCE_INLINE_ int32_t lightmap_get_array_index(RID p_lightmap) const {
