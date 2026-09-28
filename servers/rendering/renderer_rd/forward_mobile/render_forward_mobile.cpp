@@ -761,6 +761,11 @@ void RenderForwardMobile::_setup_lightmaps(const RenderDataRD *p_render_data, co
 		// Transform (for directional lightmaps).
 		Basis to_lm = light_storage->lightmap_instance_get_transform(p_lightmaps[i]).basis.inverse() * p_cam_transform.basis;
 		to_lm = to_lm.inverse().transposed(); //will transform normals
+		if (p_render_data->reflection_probe.is_valid()) {
+			// Reflection probe views use reversed culling. Match that inversion when
+			// evaluating directional lightmaps, otherwise L1 subtracts from L0.
+			to_lm.scale(Vector3(-1.0f, -1.0f, -1.0f));
+		}
 		RendererRD::MaterialStorage::store_transform_3x3(to_lm, scene_state.lightmaps[i].normal_xform_and_specular_intensity);
 
 		// Light texture size.
