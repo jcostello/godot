@@ -446,7 +446,8 @@ private:
 
 			uint32_t editor_gizmo_layer_mask;
 			float editor_gizmo_exposure;
-			float editor_gizmo_padding[2];
+			float editor_gizmo_padding;
+			uint32_t reflection_probe_pass;
 
 			uint32_t fog_enabled;
 			uint32_t fog_mode;

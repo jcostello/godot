@@ -1763,6 +1763,15 @@ void main() {
 			}
 
 			mat3 normal_xform = mat3(lightmaps.data[ofs].normal_xform_and_specular_intensity);
+#if defined(DO_SIDE_CHECK) || defined(UBERSHADER)
+			bool compensate_reflection_probe_cull = bool(scene_data.flags & SCENE_DATA_FLAGS_REFLECTION_PROBE_PASS);
+#ifdef UBERSHADER
+			compensate_reflection_probe_cull = compensate_reflection_probe_cull && uc_cull_mode() != POLYGON_CULL_BACK;
+#endif
+			if (compensate_reflection_probe_cull) {
+				normal_xform = -normal_xform;
+			}
+#endif
 			hvec3 n = hvec3(normalize(normal_xform * indirect_normal));
 			half exposure_normalization = half(lightmaps.data[ofs].exposure_normalization);
 

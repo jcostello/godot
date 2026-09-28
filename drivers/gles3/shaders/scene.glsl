@@ -223,7 +223,8 @@ struct SceneData {
 
 	uint editor_gizmo_layer_mask;
 	float editor_gizmo_exposure;
-	vec2 editor_gizmo_padding;
+	float editor_gizmo_padding;
+	bool reflection_probe_pass;
 
 	bool fog_enabled;
 	uint fog_mode;
@@ -1255,7 +1256,8 @@ struct SceneData {
 
 	uint editor_gizmo_layer_mask;
 	float editor_gizmo_exposure;
-	vec2 editor_gizmo_padding;
+	float editor_gizmo_padding;
+	bool reflection_probe_pass;
 
 	bool fog_enabled;
 	uint fog_mode;
@@ -2693,7 +2695,13 @@ void main() {
 		vec3 lm_light_l1p1 = (textureLod(lightmap_textures, uvw + vec3(0.0, 0.0, 3.0), 0.0).rgb - vec3(0.5)) * 2.0;
 #endif
 
-		vec3 n = normalize(lightmap_normal_xform * indirect_normal);
+		mat3 directional_lightmap_normal_xform = lightmap_normal_xform;
+#ifdef DO_SIDE_CHECK
+		if (scene_data_block.data.reflection_probe_pass) {
+			directional_lightmap_normal_xform = -directional_lightmap_normal_xform;
+		}
+#endif
+		vec3 n = normalize(directional_lightmap_normal_xform * indirect_normal);
 
 		vec3 sh_light = lm_light_l0;
 		sh_light += lm_light_l0 * lm_light_l1n1 * n.y * 4.0;
@@ -2716,11 +2724,11 @@ void main() {
 
 		if (l1_len > 1e-5 && l0_luminance > 1e-5) {
 			vec3 lightmap_direction = l1 / l1_len;
-			vec3 L_view = normalize(lightmap_direction * lightmap_normal_xform);
+			vec3 L_view = normalize(lightmap_direction * directional_lightmap_normal_xform);
 			float NdotL = max(dot(normal, L_view), 0.0);
 
 			if (NdotL > 1e-4) {
-				vec3 specular_lightmap_normal = normalize(lightmap_normal_xform * normal);
+				vec3 specular_lightmap_normal = normalize(directional_lightmap_normal_xform * normal);
 				vec3 specular_irradiance = lm_light_l0;
 				specular_irradiance += lm_light_l0 * lm_light_l1n1 * specular_lightmap_normal.y * 4.0;
 				specular_irradiance += lm_light_l0 * lm_light_l1_0 * specular_lightmap_normal.z * 4.0;

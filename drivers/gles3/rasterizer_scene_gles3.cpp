@@ -1710,8 +1710,8 @@ void RasterizerSceneGLES3::_setup_environment(const RenderDataGLES3 *p_render_da
 	scene_state.data.editor_gizmo_layer_mask = Engine::get_singleton()->is_editor_hint() ? RSE::EDITOR_GIZMO_LAYER_MASK : 0;
 	const float camera_exposure = p_render_data->camera_attributes.is_valid() ? RSG::camera_attributes->camera_attributes_get_exposure_adjustment_factor(p_render_data->camera_attributes) : 1.0f;
 	scene_state.data.editor_gizmo_exposure = 1.0f / MAX(1e-8f, camera_exposure);
-	scene_state.data.editor_gizmo_padding[0] = 0.0f;
-	scene_state.data.editor_gizmo_padding[1] = 0.0f;
+	scene_state.data.editor_gizmo_padding = 0.0f;
+	scene_state.data.reflection_probe_pass = p_render_data->reflection_probe.is_valid();
 
 	if (p_render_data->camera_attributes.is_valid()) {
 		scene_state.data.emissive_exposure_normalization = RSG::camera_attributes->camera_attributes_get_render_exposure_normalization_factor(p_render_data->camera_attributes);
@@ -3967,11 +3967,6 @@ void RasterizerSceneGLES3::_render_list_template(RenderListParameters *p_params,
 						if (lm->uses_spherical_harmonics) {
 							Basis to_lm = li->transform.basis.inverse() * p_render_data->cam_transform.basis;
 							to_lm = to_lm.inverse().transposed();
-							if (p_render_data->reflection_probe.is_valid()) {
-								// Reflection probe views use reversed culling. Match that inversion when
-								// evaluating directional lightmaps, otherwise L1 subtracts from L0.
-								to_lm.scale(Vector3(-1.0f, -1.0f, -1.0f));
-							}
 							GLfloat matrix[9] = {
 								(GLfloat)to_lm.rows[0][0],
 								(GLfloat)to_lm.rows[1][0],
