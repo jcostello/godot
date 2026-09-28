@@ -3963,6 +3963,11 @@ void RasterizerSceneGLES3::_render_list_template(RenderListParameters *p_params,
 						if (lm->uses_spherical_harmonics) {
 							Basis to_lm = li->transform.basis.inverse() * p_render_data->cam_transform.basis;
 							to_lm = to_lm.inverse().transposed();
+							if (p_render_data->reflection_probe.is_valid()) {
+								// Reflection probe views use reversed culling. Match that inversion when
+								// evaluating directional lightmaps, otherwise L1 subtracts from L0.
+								to_lm.scale(Vector3(-1.0f, -1.0f, -1.0f));
+							}
 							GLfloat matrix[9] = {
 								(GLfloat)to_lm.rows[0][0],
 								(GLfloat)to_lm.rows[1][0],
