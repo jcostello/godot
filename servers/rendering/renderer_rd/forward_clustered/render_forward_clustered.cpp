@@ -1832,6 +1832,7 @@ void RenderForwardClustered::_render_scene(RenderDataRD *p_render_data, const Co
 		rb_data = rb->get_custom_data(RB_SCOPE_FORWARD_CLUSTERED);
 	}
 	bool is_reflection_probe = p_render_data->reflection_probe.is_valid();
+	const float reflection_probe_capture_exposure = is_reflection_probe && p_render_data->camera_attributes.is_valid() ? RSG::camera_attributes->camera_attributes_get_exposure_adjustment_factor(p_render_data->camera_attributes) : 1.0f;
 	bool is_multiview = rb->get_view_count() > 1;
 
 	static const int texture_multisamples[RSE::VIEWPORT_MSAA_MAX] = { 1, 2, 4, 8 };
@@ -1859,9 +1860,8 @@ void RenderForwardClustered::_render_scene(RenderDataRD *p_render_data, const Co
 	if (light_storage->owns_reflection_probe_instance(p_render_data->reflection_probe)) {
 		current_cluster_builder = light_storage->reflection_probe_instance_get_cluster_builder(p_render_data->reflection_probe, &cluster_builder_shared);
 
-		if (p_render_data->camera_attributes.is_valid()) {
-			light_storage->reflection_probe_set_baked_exposure(light_storage->reflection_probe_instance_get_probe(p_render_data->reflection_probe), RSG::camera_attributes->camera_attributes_get_render_exposure_normalization_factor(p_render_data->camera_attributes));
-		}
+		const float baked_exposure = p_render_data->camera_attributes.is_valid() ? RSG::camera_attributes->camera_attributes_get_exposure_normalization_factor(p_render_data->camera_attributes) : 1.0f;
+		light_storage->reflection_probe_set_baked_exposure(light_storage->reflection_probe_instance_get_probe(p_render_data->reflection_probe), baked_exposure);
 	} else if (rb_data.is_valid()) {
 		current_cluster_builder = rb_data->cluster_builder;
 
@@ -2205,7 +2205,7 @@ void RenderForwardClustered::_render_scene(RenderDataRD *p_render_data, const Co
 
 			if (draw_sky || draw_sky_fog_only) {
 				// update sky half/quarter res buffers (if required)
-				sky.update_res_buffers(rb, p_render_data->environment, time, sky_luminance_multiplier, sky_brightness_multiplier);
+				sky.update_res_buffers(rb, p_render_data->environment, time, sky_luminance_multiplier, sky_brightness_multiplier * reflection_probe_capture_exposure);
 			}
 
 			RD::get_singleton()->draw_command_end_label();
@@ -2219,6 +2219,11 @@ void RenderForwardClustered::_render_scene(RenderDataRD *p_render_data, const Co
 	}
 
 	// After this point clear_color has linear encoding.
+	if (is_reflection_probe) {
+		clear_color.r *= reflection_probe_capture_exposure;
+		clear_color.g *= reflection_probe_capture_exposure;
+		clear_color.b *= reflection_probe_capture_exposure;
+	}
 
 	RSE::ViewportMSAA msaa = rb->get_msaa_3d();
 	bool use_msaa = msaa != RSE::VIEWPORT_MSAA_DISABLED;
@@ -2422,7 +2427,7 @@ void RenderForwardClustered::_render_scene(RenderDataRD *p_render_data, const Co
 		RD::get_singleton()->draw_command_begin_label("Draw Sky");
 		RD::DrawListID draw_list = RD::get_singleton()->draw_list_begin(color_only_framebuffer, RD::DRAW_DEFAULT_ALL, Vector<Color>(), 1.0f, 0u, p_render_data->render_region);
 
-		sky.draw_sky(draw_list, rb, p_render_data->environment, color_only_framebuffer, time, sky_luminance_multiplier, sky_brightness_multiplier);
+		sky.draw_sky(draw_list, rb, p_render_data->environment, color_only_framebuffer, time, sky_luminance_multiplier, sky_brightness_multiplier * reflection_probe_capture_exposure);
 
 		RD::get_singleton()->draw_list_end();
 		RD::get_singleton()->draw_command_end_label();

@@ -2019,7 +2019,7 @@ void LightStorage::update_reflection_probe_buffer(RenderDataRD *p_render_data, c
 
 		if (p_render_data->camera_attributes.is_valid()) {
 			float exposure = RSG::camera_attributes->camera_attributes_get_render_exposure_normalization_factor(p_render_data->camera_attributes);
-			reflection_ubo.exposure_normalization = exposure / probe->baked_exposure;
+			reflection_ubo.exposure_normalization = exposure / MAX(1e-20f, probe->baked_exposure);
 		}
 
 		Color ambient_linear = probe->ambient_color.srgb_to_linear();

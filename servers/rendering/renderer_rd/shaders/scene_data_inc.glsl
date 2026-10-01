@@ -90,5 +90,5 @@ struct SceneData {
 	uint editor_gizmo_layer_mask;
 	float editor_gizmo_exposure;
 	float editor_gizmo_auto_exposure_scale;
-	float editor_gizmo_padding;
+	float reflection_probe_capture_exposure;
 };

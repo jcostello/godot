@@ -2115,6 +2115,7 @@ void fragment_shader(in SceneData scene_data) {
 		ao_light_affect = mix(ao_light_affect, max(ao_light_affect, implementation_data.ssao_light_affect), implementation_data.ssao_ao_affect);
 	}
 
+	float reflection_probe_blend = 0.0;
 	{ // process reflections
 
 		vec4 reflection_accum = vec4(0.0, 0.0, 0.0, 0.0);
@@ -2202,6 +2203,7 @@ void fragment_shader(in SceneData scene_data) {
 		if (reflection_accum.a > 0.0) {
 			indirect_specular_light = reflection_accum.rgb;
 		}
+		reflection_probe_blend = reflection_accum.a;
 
 #ifdef LIGHT_CLEARCOAT_USED
 		if (cc_reflection_accum.a > 0.0) {
@@ -2272,6 +2274,9 @@ void fragment_shader(in SceneData scene_data) {
 		// 10.0 is a magic number, it gives the intended effect in most scenarios.
 		// Low enough for occlusion, high enough for reaction to lights and shadows.
 		specular_occlusion = max(min(reflective_f * specular_occlusion * 10.0, 1.0), specular_occlusion);
+		// Occlusion of probe reflections must depend on geometry, not on the
+		// ambient light intensity, which can be tiny with physical light units.
+		specular_occlusion = max(specular_occlusion, reflection_probe_blend * ao);
 		indirect_specular_light *= specular_occlusion;
 #endif // BENT_NORMAL_MAP_USED
 #endif // SPECULAR_OCCLUSION_DISABLED
@@ -3203,6 +3208,10 @@ void fragment_shader(in SceneData scene_data) {
 #if defined(PREMUL_ALPHA_USED) && !defined(MODE_RENDER_DEPTH)
 	frag_color.rgb *= premul_alpha;
 #endif //PREMUL_ALPHA_USED
+
+	// Store reflection probes at the exposure of their environment. The baked
+	// exposure is divided out when the probe is sampled in a camera render.
+	frag_color.rgb *= scene_data.reflection_probe_capture_exposure;
 
 #endif //MODE_SEPARATE_SPECULAR
 
