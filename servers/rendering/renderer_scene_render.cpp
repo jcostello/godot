@@ -634,6 +634,14 @@ void RendererSceneRender::environment_set_adjustment_curves(RID p_env, RID p_hue
 	environment_storage.environment_set_adjustment_curves(p_env, p_hue_vs_hue, p_hue_vs_saturation, p_saturation_vs_saturation, p_luminance_vs_saturation);
 }
 
+void RendererSceneRender::environment_set_adjustment_color_modes(RID p_env, bool p_preserve_luminance, bool p_soft_contrast, float p_pivot) {
+	environment_storage.environment_set_adjustment_color_modes(p_env, p_preserve_luminance, p_soft_contrast, p_pivot);
+}
+
+Vector2 RendererSceneRender::environment_get_adjustment_color_modes(RID p_env) const {
+	return environment_storage.environment_get_adjustment_color_modes(p_env);
+}
+
 void RendererSceneRender::environment_set_adjustment_vibrance(RID p_env, float p_vibrance) {
 	environment_storage.environment_set_adjustment_vibrance(p_env, p_vibrance);
 }

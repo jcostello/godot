@@ -42,8 +42,17 @@
 			The [Texture2D] or [Texture3D] lookup table (LUT) to use for the built-in post-process color grading. Can use a [GradientTexture1D] for a 1-dimensional LUT, or a [Texture3D] for a more complex LUT. Effective only if [member adjustment_enabled] is [code]true[/code].
 			[b]Note:[/b] Color correction does not currently support HDR output due to only supporting values in the SDR (0.0 to 1.0) range.
 		</member>
+		<member name="adjustment_contrast_pivot" type="float" setter="set_adjustment_contrast_pivot" getter="get_adjustment_contrast_pivot" default="0.5">
+			Fixed point of the soft contrast curve in sRGB, clamped to 0.01–0.99. Values below the pivot become darker and values above it become brighter when contrast exceeds 1. Effective only when [member adjustment_enabled] and [member adjustment_contrast_soft] are enabled.
+		</member>
+		<member name="adjustment_contrast_soft" type="bool" setter="set_adjustment_contrast_soft" getter="get_adjustment_contrast_soft" default="false">
+			Uses a sigmoid contrast curve instead of the legacy affine adjustment. Preserves black, white and [member adjustment_contrast_pivot], and avoids generating out-of-range values from inputs between 0 and 1. HDR values above 1 and negative inputs pass through unchanged. Contrast 1 is neutral; negative contrast is treated as 0. This adjusts RGB channels independently and does not preserve luminance or hue.
+		</member>
+		<member name="adjustment_saturation_preserve_luminance" type="bool" setter="set_adjustment_saturation_preserve_luminance" getter="get_adjustment_saturation_preserve_luminance" default="false">
+			Applies saturation around Rec. 709 luminance in linear RGB. Reduces chroma toward the neutral axis to keep channels within the RGB gamut, preserving luminance instead of clipping channels independently. Existing HDR headroom is retained. Saturation 1 is neutral; negative saturation is treated as 0. Negative input components are discarded when saturation differs from 1. Effective only when [member adjustment_enabled] is enabled. Subsequent grading effects may change luminance or move colors out of gamut.
+		</member>
 		<member name="adjustment_contrast" type="float" setter="set_adjustment_contrast" getter="get_adjustment_contrast" default="1.0">
-			Increasing [member adjustment_contrast] will make dark values darker and bright values brighter. This simple adjustment is applied to the rendered image after tonemaping. When set to a value greater than [code]1.0[/code], [member adjustment_contrast] is prone to clipping colors that become too bright or too dark. Effective only if [member adjustment_enabled] is [code]true[/code].
+			Increasing [member adjustment_contrast] will make dark values darker and bright values brighter. This simple adjustment is applied to the rendered image after tonemaping. When set to a value greater than [code]1.0[/code], [member adjustment_contrast] is prone to clipping colors that become too bright or too dark unless [member adjustment_contrast_soft] is enabled. Effective only if [member adjustment_enabled] is [code]true[/code].
 		</member>
 		<member name="adjustment_advanced" type="bool" setter="set_adjustment_advanced" getter="is_adjustment_advanced" default="true">
 			If [code]true[/code], enables advanced color grading controls under [b]Color Grading[/b]. If [code]false[/code], only basic adjustments (brightness, contrast, saturation) remain active.

@@ -21,7 +21,7 @@ layout(std140) uniform TonemapData { //ubo:0
 	vec4 tint_midtones_range;
 	vec4 tonemap_temperature;
 	vec4 tonal_softness;
-	vec4 grading_effects; // Vibrance, two reserved components, vignette.
+	vec4 grading_effects; // Vibrance, color adjustment flags, sRGB contrast pivot, vignette.
 	vec4 vignette_range;
 };
 

@@ -103,6 +103,7 @@ uniform sampler2D luminance_vs_saturation_curve; //texunit:7
 #endif
 
 #include "../../../../servers/rendering/shaders/color_grading_inc.glsl"
+#include "../../../../servers/rendering/shaders/color_adjustments_inc.glsl"
 
 #if defined(USE_SSAO_ABYSS) || defined(USE_SSAO_LOW) || defined(USE_SSAO_MED) || defined(USE_SSAO_HIGH) || defined(USE_SSAO_MEGA)
 #define USE_SOME_SSAO
@@ -212,13 +213,21 @@ void main() {
 	// the darkest values are not hard-clipped as badly, which produces a
 	// higher quality contrast adjustment and maintains compatibility with
 	// existing projects.
-	color.rgb = mix(vec3(0.5), color.rgb, contrast);
+	if ((int(grading_effects.y) & 2) != 0) {
+		color.rgb = adjustment_soft_contrast(color.rgb, contrast, grading_effects.z);
+	} else {
+		color.rgb = mix(vec3(0.5), color.rgb, contrast);
+	}
 
 	// Apply saturation:
 	// By applying saturation adjustment to nonlinear sRGB-encoded values with
 	// even weights the preceived brightness of blues are affected, but this
 	// maintains compatibility with existing projects.
-	color.rgb = mix(vec3(dot(vec3(1.0), color.rgb) * (1.0 / 3.0)), color.rgb, saturation);
+	if ((int(grading_effects.y) & 1) != 0) {
+		color.rgb = adjustment_luminance_saturation(color.rgb, saturation);
+	} else {
+		color.rgb = mix(vec3(dot(vec3(1.0), color.rgb) * (1.0 / 3.0)), color.rgb, saturation);
+	}
 
 #if defined(USE_COLOR_GRADING) || defined(USE_COLOR_GRADING_CURVES)
 	vec3 color_before_grading = color.rgb;

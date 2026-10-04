@@ -265,6 +265,8 @@ public:
 	void environment_set_adjustment_midtones_range(RID p_env, float p_shadows_start, float p_shadows_end, float p_midtones_start, float p_midtones_end, float p_highlights_start, float p_highlights_end);
 	void environment_set_adjustment_advance(RID p_env, bool p_enable, float p_intensity);
 	void environment_set_adjustment_curves(RID p_env, RID p_hue_vs_hue, RID p_hue_vs_saturation, RID p_saturation_vs_saturation, RID p_luminance_vs_saturation);
+	void environment_set_adjustment_color_modes(RID p_env, bool p_preserve_luminance, bool p_soft_contrast, float p_pivot);
+	Vector2 environment_get_adjustment_color_modes(RID p_env) const;
 	void environment_set_adjustment_vibrance(RID p_env, float p_vibrance);
 	void environment_set_adjustment_vignette(RID p_env, float p_vignette, float p_start, float p_end);
 	bool environment_get_adjustments_enabled(RID p_env) const;

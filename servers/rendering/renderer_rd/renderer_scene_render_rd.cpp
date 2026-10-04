@@ -852,6 +852,7 @@ void RendererSceneRenderRD::_render_buffers_post_process_and_tonemap(const Rende
 			tonemap.brightness = environment_get_adjustments_brightness(p_render_data->environment);
 			tonemap.contrast = environment_get_adjustments_contrast(p_render_data->environment);
 			tonemap.saturation = environment_get_adjustments_saturation(p_render_data->environment);
+			tonemap.color_modes = environment_get_adjustment_color_modes(p_render_data->environment);
 			tonemap.use_color_grading = advanced_adjustments_enabled;
 			tonemap.color_grading_intensity = grading_intensity;
 			tonemap.offset_color = environment_get_adjustments_offset_color(p_render_data->environment);
@@ -1129,6 +1130,7 @@ void RendererSceneRenderRD::_post_process_subpass(RID p_source_texture, RID p_fr
 		tonemap.brightness = environment_get_adjustments_brightness(p_render_data->environment);
 		tonemap.contrast = environment_get_adjustments_contrast(p_render_data->environment);
 		tonemap.saturation = environment_get_adjustments_saturation(p_render_data->environment);
+		tonemap.color_modes = environment_get_adjustment_color_modes(p_render_data->environment);
 		tonemap.use_color_grading = advanced_adjustments_enabled;
 		tonemap.color_grading_intensity = grading_intensity;
 		tonemap.offset_color = environment_get_adjustments_offset_color(p_render_data->environment);

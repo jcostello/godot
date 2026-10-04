@@ -132,8 +132,8 @@ private:
 		float tonal_softness[4]; // 16 - 160
 		float tonemap_temperature[3];
 		float vibrance;
-		float grading_pad_0;
-		float grading_pad_1;
+		float color_adjustment_flags;
+		float contrast_pivot;
 		float vignette;
 		float pad;
 		float vignette_range[2];
@@ -158,8 +158,8 @@ private:
 		float tonemap_temperature[3]; // 12 - 124
 		float output_max_value; // 4 - 128
 		float vibrance;
-		float grading_pad_0;
-		float grading_pad_1;
+		float color_adjustment_flags;
+		float contrast_pivot;
 		float vignette;
 		float vignette_range[2];
 	};
@@ -232,6 +232,7 @@ public:
 		float brightness = 1.0;
 		float contrast = 1.0;
 		float saturation = 1.0;
+		Vector2 color_modes = Vector2(0.0f, 0.5f); // Packed saturation/contrast flags and sRGB pivot.
 		bool use_color_grading = false;
 		float color_grading_intensity = 1.0;
 		Color offset_color = Color(1, 1, 1);

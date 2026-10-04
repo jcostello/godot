@@ -1006,6 +1006,18 @@ void RendererEnvironmentStorage::environment_set_adjustment_curves(RID p_env, RI
 	env->adjustments_luminance_vs_saturation = p_luminance_vs_saturation;
 }
 
+void RendererEnvironmentStorage::environment_set_adjustment_color_modes(RID p_env, bool p_preserve_luminance, bool p_soft_contrast, float p_pivot) {
+	Environment *env = environment_owner.get_or_null(p_env);
+	ERR_FAIL_NULL(env);
+	env->adjustments_color_modes = Vector2((p_preserve_luminance ? 1 : 0) + (p_soft_contrast ? 2 : 0), CLAMP(p_pivot, 0.01f, 0.99f));
+}
+
+Vector2 RendererEnvironmentStorage::environment_get_adjustment_color_modes(RID p_env) const {
+	const Environment *env = environment_owner.get_or_null(p_env);
+	ERR_FAIL_NULL_V(env, Vector2(0.0f, 0.5f));
+	return env->adjustments_color_modes;
+}
+
 void RendererEnvironmentStorage::environment_set_adjustment_vibrance(RID p_env, float p_vibrance) {
 	Environment *env = environment_owner.get_or_null(p_env);
 	ERR_FAIL_NULL(env);

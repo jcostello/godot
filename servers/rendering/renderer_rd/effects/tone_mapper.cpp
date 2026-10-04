@@ -206,6 +206,8 @@ void ToneMapper::tonemapper(RID p_source_color, RID p_dst_framebuffer, const Ton
 	tonemap.push_constant.tonemap_temperature[1] = p_settings.tonemap_temperature[1];
 	tonemap.push_constant.tonemap_temperature[2] = p_settings.tonemap_temperature[2];
 	tonemap.push_constant.vibrance = p_settings.vibrance;
+	tonemap.push_constant.color_adjustment_flags = p_settings.color_modes.x;
+	tonemap.push_constant.contrast_pivot = p_settings.color_modes.y;
 	tonemap.push_constant.vignette = p_settings.vignette;
 	tonemap.push_constant.vignette_range[0] = p_settings.vignette_start;
 	tonemap.push_constant.vignette_range[1] = p_settings.vignette_end;
@@ -306,6 +308,8 @@ void ToneMapper::tonemapper_mobile(RID p_source_color, RID p_dst_framebuffer, co
 	tonemap_mobile.push_constant.tonemap_temperature[1] = p_settings.tonemap_temperature[1];
 	tonemap_mobile.push_constant.tonemap_temperature[2] = p_settings.tonemap_temperature[2];
 	tonemap_mobile.push_constant.vibrance = p_settings.vibrance;
+	tonemap_mobile.push_constant.color_adjustment_flags = p_settings.color_modes.x;
+	tonemap_mobile.push_constant.contrast_pivot = p_settings.color_modes.y;
 	tonemap_mobile.push_constant.vignette = p_settings.vignette;
 	tonemap_mobile.push_constant.vignette_range[0] = p_settings.vignette_start;
 	tonemap_mobile.push_constant.vignette_range[1] = p_settings.vignette_end;
@@ -424,6 +428,8 @@ void ToneMapper::tonemapper_subpass(RD::DrawListID p_subpass_draw_list, RID p_so
 	tonemap_mobile.push_constant.tonemap_temperature[1] = p_settings.tonemap_temperature[1];
 	tonemap_mobile.push_constant.tonemap_temperature[2] = p_settings.tonemap_temperature[2];
 	tonemap_mobile.push_constant.vibrance = p_settings.vibrance;
+	tonemap_mobile.push_constant.color_adjustment_flags = p_settings.color_modes.x;
+	tonemap_mobile.push_constant.contrast_pivot = p_settings.color_modes.y;
 	tonemap_mobile.push_constant.vignette = p_settings.vignette;
 	tonemap_mobile.push_constant.vignette_range[0] = p_settings.vignette_start;
 	tonemap_mobile.push_constant.vignette_range[1] = p_settings.vignette_end;

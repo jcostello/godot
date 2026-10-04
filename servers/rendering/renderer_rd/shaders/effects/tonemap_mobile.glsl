@@ -117,8 +117,8 @@ layout(push_constant, std430) uniform Params {
 	vec3 tonemap_temperature;
 	float output_max_value;
 	float vibrance;
-	float grading_pad_0;
-	float grading_pad_1;
+	float color_adjustment_flags;
+	float contrast_pivot;
 	float vignette;
 	vec2 vignette_range;
 }
@@ -370,6 +370,7 @@ vec3 apply_color_correction(vec3 color) {
 
 #define COLOR_GRADING_CURVES
 #include "../../../shaders/color_grading_inc.glsl"
+#include "../../../shaders/color_adjustments_inc.glsl"
 
 #ifndef SUBPASS
 
@@ -852,13 +853,21 @@ void main() {
 		// the darkest values are not hard-clipped as badly, which produces a
 		// higher quality contrast adjustment and maintains compatibility with
 		// existing projects.
-		color.rgb = mix(vec3(0.5), color.rgb, params.bcs.y);
+		if ((int(params.color_adjustment_flags) & 2) != 0) {
+			color.rgb = adjustment_soft_contrast(color.rgb, params.bcs.y, params.contrast_pivot);
+		} else {
+			color.rgb = mix(vec3(0.5), color.rgb, params.bcs.y);
+		}
 
 		// Apply saturation:
 		// By applying saturation adjustment to nonlinear sRGB-encoded values with
 		// even weights the preceived brightness of blues are affected, but this
 		// maintains compatibility with existing projects.
-		color.rgb = mix(vec3(dot(vec3(1.0), color.rgb) * (1.0 / 3.0)), color.rgb, params.bcs.z);
+		if ((int(params.color_adjustment_flags) & 1) != 0) {
+			color.rgb = adjustment_luminance_saturation(color.rgb, params.bcs.z);
+		} else {
+			color.rgb = mix(vec3(dot(vec3(1.0), color.rgb) * (1.0 / 3.0)), color.rgb, params.bcs.z);
+		}
 
 		vec3 color_before_grading = color.rgb;
 		if (use_color_grading) {

@@ -1380,6 +1380,7 @@ public:
 	PASS7(environment_set_adjustment_midtones_range, RID, float, float, float, float, float, float)
 	PASS3(environment_set_adjustment_advance, RID, bool, float)
 	PASS5(environment_set_adjustment_curves, RID, RID, RID, RID, RID)
+	PASS4(environment_set_adjustment_color_modes, RID, bool, bool, float)
 	PASS2(environment_set_adjustment_vibrance, RID, float)
 	PASS4(environment_set_adjustment_vignette, RID, float, float, float)
 

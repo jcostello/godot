@@ -2595,8 +2595,8 @@ void RasterizerSceneGLES3::render_scene(const Ref<RenderSceneBuffers> &p_render_
 		tonemap_ubo.tonal_softness[2] = environment_get_adjustment_highlights_start(render_data.environment);
 		tonemap_ubo.tonal_softness[3] = environment_get_adjustment_highlights_end(render_data.environment);
 		tonemap_ubo.grading_effects[0] = environment_get_adjustment_vibrance(render_data.environment);
-		tonemap_ubo.grading_effects[1] = 0.0f;
-		tonemap_ubo.grading_effects[2] = 0.0f;
+		tonemap_ubo.grading_effects[1] = environment_get_adjustment_color_modes(render_data.environment).x;
+		tonemap_ubo.grading_effects[2] = environment_get_adjustment_color_modes(render_data.environment).y;
 		tonemap_ubo.grading_effects[3] = environment_get_adjustment_vignette(render_data.environment);
 		tonemap_ubo.vignette_range[0] = environment_get_adjustment_vignette_start(render_data.environment);
 		tonemap_ubo.vignette_range[1] = environment_get_adjustment_vignette_end(render_data.environment);

@@ -229,6 +229,9 @@ private:
 	float adjustment_brightness = 1.0;
 	float adjustment_contrast = 1.0;
 	float adjustment_saturation = 1.0;
+	bool adjustment_saturation_preserve_luminance = false;
+	bool adjustment_contrast_soft = false;
+	float adjustment_contrast_pivot = 0.5;
 	float adjustment_tint = 0.0;
 	WhiteBalanceMode adjustment_white_balance_mode = WHITE_BALANCE_LEGACY;
 	float adjustment_shadows_start = 0.0;
@@ -498,6 +501,12 @@ public:
 	float get_adjustment_brightness() const;
 	void set_adjustment_contrast(float p_contrast);
 	float get_adjustment_contrast() const;
+	void set_adjustment_saturation_preserve_luminance(bool p_value);
+	bool get_adjustment_saturation_preserve_luminance() const;
+	void set_adjustment_contrast_soft(bool p_value);
+	bool get_adjustment_contrast_soft() const;
+	void set_adjustment_contrast_pivot(float p_value);
+	float get_adjustment_contrast_pivot() const;
 	void set_adjustment_saturation(float p_saturation);
 	float get_adjustment_saturation() const;
 	void set_adjustment_tint(float p_tint);

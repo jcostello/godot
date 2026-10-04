@@ -1103,6 +1103,34 @@ float Environment::get_adjustment_contrast() const {
 	return adjustment_contrast;
 }
 
+void Environment::set_adjustment_saturation_preserve_luminance(bool p_value) {
+	adjustment_saturation_preserve_luminance = p_value;
+	_update_adjustment();
+}
+
+bool Environment::get_adjustment_saturation_preserve_luminance() const {
+	return adjustment_saturation_preserve_luminance;
+}
+
+void Environment::set_adjustment_contrast_soft(bool p_value) {
+	adjustment_contrast_soft = p_value;
+	_update_adjustment();
+	notify_property_list_changed();
+}
+
+bool Environment::get_adjustment_contrast_soft() const {
+	return adjustment_contrast_soft;
+}
+
+void Environment::set_adjustment_contrast_pivot(float p_value) {
+	adjustment_contrast_pivot = CLAMP(p_value, 0.01f, 0.99f);
+	_update_adjustment();
+}
+
+float Environment::get_adjustment_contrast_pivot() const {
+	return adjustment_contrast_pivot;
+}
+
 void Environment::set_adjustment_saturation(float p_saturation) {
 	adjustment_saturation = p_saturation;
 	_update_adjustment();
@@ -1581,6 +1609,7 @@ void Environment::_update_adjustment() {
 			adjustment_highlights_start,
 			adjustment_highlights_end);
 	RS::get_singleton()->environment_set_adjustment_advance(environment, adjustment_advance, adjustment_color_grading_intensity);
+	RS::get_singleton()->environment_set_adjustment_color_modes(environment, adjustment_saturation_preserve_luminance, adjustment_contrast_soft, adjustment_contrast_pivot);
 	RS::get_singleton()->environment_set_adjustment_vibrance(environment, adjustment_vibrance);
 	RS::get_singleton()->environment_set_adjustment_vignette(environment, adjustment_vignette, adjustment_vignette_start, adjustment_vignette_end);
 }
@@ -1619,6 +1648,12 @@ void Environment::_validate_property(PropertyInfo &p_property) const {
 	if (!Engine::get_singleton()->is_editor_hint()) {
 		return;
 	}
+
+	if (p_property.name == "adjustment_contrast_pivot" && !adjustment_contrast_soft) {
+		p_property.usage = PROPERTY_USAGE_NO_EDITOR;
+		return;
+	}
+
 	const bool advanced_adjustment_property = p_property.name == "adjustment_color_grading_intensity" || p_property.name == "adjustment_temperature" || p_property.name == "adjustment_tint" || p_property.name == "adjustment_white_balance_mode" || p_property.name == "adjustment_vibrance" || p_property.name.begins_with("adjustment_vignette") || p_property.name.begins_with("adjustment_midtones_") || p_property.name.begins_with("adjustment_offset_") || p_property.name.begins_with("adjustment_shadows_") || p_property.name.begins_with("adjustment_highlights_") || p_property.name.begins_with("adjustment_lift_") || p_property.name.begins_with("adjustment_gamma_") || p_property.name.begins_with("adjustment_gain_") || p_property.name.begins_with("adjustment_hue_vs_") || p_property.name == "adjustment_saturation_vs_saturation" || p_property.name == "adjustment_luminance_vs_saturation";
 	if (!adjustment_advance && advanced_adjustment_property) {
 		p_property.usage = PROPERTY_USAGE_NO_EDITOR;
@@ -2107,6 +2142,12 @@ void Environment::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("get_adjustment_brightness"), &Environment::get_adjustment_brightness);
 	ClassDB::bind_method(D_METHOD("set_adjustment_contrast", "contrast"), &Environment::set_adjustment_contrast);
 	ClassDB::bind_method(D_METHOD("get_adjustment_contrast"), &Environment::get_adjustment_contrast);
+	ClassDB::bind_method(D_METHOD("set_adjustment_saturation_preserve_luminance", "value"), &Environment::set_adjustment_saturation_preserve_luminance);
+	ClassDB::bind_method(D_METHOD("get_adjustment_saturation_preserve_luminance"), &Environment::get_adjustment_saturation_preserve_luminance);
+	ClassDB::bind_method(D_METHOD("set_adjustment_contrast_soft", "value"), &Environment::set_adjustment_contrast_soft);
+	ClassDB::bind_method(D_METHOD("get_adjustment_contrast_soft"), &Environment::get_adjustment_contrast_soft);
+	ClassDB::bind_method(D_METHOD("set_adjustment_contrast_pivot", "value"), &Environment::set_adjustment_contrast_pivot);
+	ClassDB::bind_method(D_METHOD("get_adjustment_contrast_pivot"), &Environment::get_adjustment_contrast_pivot);
 	ClassDB::bind_method(D_METHOD("set_adjustment_saturation", "saturation"), &Environment::set_adjustment_saturation);
 	ClassDB::bind_method(D_METHOD("get_adjustment_saturation"), &Environment::get_adjustment_saturation);
 	ClassDB::bind_method(D_METHOD("set_adjustment_tint", "tint"), &Environment::set_adjustment_tint);
@@ -2187,6 +2228,9 @@ void Environment::_bind_methods() {
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "adjustment_brightness", PROPERTY_HINT_RANGE, "0.0,2.0,0.01,or_greater"), "set_adjustment_brightness", "get_adjustment_brightness");
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "adjustment_contrast", PROPERTY_HINT_RANGE, "0.75,1.25,0.005,or_less,or_greater"), "set_adjustment_contrast", "get_adjustment_contrast");
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "adjustment_saturation", PROPERTY_HINT_RANGE, "0.0,2.0,0.01,or_less,or_greater"), "set_adjustment_saturation", "get_adjustment_saturation");
+	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "adjustment_saturation_preserve_luminance"), "set_adjustment_saturation_preserve_luminance", "get_adjustment_saturation_preserve_luminance");
+	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "adjustment_contrast_soft"), "set_adjustment_contrast_soft", "get_adjustment_contrast_soft");
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "adjustment_contrast_pivot", PROPERTY_HINT_RANGE, "0.01,0.99,0.01"), "set_adjustment_contrast_pivot", "get_adjustment_contrast_pivot");
 	ADD_SUBGROUP("Color Grading", "adjustment_");
 	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "adjustment_advanced", PROPERTY_HINT_NONE, "", PROPERTY_USAGE_EDITOR), "set_adjustment_advanced", "is_adjustment_advanced");
 	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "adjustment_advance", PROPERTY_HINT_NONE, "", PROPERTY_USAGE_STORAGE | PROPERTY_USAGE_INTERNAL), "set_adjustment_advance", "is_adjustment_advance");

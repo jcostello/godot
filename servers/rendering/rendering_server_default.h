@@ -894,6 +894,7 @@ public:
 	FUNC7(environment_set_adjustment_midtones_range, RID, float, float, float, float, float, float)
 	FUNC3(environment_set_adjustment_advance, RID, bool, float)
 	FUNC5(environment_set_adjustment_curves, RID, RID, RID, RID, RID)
+	FUNC4(environment_set_adjustment_color_modes, RID, bool, bool, float)
 	FUNC2(environment_set_adjustment_vibrance, RID, float)
 	FUNC4(environment_set_adjustment_vignette, RID, float, float, float)
 
