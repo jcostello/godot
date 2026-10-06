@@ -31,7 +31,9 @@
 #pragma once
 
 #include "core/io/resource.h"
+#include "core/math/vector4.h"
 #include "scene/resources/curve_texture.h"
+#include "scene/resources/image_texture.h"
 #include "scene/resources/texture.h"
 
 class Sky;
@@ -43,6 +45,13 @@ public:
 	enum WhiteBalanceMode {
 		WHITE_BALANCE_LEGACY,
 		WHITE_BALANCE_CHROMATIC_ADAPTATION,
+	};
+	enum ColorCorrectionPreview {
+		COLOR_CORRECTION_PREVIEW_DISABLED,
+		COLOR_CORRECTION_PREVIEW_MASTER,
+		COLOR_CORRECTION_PREVIEW_SHADOWS,
+		COLOR_CORRECTION_PREVIEW_MIDTONES,
+		COLOR_CORRECTION_PREVIEW_HIGHLIGHTS,
 	};
 	enum BGMode {
 		BG_CLEAR_COLOR,
@@ -120,6 +129,7 @@ private:
 	// Tonemap
 	ToneMapper tone_mapper = TONE_MAPPER_LINEAR;
 	float tonemap_exposure = 1.0;
+	float tonemap_curve_amount = 1.0;
 	float tonemap_white = 1.0;
 	float tonemap_agx_white = 16.29; // Default to Blender's AgX white.
 	float tonemap_agx_contrast = 1.25; // Default to approximately Blender's AgX contrast.
@@ -256,6 +266,26 @@ private:
 	float adjustment_gamma_intensity = 0.0;
 	Color adjustment_gain_color = Color(1, 1, 1);
 	float adjustment_gain_intensity = 0.0;
+	bool adjustment_correction_enabled = false;
+	float adjustment_correction_amount = 1.0;
+	ColorCorrectionPreview adjustment_correction_preview = COLOR_CORRECTION_PREVIEW_DISABLED;
+	Vector4 adjustment_correction_parameters[4] = { Vector4(1, 1, 1, 1), Vector4(1, 1, 1, 1), Vector4(1, 1, 1, 1), Vector4(1, 1, 1, 1) };
+	Color adjustment_correction_colors[4] = { Color(1, 1, 1), Color(1, 1, 1), Color(1, 1, 1), Color(1, 1, 1) };
+	Vector4 adjustment_correction_lift;
+	void _set_tonal_correction_parameter(int p_range, int p_parameter, float p_value);
+	float _get_tonal_correction_parameter(int p_range, int p_parameter) const;
+	void _update_tonal_correction();
+	void _update_tonal_correction_colors();
+	bool adjustment_use_rgb_curves = false;
+	float adjustment_curves_amount = 1.0;
+	Color adjustment_black_level = Color(0, 0, 0);
+	Color adjustment_white_level = Color(1, 1, 1);
+	Ref<CurveTexture> adjustment_hue_vs_luminance;
+	Ref<CurveTexture> adjustment_curve_master;
+	Ref<CurveTexture> adjustment_curve_red;
+	Ref<CurveTexture> adjustment_curve_green;
+	Ref<CurveTexture> adjustment_curve_blue;
+	Ref<ImageTexture> adjustment_curve_atlas;
 	Ref<CurveTexture> adjustment_hue_vs_hue;
 	Ref<CurveTexture> adjustment_hue_vs_saturation;
 	Ref<CurveTexture> adjustment_saturation_vs_saturation;
@@ -319,6 +349,8 @@ public:
 	// Tonemap
 	void set_tonemapper(ToneMapper p_tone_mapper);
 	ToneMapper get_tonemapper() const;
+	void set_tonemap_curve_amount(float p_amount);
+	float get_tonemap_curve_amount() const;
 	void set_tonemap_exposure(float p_exposure);
 	float get_tonemap_exposure() const;
 	void set_tonemap_white(float p_white);
@@ -563,6 +595,78 @@ public:
 	Color get_adjustment_gain_color() const;
 	void set_adjustment_gain_intensity(float p_intensity);
 	float get_adjustment_gain_intensity() const;
+	void set_adjustment_correction_master_color(const Color &p_color);
+	Color get_adjustment_correction_master_color() const;
+	void set_adjustment_correction_shadows_color(const Color &p_color);
+	Color get_adjustment_correction_shadows_color() const;
+	void set_adjustment_correction_midtones_color(const Color &p_color);
+	Color get_adjustment_correction_midtones_color() const;
+	void set_adjustment_correction_highlights_color(const Color &p_color);
+	Color get_adjustment_correction_highlights_color() const;
+	void set_adjustment_correction_enabled(bool p_enabled);
+	bool is_adjustment_correction_enabled() const;
+	void set_adjustment_correction_amount(float p_amount);
+	float get_adjustment_correction_amount() const;
+	void set_adjustment_correction_preview(ColorCorrectionPreview p_preview);
+	ColorCorrectionPreview get_adjustment_correction_preview() const;
+	void set_adjustment_correction_master_saturation(float p_value);
+	float get_adjustment_correction_master_saturation() const;
+	void set_adjustment_correction_master_contrast(float p_value);
+	float get_adjustment_correction_master_contrast() const;
+	void set_adjustment_correction_master_gamma(float p_value);
+	float get_adjustment_correction_master_gamma() const;
+	void set_adjustment_correction_master_gain(float p_value);
+	float get_adjustment_correction_master_gain() const;
+	void set_adjustment_correction_master_lift(float p_value);
+	float get_adjustment_correction_master_lift() const;
+	void set_adjustment_correction_shadows_saturation(float p_value);
+	float get_adjustment_correction_shadows_saturation() const;
+	void set_adjustment_correction_shadows_contrast(float p_value);
+	float get_adjustment_correction_shadows_contrast() const;
+	void set_adjustment_correction_shadows_gamma(float p_value);
+	float get_adjustment_correction_shadows_gamma() const;
+	void set_adjustment_correction_shadows_gain(float p_value);
+	float get_adjustment_correction_shadows_gain() const;
+	void set_adjustment_correction_shadows_lift(float p_value);
+	float get_adjustment_correction_shadows_lift() const;
+	void set_adjustment_correction_midtones_saturation(float p_value);
+	float get_adjustment_correction_midtones_saturation() const;
+	void set_adjustment_correction_midtones_contrast(float p_value);
+	float get_adjustment_correction_midtones_contrast() const;
+	void set_adjustment_correction_midtones_gamma(float p_value);
+	float get_adjustment_correction_midtones_gamma() const;
+	void set_adjustment_correction_midtones_gain(float p_value);
+	float get_adjustment_correction_midtones_gain() const;
+	void set_adjustment_correction_midtones_lift(float p_value);
+	float get_adjustment_correction_midtones_lift() const;
+	void set_adjustment_correction_highlights_saturation(float p_value);
+	float get_adjustment_correction_highlights_saturation() const;
+	void set_adjustment_correction_highlights_contrast(float p_value);
+	float get_adjustment_correction_highlights_contrast() const;
+	void set_adjustment_correction_highlights_gamma(float p_value);
+	float get_adjustment_correction_highlights_gamma() const;
+	void set_adjustment_correction_highlights_gain(float p_value);
+	float get_adjustment_correction_highlights_gain() const;
+	void set_adjustment_correction_highlights_lift(float p_value);
+	float get_adjustment_correction_highlights_lift() const;
+	void set_adjustment_use_rgb_curves(bool p_enabled);
+	bool get_adjustment_use_rgb_curves() const;
+	void set_adjustment_curves_amount(float p_amount);
+	float get_adjustment_curves_amount() const;
+	void set_adjustment_black_level(const Color &p_color);
+	Color get_adjustment_black_level() const;
+	void set_adjustment_white_level(const Color &p_color);
+	Color get_adjustment_white_level() const;
+	void set_adjustment_hue_vs_luminance(const Ref<CurveTexture> &p_curve);
+	Ref<CurveTexture> get_adjustment_hue_vs_luminance() const;
+	void set_adjustment_curve_master(const Ref<CurveTexture> &p_curve);
+	Ref<CurveTexture> get_adjustment_curve_master() const;
+	void set_adjustment_curve_red(const Ref<CurveTexture> &p_curve);
+	Ref<CurveTexture> get_adjustment_curve_red() const;
+	void set_adjustment_curve_green(const Ref<CurveTexture> &p_curve);
+	Ref<CurveTexture> get_adjustment_curve_green() const;
+	void set_adjustment_curve_blue(const Ref<CurveTexture> &p_curve);
+	Ref<CurveTexture> get_adjustment_curve_blue() const;
 	void set_adjustment_hue_vs_hue(const Ref<CurveTexture> &p_curve);
 	Ref<CurveTexture> get_adjustment_hue_vs_hue() const;
 	void set_adjustment_hue_vs_saturation(const Ref<CurveTexture> &p_curve);
@@ -586,6 +690,7 @@ public:
 	~Environment();
 };
 
+VARIANT_ENUM_CAST(Environment::ColorCorrectionPreview)
 VARIANT_ENUM_CAST(Environment::WhiteBalanceMode);
 
 VARIANT_ENUM_CAST(Environment::BGMode)

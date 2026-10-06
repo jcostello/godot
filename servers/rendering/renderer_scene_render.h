@@ -144,6 +144,8 @@ public:
 	float environment_get_white(RID p_env, bool p_limit_agx_white, float p_output_max_value) const;
 	void environment_set_tonemap_temperature(RID p_env, float p_temperature);
 	float environment_get_tonemap_temperature(RID p_env) const;
+	void environment_set_tonemap_curve_amount(RID p_env, float p_amount);
+	float environment_get_tonemap_curve_amount(RID p_env) const;
 	void environment_set_tonemap_agx_contrast(RID p_env, float p_agx_contrast);
 	float environment_get_tonemap_agx_contrast(RID p_env) const;
 	RendererEnvironmentStorage::TonemapParameters environment_get_tonemap_parameters(RID p_env, bool p_limit_agx_white, float p_output_max_value) const;
@@ -264,6 +266,9 @@ public:
 	void environment_set_adjustment_tonal_softness(RID p_env, float p_shadows_softness, float p_highlights_softness);
 	void environment_set_adjustment_midtones_range(RID p_env, float p_shadows_start, float p_shadows_end, float p_midtones_start, float p_midtones_end, float p_highlights_start, float p_highlights_end);
 	void environment_set_adjustment_advance(RID p_env, bool p_enable, float p_intensity);
+	void environment_set_adjustment_tonal_correction_colors(RID p_env, const Color &p_master, const Color &p_shadows, const Color &p_midtones, const Color &p_highlights);
+	void environment_set_adjustment_tonal_correction(RID p_env, const Vector4 &p_master, const Vector4 &p_shadows, const Vector4 &p_midtones, const Vector4 &p_highlights, const Vector4 &p_lift, const Vector4 &p_controls);
+	Vector4 environment_get_adjustment_tonal_correction(RID p_env, int p_index) const;
 	void environment_set_adjustment_curves(RID p_env, RID p_hue_vs_hue, RID p_hue_vs_saturation, RID p_saturation_vs_saturation, RID p_luminance_vs_saturation);
 	void environment_set_adjustment_color_modes(RID p_env, bool p_preserve_luminance, bool p_soft_contrast, float p_pivot);
 	Vector2 environment_get_adjustment_color_modes(RID p_env) const;

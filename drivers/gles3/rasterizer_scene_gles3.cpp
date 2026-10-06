@@ -2538,6 +2538,7 @@ void RasterizerSceneGLES3::render_scene(const Ref<RenderSceneBuffers> &p_render_
 	if (render_data.environment.is_valid()) {
 		tonemap_ubo.exposure = environment_get_exposure(render_data.environment);
 		tonemap_ubo.tonemapper = int32_t(environment_get_tone_mapper(render_data.environment));
+		tonemap_ubo.tone_curve_amount = environment_get_tonemap_curve_amount(render_data.environment);
 		RendererEnvironmentStorage::TonemapParameters params = environment_get_tonemap_parameters(render_data.environment, false, 1.0f);
 		tonemap_ubo.tonemapper_params[0] = params.tonemapper_params[0];
 		tonemap_ubo.tonemapper_params[1] = params.tonemapper_params[1];
@@ -2582,6 +2583,12 @@ void RasterizerSceneGLES3::render_scene(const Ref<RenderSceneBuffers> &p_render_
 			}
 		}
 		tonemap_ubo.white_balance[3] = environment_get_adjustment_white_balance_enabled(render_data.environment);
+		for (int range = 0; range < 10; range++) {
+			const Vector4 correction = environment_get_adjustment_tonal_correction(render_data.environment, range);
+			for (int parameter = 0; parameter < 4; parameter++) {
+				tonemap_ubo.tonal_correction[range][parameter] = correction[parameter];
+			}
+		}
 		tonemap_ubo.offset[0] = offset.r;
 		tonemap_ubo.offset[1] = offset.g;
 		tonemap_ubo.offset[2] = offset.b;
@@ -2600,7 +2607,7 @@ void RasterizerSceneGLES3::render_scene(const Ref<RenderSceneBuffers> &p_render_
 		tonemap_ubo.grading_effects[3] = environment_get_adjustment_vignette(render_data.environment);
 		tonemap_ubo.vignette_range[0] = environment_get_adjustment_vignette_start(render_data.environment);
 		tonemap_ubo.vignette_range[1] = environment_get_adjustment_vignette_end(render_data.environment);
-		if (environment_get_adjustments_enabled(render_data.environment) && environment_get_adjustment_advance(render_data.environment) && environment_get_adjustment_color_grading_intensity(render_data.environment) > 0.0f) {
+		if (environment_get_adjustments_enabled(render_data.environment) && environment_get_adjustment_advance(render_data.environment) && environment_get_adjustment_color_grading_intensity(render_data.environment) > 0.0f && !environment_get_adjustment_white_balance_enabled(render_data.environment)) {
 			const Vector3 full_temperature = EnvironmentColorGrading::temperature_balance(environment_get_tonemap_temperature(render_data.environment));
 			const Vector3 temperature = Vector3(1.0, 1.0, 1.0).lerp(full_temperature, environment_get_adjustment_color_grading_intensity(render_data.environment));
 			tonemap_ubo.tonemap_temperature[0] = temperature.x;

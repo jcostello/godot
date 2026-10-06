@@ -191,10 +191,12 @@ public:
 
 	// Tonemap
 	virtual void environment_set_tonemap(RID p_env, RSE::EnvironmentToneMapper p_tone_mapper, float p_exposure, float p_white) = 0;
+	virtual void environment_set_tonemap_curve_amount(RID p_env, float p_amount) = 0;
 	virtual void environment_set_tonemap_agx_contrast(RID p_env, float p_agx_contrast) = 0;
 	virtual void environment_set_tonemap_temperature(RID p_env, float p_temperature) = 0;
 
 	virtual RSE::EnvironmentToneMapper environment_get_tone_mapper(RID p_env) const = 0;
+	virtual float environment_get_tonemap_curve_amount(RID p_env) const = 0;
 	virtual float environment_get_exposure(RID p_env) const = 0;
 	virtual float environment_get_white(RID p_env, bool p_limit_agx_white, float p_output_max_value) const = 0;
 	virtual float environment_get_tonemap_temperature(RID p_env) const = 0;
@@ -325,6 +327,8 @@ public:
 	virtual void environment_set_adjustment_tonal_softness(RID p_env, float p_shadows_softness, float p_highlights_softness) = 0;
 	virtual void environment_set_adjustment_midtones_range(RID p_env, float p_shadows_start, float p_shadows_end, float p_midtones_start, float p_midtones_end, float p_highlights_start, float p_highlights_end) = 0;
 	virtual void environment_set_adjustment_advance(RID p_env, bool p_enable, float p_intensity) = 0;
+	virtual void environment_set_adjustment_tonal_correction_colors(RID p_env, const Color &p_master, const Color &p_shadows, const Color &p_midtones, const Color &p_highlights) = 0;
+	virtual void environment_set_adjustment_tonal_correction(RID p_env, const Vector4 &p_master, const Vector4 &p_shadows, const Vector4 &p_midtones, const Vector4 &p_highlights, const Vector4 &p_lift, const Vector4 &p_controls) = 0;
 	virtual void environment_set_adjustment_curves(RID p_env, RID p_hue_vs_hue, RID p_hue_vs_saturation, RID p_saturation_vs_saturation, RID p_luminance_vs_saturation) = 0;
 	virtual void environment_set_adjustment_color_modes(RID p_env, bool p_preserve_luminance, bool p_soft_contrast, float p_pivot) = 0;
 	virtual void environment_set_adjustment_vibrance(RID p_env, float p_vibrance) = 0;
@@ -356,6 +360,7 @@ public:
 	virtual RID environment_get_adjustments_hue_vs_hue(RID p_env) const = 0;
 	virtual RID environment_get_adjustments_hue_vs_saturation(RID p_env) const = 0;
 	virtual RID environment_get_adjustments_saturation_vs_saturation(RID p_env) const = 0;
+	virtual Vector4 environment_get_adjustment_tonal_correction(RID p_env, int p_index) const = 0;
 	virtual RID environment_get_adjustments_luminance_vs_saturation(RID p_env) const = 0;
 	virtual bool environment_get_use_1d_color_correction(RID p_env) const = 0;
 	virtual RID environment_get_color_correction(RID p_env) const = 0;

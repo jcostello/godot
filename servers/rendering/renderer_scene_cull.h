@@ -1248,6 +1248,8 @@ public:
 
 	// Tonemap
 	PASS4(environment_set_tonemap, RID, RSE::EnvironmentToneMapper, float, float)
+	PASS2(environment_set_tonemap_curve_amount, RID, float)
+	PASS1RC(float, environment_get_tonemap_curve_amount, RID)
 	PASS2(environment_set_tonemap_agx_contrast, RID, float)
 	PASS2(environment_set_tonemap_temperature, RID, float)
 	PASS1RC(RSE::EnvironmentToneMapper, environment_get_tone_mapper, RID)
@@ -1379,6 +1381,9 @@ public:
 	PASS3(environment_set_adjustment_tonal_softness, RID, float, float)
 	PASS7(environment_set_adjustment_midtones_range, RID, float, float, float, float, float, float)
 	PASS3(environment_set_adjustment_advance, RID, bool, float)
+	PASS5(environment_set_adjustment_tonal_correction_colors, RID, const Color &, const Color &, const Color &, const Color &)
+	PASS7(environment_set_adjustment_tonal_correction, RID, const Vector4 &, const Vector4 &, const Vector4 &, const Vector4 &, const Vector4 &, const Vector4 &)
+	PASS2RC(Vector4, environment_get_adjustment_tonal_correction, RID, int)
 	PASS5(environment_set_adjustment_curves, RID, RID, RID, RID, RID)
 	PASS4(environment_set_adjustment_color_modes, RID, bool, bool, float)
 	PASS2(environment_set_adjustment_vibrance, RID, float)

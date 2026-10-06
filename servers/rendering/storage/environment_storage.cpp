@@ -275,6 +275,18 @@ float RendererEnvironmentStorage::environment_get_tonemap_temperature(RID p_env)
 	return env->tonemap_temperature;
 }
 
+void RendererEnvironmentStorage::environment_set_tonemap_curve_amount(RID p_env, float p_amount) {
+	Environment *env = environment_owner.get_or_null(p_env);
+	ERR_FAIL_NULL(env);
+	env->tonemap_curve_amount = CLAMP(p_amount, 0.0f, 1.0f);
+}
+
+float RendererEnvironmentStorage::environment_get_tonemap_curve_amount(RID p_env) const {
+	Environment *env = environment_owner.get_or_null(p_env);
+	ERR_FAIL_NULL_V(env, 1.0f);
+	return env->tonemap_curve_amount;
+}
+
 void RendererEnvironmentStorage::environment_set_tonemap_agx_contrast(RID p_env, float p_agx_contrast) {
 	Environment *env = environment_owner.get_or_null(p_env);
 	ERR_FAIL_NULL(env);
@@ -995,6 +1007,35 @@ void RendererEnvironmentStorage::environment_set_adjustment_advance(RID p_env, b
 	ERR_FAIL_NULL(env);
 	env->adjustments_advance = p_enable;
 	env->adjustments_color_grading_intensity = CLAMP(p_intensity, 0.0f, 1.0f);
+}
+
+void RendererEnvironmentStorage::environment_set_adjustment_tonal_correction_colors(RID p_env, const Color &p_master, const Color &p_shadows, const Color &p_midtones, const Color &p_highlights) {
+	Environment *env = environment_owner.get_or_null(p_env);
+	ERR_FAIL_NULL(env);
+	const Color colors[] = { p_master, p_shadows, p_midtones, p_highlights };
+	for (int i = 0; i < 4; i++) {
+		const Color linear = colors[i].clamp().srgb_to_linear();
+		env->adjustments_tonal_correction[6 + i] = Vector4(linear.r, linear.g, linear.b, 0);
+	}
+}
+
+void RendererEnvironmentStorage::environment_set_adjustment_tonal_correction(RID p_env, const Vector4 &p_master, const Vector4 &p_shadows, const Vector4 &p_midtones, const Vector4 &p_highlights, const Vector4 &p_lift, const Vector4 &p_controls) {
+	Environment *env = environment_owner.get_or_null(p_env);
+	ERR_FAIL_NULL(env);
+	const Vector4 parameters[] = { p_master, p_shadows, p_midtones, p_highlights };
+	for (int i = 0; i < 4; i++) {
+		env->adjustments_tonal_correction[i] = EnvironmentColorGrading::clamp_tonal_correction_parameters(parameters[i]);
+		env->adjustments_tonal_correction[4][i] = EnvironmentColorGrading::clamp_tonal_correction_parameter(4, p_lift[i]);
+	}
+	const bool enabled = p_controls.y > 0.5;
+	env->adjustments_tonal_correction[5] = Vector4(CLAMP(p_controls.x, 0.0f, 1.0f), enabled, enabled ? CLAMP(int(p_controls.z), 0, 4) : 0, CLAMP(p_controls.w, 0.01f, 0.99f));
+}
+
+Vector4 RendererEnvironmentStorage::environment_get_adjustment_tonal_correction(RID p_env, int p_index) const {
+	Environment *env = environment_owner.get_or_null(p_env);
+	ERR_FAIL_NULL_V(env, Vector4());
+	ERR_FAIL_INDEX_V(p_index, 10, Vector4());
+	return env->adjustments_tonal_correction[p_index];
 }
 
 void RendererEnvironmentStorage::environment_set_adjustment_curves(RID p_env, RID p_hue_vs_hue, RID p_hue_vs_saturation, RID p_saturation_vs_saturation, RID p_luminance_vs_saturation) {

@@ -34,8 +34,24 @@
 #include "core/math/color.h"
 #include "core/math/vector2.h"
 #include "core/math/vector3.h"
+#include "core/math/vector4.h"
 
 namespace EnvironmentColorGrading {
+
+inline float clamp_tonal_correction_parameter(int p_parameter, float p_value) {
+	if (p_parameter == 4) { // Lift.
+		return CLAMP(p_value, -1.0f, 1.0f);
+	}
+	return CLAMP(p_value, p_parameter == 2 ? 0.05f : 0.0f, 4.0f);
+}
+
+inline Vector4 clamp_tonal_correction_parameters(const Vector4 &p_parameters) {
+	Vector4 result;
+	for (int i = 0; i < 4; i++) {
+		result[i] = clamp_tonal_correction_parameter(i, p_parameters[i]);
+	}
+	return result;
+}
 
 struct TonalRanges {
 	float shadows_start = 0.0f;
@@ -144,6 +160,9 @@ inline Color color_from_temperature(float p_temperature) {
 }
 
 inline Vector3 temperature_balance(float p_temperature) {
+	if (p_temperature == 6500.0f) {
+		return Vector3(1.0, 1.0, 1.0);
+	}
 	const Color neutral = color_from_temperature(6500.0f);
 	const Color current = color_from_temperature(p_temperature);
 	return Vector3(
@@ -153,6 +172,9 @@ inline Vector3 temperature_balance(float p_temperature) {
 }
 
 inline Basis white_balance_matrix(float p_temperature, float p_tint, float p_intensity) {
+	if (p_intensity <= 0.0f || (p_temperature == 6500.0f && p_tint == 0.0f)) {
+		return Basis();
+	}
 	const auto white_xyz = [](float p_temperature_value, float p_tint_value) {
 		const float temperature = CLAMP(p_temperature_value, 1000.0f, 15000.0f);
 		const float temperature_squared = temperature * temperature;

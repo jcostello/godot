@@ -1310,6 +1310,30 @@
 				Sets the values to be used with the "adjustments" post-process effect. See [Environment] for more details.
 			</description>
 		</method>
+		<method name="environment_set_adjustment_tonal_correction">
+			<return type="void" />
+			<param index="0" name="env" type="RID" />
+			<param index="1" name="master" type="Vector4" />
+			<param index="2" name="shadows" type="Vector4" />
+			<param index="3" name="midtones" type="Vector4" />
+			<param index="4" name="highlights" type="Vector4" />
+			<param index="5" name="lift" type="Vector4" />
+			<param index="6" name="controls" type="Vector4" />
+			<description>
+				Sets the tonal color correction parameters. Each of [param master], [param shadows], [param midtones] and [param highlights] contains saturation, contrast, gamma and gain, respectively; [code]Vector4(1, 1, 1, 1)[/code] is neutral. [param lift] contains lift for Master, Shadows, Midtones and Highlights; zero is neutral. [param controls] contains amount (0–1), enabled (0 or 1), mask preview (0 disabled, 1 Master, 2 Shadows, 3 Midtones, 4 Highlights) and soft contrast pivot (0.01–0.99). See [member Environment.adjustment_correction_enabled] for processing order and required settings.
+			</description>
+		</method>
+		<method name="environment_set_adjustment_tonal_correction_colors">
+			<return type="void" />
+			<param index="0" name="env" type="RID" />
+			<param index="1" name="master" type="Color" />
+			<param index="2" name="shadows" type="Color" />
+			<param index="3" name="midtones" type="Color" />
+			<param index="4" name="highlights" type="Color" />
+			<description>
+				Sets sRGB tonal modulation colors; white is neutral and alpha is ignored. RGB is clamped to 0–1 and converted to linear light. Uses the masks, Amount and enabled state set by [method environment_set_adjustment_tonal_correction]. See [member Environment.adjustment_correction_master_color].
+			</description>
+		</method>
 		<method name="environment_set_adjustment_tonal_softness">
 			<return type="void" />
 			<param index="0" name="env" type="RID" />
@@ -1561,6 +1585,14 @@
 			<param index="1" name="agx_contrast" type="float" />
 			<description>
 				See [member Environment.tonemap_agx_contrast] for more details.
+			</description>
+		</method>
+		<method name="environment_set_tonemap_curve_amount">
+			<return type="void" />
+			<param index="0" name="env" type="RID" />
+			<param index="1" name="amount" type="float" />
+			<description>
+				Sets the strength of the environment's tonemapper response. See [member Environment.tonemap_curve_amount] for details.
 			</description>
 		</method>
 		<method name="environment_set_volumetric_fog">

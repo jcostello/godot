@@ -54,6 +54,12 @@ RID ToneMapper::_upload_grading_buffer(const TonemapSettings &p_settings) {
 		}
 	}
 	data.white_balance[0][3] = p_settings.use_chromatic_adaptation;
+	data.tonemap_controls[0] = p_settings.tone_curve_amount;
+	for (int range = 0; range < 10; range++) {
+		for (int parameter = 0; parameter < 4; parameter++) {
+			data.tonal_correction[range][parameter] = p_settings.tonal_correction[range][parameter];
+		}
+	}
 	grading_buffers.prepare_for_upload();
 	RID buffer = grading_buffers._get(0);
 	grading_buffers.upload(0, &data, sizeof(data));

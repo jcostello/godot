@@ -808,6 +808,19 @@ void CurveEdit::_redraw() {
 						float gray = Math::lerp(input_gray, value, 0.72f);
 						background = Color(gray, gray, gray);
 					} break;
+					case 4: { // Hue vs Luminance.
+						background = Color::from_hsv(input, 0.52, Math::lerp(0.18f, 0.82f, output));
+					} break;
+					case 5: // Master RGB.
+					case 6: // Red.
+					case 7: // Green.
+					case 8: { // Blue.
+						const float value = Math::lerp(0.18f, 0.65f, output);
+						background = Color(value, value, value);
+						if (mode > 5) {
+							background[(mode - 6)] = MIN(value + 0.18f, 1.0f);
+						}
+					} break;
 					default: { // Luminance vs Saturation.
 						float luminance = Math::lerp(0.18f, 0.82f, input);
 						float vertical_shade = Math::lerp(0.78f, 1.18f, output);
@@ -818,8 +831,12 @@ void CurveEdit::_redraw() {
 				draw_rect(Rect2(Vector2(view_size.x * x / columns, view_size.y * y / rows), Vector2(view_size.x / columns + 1.0, view_size.y / rows + 1.0)), background);
 			}
 		}
-		// Make the neutral 0.5 line immediately recognizable behind the curve.
-		draw_rect(Rect2(0, view_size.y * 0.5 - EDSCALE, view_size.x, 2.0 * EDSCALE), Color(0.72, 0.72, 0.72, 0.72));
+		// RGB curves are neutral on the diagonal; other grading curves at 0.5.
+		if (mode >= 5) {
+			draw_line(get_view_pos(Vector2(0, 0)), get_view_pos(Vector2(1, 1)), Color(0.72, 0.72, 0.72, 0.72), 2.0 * EDSCALE, true);
+		} else {
+			draw_rect(Rect2(0, view_size.y * 0.5 - EDSCALE, view_size.x, 2.0 * EDSCALE), Color(0.72, 0.72, 0.72, 0.72));
+		}
 	}
 
 	// Draw primary grid.

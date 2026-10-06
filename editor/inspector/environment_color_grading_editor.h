@@ -8,6 +8,7 @@
 #include "scene/gui/button.h"
 #include "scene/gui/slider.h"
 
+class EditorPropertyColor;
 class EditorSpinSlider;
 class EnvironmentColorGradingEditor;
 class EnvironmentTonalRangesEditor;
@@ -103,6 +104,31 @@ public:
 	void update_property() override;
 	void set_tonal_cutoff(int p_handle, float p_value, bool p_changing);
 	EnvironmentTonalRangesEditor();
+};
+
+class EnvironmentTonalCorrectionEditor : public EditorProperty {
+	GDCLASS(EnvironmentTonalCorrectionEditor, EditorProperty);
+
+	static constexpr int RANGE_COUNT = 4;
+	static constexpr int PARAMETER_COUNT = 5;
+	EditorPropertyColor *color_editors[RANGE_COUNT] = {};
+	EditorSpinSlider *sliders[RANGE_COUNT][PARAMETER_COUNT] = {};
+	Button *reset_buttons[RANGE_COUNT] = {};
+	Button *color_reset_buttons[RANGE_COUNT] = {};
+	Button *parameter_reset_buttons[RANGE_COUNT][PARAMETER_COUNT] = {};
+	bool updating = false;
+
+	void _color_changed(const StringName &p_property, const Variant &p_value, const StringName &p_field, bool p_changing);
+	void _parameter_changed(double p_value, int p_range, int p_parameter);
+	void _reset_range(int p_range);
+	void _reset_control(int p_range, int p_parameter);
+
+protected:
+	void _set_read_only(bool p_read_only) override;
+
+public:
+	void update_property() override;
+	EnvironmentTonalCorrectionEditor();
 };
 
 class EditorInspectorEnvironmentColorGradingPlugin : public EditorInspectorPlugin {

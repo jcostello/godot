@@ -102,8 +102,8 @@ uniform sampler2D luminance_vs_saturation_curve; //texunit:7
 #define COLOR_GRADING_CURVES
 #endif
 
-#include "../../../../servers/rendering/shaders/color_grading_inc.glsl"
 #include "../../../../servers/rendering/shaders/color_adjustments_inc.glsl"
+#include "../../../../servers/rendering/shaders/color_grading_inc.glsl"
 
 #if defined(USE_SSAO_ABYSS) || defined(USE_SSAO_LOW) || defined(USE_SSAO_MED) || defined(USE_SSAO_HIGH) || defined(USE_SSAO_MEGA)
 #define USE_SOME_SSAO
@@ -136,6 +136,8 @@ layout(location = 0) out vec4 frag_color;
 #endif
 
 void main() {
+	vec3 tonal_correction_weights = vec3(0.0, 1.0, 0.0);
+	float tonal_correction_mask = -1.0;
 #ifdef USE_MULTIVIEW
 	vec4 color = texture(source_color, vec3(uv_interp, view));
 #else
@@ -187,14 +189,7 @@ void main() {
 #endif
 
 #ifdef USE_COLOR_GRADING
-	vec3 color_before_linear_grading = color.rgb;
-	float linear_grading_luminance = dot(color.rgb, vec3(0.2126729, 0.7151522, 0.0721750));
-	vec3 linear_grading_weights = grading_tonal_weights(linear_grading_luminance, tonal_softness);
-	color.rgb = apply_grading_tonal_wheels(color.rgb, linear_grading_weights, shadows, midtones, highlights);
-	if (gain.a > 0.5) {
-		color.rgb = apply_grading_lift_gamma_gain(color.rgb, lift.rgb, gamma.rgb, gain.rgb);
-	}
-	color.rgb = mix(color_before_linear_grading, color.rgb, tint_midtones_range.w);
+	color.rgb = apply_grading_linear(color.rgb, tonal_softness, shadows, midtones, highlights, lift, gamma, gain, tint_midtones_range.w, tonal_correction, tonal_correction_weights);
 #endif
 
 	color.rgb = apply_tonemapping(color.rgb);
@@ -237,6 +232,10 @@ void main() {
 	color.rgb *= offset.a;
 	float tint = white_balance_0.w > 0.5 ? 0.0 : tint_midtones_range.x;
 	color.rgb *= vec3(1.0 + tint, 1.0 - tint, 1.0 + tint);
+	color.rgb = apply_grading_tonal_correction(color.rgb, tonal_correction_weights, tonal_correction);
+	if (tonal_correction[5].z > 0.5) {
+		tonal_correction_mask = grading_tonal_correction_mask(tonal_correction_weights, int(tonal_correction[5].z));
+	}
 
 #endif
 
@@ -260,5 +259,8 @@ void main() {
 	color.rgb = apply_color_correction(color.rgb);
 #endif
 
+	if (tonal_correction_mask >= 0.0) {
+		color.rgb = vec3(tonal_correction_mask);
+	}
 	frag_color = color;
 }

@@ -486,7 +486,7 @@ private:
 			float exposure = 1.0;
 			int32_t tonemapper = 0;
 			int32_t pad = 0;
-			int32_t pad2 = 0;
+			float tone_curve_amount = 1.0;
 			float tonemapper_params[4] = { 0.0, 0.0, 0.0, 0.0 };
 			float brightness = 1.0;
 			float contrast = 1.0;
@@ -505,8 +505,9 @@ private:
 			float tonal_softness[4] = { 0.0, 0.3, 0.55, 1.0 };
 			float grading_effects[4] = { 0.0, 0.0, 1.0, 0.0 };
 			float vignette_range[4] = { 0.6, 1.0, 0.0, 0.0 };
+			float tonal_correction[10][4] = {};
 		};
-		static_assert(sizeof(TonemapUBO) % 16 == 0, "Tonemap UBO size must be a multiple of 16 bytes");
+		static_assert(sizeof(TonemapUBO) == 448, "TonemapUBO must match the shader layout.");
 
 		UBO data;
 		UBO prev_data;

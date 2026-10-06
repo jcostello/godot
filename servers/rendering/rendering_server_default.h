@@ -882,6 +882,7 @@ public:
 	FUNC1(environment_glow_set_use_bicubic_upscale, bool)
 
 	FUNC4(environment_set_tonemap, RID, RSE::EnvironmentToneMapper, float, float)
+	FUNC2(environment_set_tonemap_curve_amount, RID, float)
 	FUNC2(environment_set_tonemap_agx_contrast, RID, float)
 	FUNC2(environment_set_tonemap_temperature, RID, float)
 
@@ -893,6 +894,8 @@ public:
 	FUNC3(environment_set_adjustment_tonal_softness, RID, float, float)
 	FUNC7(environment_set_adjustment_midtones_range, RID, float, float, float, float, float, float)
 	FUNC3(environment_set_adjustment_advance, RID, bool, float)
+	FUNC5(environment_set_adjustment_tonal_correction_colors, RID, const Color &, const Color &, const Color &, const Color &)
+	FUNC7(environment_set_adjustment_tonal_correction, RID, const Vector4 &, const Vector4 &, const Vector4 &, const Vector4 &, const Vector4 &, const Vector4 &)
 	FUNC5(environment_set_adjustment_curves, RID, RID, RID, RID, RID)
 	FUNC4(environment_set_adjustment_color_modes, RID, bool, bool, float)
 	FUNC2(environment_set_adjustment_vibrance, RID, float)

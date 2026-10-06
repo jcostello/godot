@@ -3088,6 +3088,7 @@ void RenderingServer::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("environment_set_ambient_light", "env", "color", "ambient", "energy", "sky_contribution", "reflection_source"), &RenderingServer::environment_set_ambient_light, DEFVAL(RSE::ENV_AMBIENT_SOURCE_BG), DEFVAL(1.0), DEFVAL(0.0), DEFVAL(RSE::ENV_REFLECTION_SOURCE_BG));
 	ClassDB::bind_method(D_METHOD("environment_set_glow", "env", "enable", "levels", "intensity", "strength", "mix", "bloom_threshold", "blend_mode", "hdr_bleed_threshold", "hdr_bleed_scale", "hdr_luminance_cap", "glow_map_strength", "glow_map"), &RenderingServer::environment_set_glow);
 	ClassDB::bind_method(D_METHOD("environment_set_tonemap", "env", "tone_mapper", "exposure", "white"), &RenderingServer::environment_set_tonemap);
+	ClassDB::bind_method(D_METHOD("environment_set_tonemap_curve_amount", "env", "amount"), &RenderingServer::environment_set_tonemap_curve_amount);
 	ClassDB::bind_method(D_METHOD("environment_set_tonemap_agx_contrast", "env", "agx_contrast"), &RenderingServer::environment_set_tonemap_agx_contrast);
 	ClassDB::bind_method(D_METHOD("environment_set_tonemap_temperature", "env", "temperature"), &RenderingServer::environment_set_tonemap_temperature);
 	ClassDB::bind_method(D_METHOD("environment_set_adjustment", "env", "enable", "brightness", "contrast", "saturation", "use_1d_color_correction", "color_correction", "shadows_color", "shadows_luminance", "midtones_color", "midtones_luminance", "highlights_color", "highlights_luminance"), &RenderingServer::environment_set_adjustment);
@@ -3098,6 +3099,8 @@ void RenderingServer::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("environment_set_adjustment_tonal_softness", "env", "shadows_softness", "highlights_softness"), &RenderingServer::environment_set_adjustment_tonal_softness);
 	ClassDB::bind_method(D_METHOD("environment_set_adjustment_midtones_range", "env", "shadows_start", "shadows_end", "midtones_start", "midtones_end", "highlights_start", "highlights_end"), &RenderingServer::environment_set_adjustment_midtones_range);
 	ClassDB::bind_method(D_METHOD("environment_set_adjustment_advance", "env", "enable", "intensity"), &RenderingServer::environment_set_adjustment_advance, DEFVAL(1.0f));
+	ClassDB::bind_method(D_METHOD("environment_set_adjustment_tonal_correction_colors", "env", "master", "shadows", "midtones", "highlights"), &RenderingServer::environment_set_adjustment_tonal_correction_colors);
+	ClassDB::bind_method(D_METHOD("environment_set_adjustment_tonal_correction", "env", "master", "shadows", "midtones", "highlights", "lift", "controls"), &RenderingServer::environment_set_adjustment_tonal_correction);
 	ClassDB::bind_method(D_METHOD("environment_set_adjustment_curves", "env", "hue_vs_hue", "hue_vs_saturation", "saturation_vs_saturation", "luminance_vs_saturation"), &RenderingServer::environment_set_adjustment_curves);
 	ClassDB::bind_method(D_METHOD("environment_set_ssr", "env", "enable", "max_steps", "fade_in", "fade_out", "depth_tolerance"), &RenderingServer::environment_set_ssr);
 	ClassDB::bind_method(D_METHOD("environment_set_ssao", "env", "enable", "radius", "intensity", "power", "detail", "horizon", "sharpness", "light_affect", "ao_channel_affect"), &RenderingServer::environment_set_ssao);

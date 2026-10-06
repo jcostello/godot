@@ -2,7 +2,7 @@ layout(std140) uniform TonemapData { //ubo:0
 	float exposure;
 	int tonemapper;
 	int pad;
-	int pad2;
+	float tone_curve_amount;
 	vec4 tonemapper_params;
 	float brightness;
 	float contrast;
@@ -23,6 +23,7 @@ layout(std140) uniform TonemapData { //ubo:0
 	vec4 tonal_softness;
 	vec4 grading_effects; // Vibrance, color adjustment flags, sRGB contrast pivot, vignette.
 	vec4 vignette_range;
+	vec4 tonal_correction[10];
 };
 
 // This approximation expects non-negative input; negative input is undefined behavior.
@@ -190,7 +191,7 @@ vec3 tonemap_agx(vec3 color) {
 #define TONEMAPPER_ACES 3
 #define TONEMAPPER_AGX 4
 
-vec3 apply_tonemapping(vec3 color) { // inputs are LINEAR
+vec3 apply_full_tonemapping(vec3 color) { // inputs are LINEAR
 	if (tonemapper == TONEMAPPER_LINEAR) {
 		return color;
 	}
@@ -208,6 +209,15 @@ vec3 apply_tonemapping(vec3 color) { // inputs are LINEAR
 	} else { // TONEMAPPER_AGX
 		return tonemap_agx(color);
 	}
+}
+
+vec3 apply_tonemapping(vec3 color) {
+	float amount = tone_curve_amount;
+	if (amount == 0.0) {
+		return color;
+	}
+	vec3 mapped = apply_full_tonemapping(color);
+	return amount == 1.0 ? mapped : mix(color, mapped, amount);
 }
 
 #endif // APPLY_TONEMAPPING

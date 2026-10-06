@@ -30,6 +30,7 @@
 
 #pragma once
 
+#include "core/math/vector4.h"
 #include "servers/rendering/multi_uma_buffer.h"
 #include "servers/rendering/renderer_rd/pipeline_cache_rd.h"
 #include "servers/rendering/renderer_rd/shaders/effects/tonemap.glsl.gen.h"
@@ -174,10 +175,12 @@ public:
 		float gamma[4];
 		float gain[4]; // Alpha indicates whether lift/gamma/gain is non-neutral.
 		float white_balance[3][4]; // Three rows; first row alpha enables chromatic adaptation.
+		float tonal_correction[10][4]; // Four ranges, lift, controls and four linear RGB colors.
+		float tonemap_controls[4]; // Tone curve amount followed by padding.
 	};
 
 private:
-	static_assert(sizeof(GradingData) == 144, "GradingData must match the shader layout.");
+	static_assert(sizeof(GradingData) == 320, "GradingData must match the shader layout.");
 	static_assert(sizeof(TonemapPushConstant) == 200, "TonemapPushConstant must match the shader layout.");
 	static_assert(sizeof(TonemapPushConstantMobile) == 152, "TonemapPushConstantMobile must match the shader layout.");
 	MultiUmaBuffer<1, 8> grading_buffers = MultiUmaBuffer<1, 8>("ToneMapper::grading_buffers");
@@ -220,6 +223,7 @@ public:
 		float tonemapper_params[4] = { 0.0, 0.0, 0.0, 0.0 };
 		float tonemap_temperature[3] = { 1.0, 1.0, 1.0 };
 		float exposure = 1.0;
+		float tone_curve_amount = 1.0;
 		float white = 1.0;
 		float max_value = 1.0;
 
@@ -256,6 +260,7 @@ public:
 		Color gain = Color(1, 1, 1);
 		bool use_chromatic_adaptation = false;
 		Basis white_balance_matrix;
+		Vector4 tonal_correction[10] = { Vector4(1, 1, 1, 1), Vector4(1, 1, 1, 1), Vector4(1, 1, 1, 1), Vector4(1, 1, 1, 1), Vector4(), Vector4(0, 0, 0, 0.5), Vector4(1, 1, 1, 0), Vector4(1, 1, 1, 0), Vector4(1, 1, 1, 0), Vector4(1, 1, 1, 0) };
 		bool use_color_grading_curves = false;
 		RID hue_vs_hue_texture;
 		RID hue_vs_saturation_texture;

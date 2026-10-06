@@ -264,6 +264,14 @@ float RendererSceneRender::environment_get_tonemap_temperature(RID p_env) const 
 	return environment_storage.environment_get_tonemap_temperature(p_env);
 }
 
+void RendererSceneRender::environment_set_tonemap_curve_amount(RID p_env, float p_amount) {
+	environment_storage.environment_set_tonemap_curve_amount(p_env, p_amount);
+}
+
+float RendererSceneRender::environment_get_tonemap_curve_amount(RID p_env) const {
+	return environment_storage.environment_get_tonemap_curve_amount(p_env);
+}
+
 void RendererSceneRender::environment_set_tonemap_agx_contrast(RID p_env, float p_agx_contrast) {
 	environment_storage.environment_set_tonemap_agx_contrast(p_env, p_agx_contrast);
 }
@@ -628,6 +636,18 @@ void RendererSceneRender::environment_set_adjustment_midtones_range(RID p_env, f
 
 void RendererSceneRender::environment_set_adjustment_advance(RID p_env, bool p_enable, float p_intensity) {
 	environment_storage.environment_set_adjustment_advance(p_env, p_enable, p_intensity);
+}
+
+void RendererSceneRender::environment_set_adjustment_tonal_correction_colors(RID p_env, const Color &p_master, const Color &p_shadows, const Color &p_midtones, const Color &p_highlights) {
+	environment_storage.environment_set_adjustment_tonal_correction_colors(p_env, p_master, p_shadows, p_midtones, p_highlights);
+}
+
+void RendererSceneRender::environment_set_adjustment_tonal_correction(RID p_env, const Vector4 &p_master, const Vector4 &p_shadows, const Vector4 &p_midtones, const Vector4 &p_highlights, const Vector4 &p_lift, const Vector4 &p_controls) {
+	environment_storage.environment_set_adjustment_tonal_correction(p_env, p_master, p_shadows, p_midtones, p_highlights, p_lift, p_controls);
+}
+
+Vector4 RendererSceneRender::environment_get_adjustment_tonal_correction(RID p_env, int p_index) const {
+	return environment_storage.environment_get_adjustment_tonal_correction(p_env, p_index);
 }
 
 void RendererSceneRender::environment_set_adjustment_curves(RID p_env, RID p_hue_vs_hue, RID p_hue_vs_saturation, RID p_saturation_vs_saturation, RID p_luminance_vs_saturation) {

@@ -58,6 +58,8 @@ layout(set = 0, binding = 8, std140) uniform GradingData {
 	vec4 white_balance_0;
 	vec4 white_balance_1;
 	vec4 white_balance_2;
+	vec4 tonal_correction[10];
+	vec4 tonemap_controls;
 } grading;
 
 // All uniforms must be on set 0 to prevent MSAA from crashing Mali GPUs. See GH-114785.
@@ -274,7 +276,7 @@ vec3 srgb_to_linear(vec3 color) {
 	return mix(pow((color.rgb + a) * (1.0f / (vec3(1.0f) + a)), vec3(2.4f)), color.rgb * (1.0f / 12.92f), lessThan(color.rgb, vec3(0.04045f)));
 }
 
-vec3 apply_tonemapping(vec3 color) { // inputs are LINEAR
+vec3 apply_full_tonemapping(vec3 color) { // inputs are LINEAR
 	if (tonemapper_linear) {
 		return color;
 	}
@@ -292,6 +294,15 @@ vec3 apply_tonemapping(vec3 color) { // inputs are LINEAR
 	} else { // tonemapper_agx
 		return tonemap_agx(color);
 	}
+}
+
+vec3 apply_tonemapping(vec3 color) {
+	float amount = grading.tonemap_controls.x;
+	if (amount == 0.0) {
+		return color;
+	}
+	vec3 mapped = apply_full_tonemapping(color);
+	return amount == 1.0 ? mapped : mix(color, mapped, amount);
 }
 
 vec3 apply_temperature_balance(vec3 color) {
@@ -369,8 +380,8 @@ vec3 apply_color_correction(vec3 color) {
 #endif
 
 #define COLOR_GRADING_CURVES
-#include "../../../shaders/color_grading_inc.glsl"
 #include "../../../shaders/color_adjustments_inc.glsl"
+#include "../../../shaders/color_grading_inc.glsl"
 
 #ifndef SUBPASS
 
@@ -761,6 +772,8 @@ vec3 screen_space_dither(vec2 frag_coord, float bit_alignment_diviser) {
 }
 
 void main() {
+	vec3 tonal_correction_weights = vec3(0.0, 1.0, 0.0);
+	float tonal_correction_mask = -1.0;
 #ifdef SUBPASS
 	// SUBPASS and USE_MULTIVIEW can be combined but in that case we're already reading from the correct layer
 #ifdef USE_MULTIVIEW
@@ -806,14 +819,7 @@ void main() {
 	// Unity 6 URP applies shadows/midtones/highlights and lift/gamma/gain to
 	// scene-linear HDR color before tonemapping.
 	if (use_bcs && use_color_grading) {
-		vec3 color_before_linear_grading = color.rgb;
-		float grading_luminance = dot(color.rgb, vec3(0.2126729, 0.7151522, 0.0721750));
-		vec3 weights = grading_tonal_weights(grading_luminance, params.tonal_softness);
-		color.rgb = apply_grading_tonal_wheels(color.rgb, weights, grading.shadows, grading.midtones, grading.highlights);
-		if (grading.gain.a > 0.5) {
-			color.rgb = apply_grading_lift_gamma_gain(color.rgb, grading.lift.rgb, grading.gamma.rgb, grading.gain.rgb);
-		}
-		color.rgb = mix(color_before_linear_grading, color.rgb, params.tint_midtones_range.w);
+		color.rgb = apply_grading_linear(color.rgb, params.tonal_softness, grading.shadows, grading.midtones, grading.highlights, grading.lift, grading.gamma, grading.gain, params.tint_midtones_range.w, grading.tonal_correction, tonal_correction_weights);
 	}
 
 	// Tonemap to lower dynamic range.
@@ -876,7 +882,10 @@ void main() {
 			float tint = grading.white_balance_0.w > 0.5 ? 0.0 : params.tint_midtones_range.x;
 			vec3 tint_balance = vec3(1.0 + tint, 1.0 - tint, 1.0 + tint);
 			color.rgb *= tint_balance;
-
+			color.rgb = apply_grading_tonal_correction(color.rgb, tonal_correction_weights, grading.tonal_correction);
+			if (grading.tonal_correction[5].z > 0.5) {
+				tonal_correction_mask = grading_tonal_correction_mask(tonal_correction_weights, int(grading.tonal_correction[5].z));
+			}
 		}
 
 		if (use_color_grading_curves) {
@@ -904,6 +913,10 @@ void main() {
 		}
 	} else if (convert_to_srgb) {
 		color.rgb = linear_to_srgb(color.rgb); // Regular linear -> SRGB conversion.
+	}
+
+	if (tonal_correction_mask >= 0.0) {
+		color.rgb = convert_to_srgb ? vec3(tonal_correction_mask) : srgb_to_linear(vec3(tonal_correction_mask));
 	}
 
 	// Debanding should be done at the end of tonemapping, but before writing to the LDR buffer.
