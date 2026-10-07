@@ -554,6 +554,9 @@ public:
 	FUNC1R(RSE::ShadowmaskMode, lightmap_get_shadowmask_mode, RID)
 	FUNC2(lightmap_set_shadowmask_mode, RID, RSE::ShadowmaskMode)
 	FUNC1R(float, lightmap_get_specular_intensity, RID)
+	FUNC2(lightmap_set_adjustments_enabled, RID, bool)
+	FUNC8(lightmap_set_tonal_settings, RID, const Color &, const Color &, const Color &, const Color &, const Vector3 &, const Vector3 &, int)
+	FUNC9(lightmap_set_adjustments, RID, float, const Color &, float, float, float, float, float, float)
 	FUNC2(lightmap_set_specular_intensity, RID, float)
 
 	/* Shadow Atlas */

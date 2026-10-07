@@ -1928,6 +1928,8 @@ void LightmapGI::set_light_data(const Ref<LightmapGIData> &p_data) {
 		}
 		light_data->update_shadowmask_mode(shadowmask_mode);
 		light_data->update_specular_intensity(specular_intensity);
+		_update_adjustments();
+		_update_tonal_settings();
 	}
 
 	update_gizmos();
@@ -2173,6 +2175,327 @@ Ref<CameraAttributes> LightmapGI::get_camera_attributes() const {
 	return camera_attributes;
 }
 
+void LightmapGI::set_shadows_saturation(float p_value) {
+	ERR_FAIL_COND(!Math::is_finite(p_value) || p_value < 0.0f || p_value > 4.0f);
+	if (adjustments.tonal_saturation[0] == p_value) {
+		return;
+	}
+	adjustments.tonal_saturation[0] = p_value;
+	_update_tonal_settings();
+}
+
+float LightmapGI::get_shadows_saturation() const {
+	return adjustments.tonal_saturation[0];
+}
+
+void LightmapGI::set_shadows_contrast(float p_value) {
+	ERR_FAIL_COND(!Math::is_finite(p_value) || p_value < 0.0f || p_value > 4.0f);
+	if (adjustments.tonal_contrast[0] == p_value) {
+		return;
+	}
+	adjustments.tonal_contrast[0] = p_value;
+	_update_tonal_settings();
+}
+
+float LightmapGI::get_shadows_contrast() const {
+	return adjustments.tonal_contrast[0];
+}
+
+void LightmapGI::set_midtones_saturation(float p_value) {
+	ERR_FAIL_COND(!Math::is_finite(p_value) || p_value < 0.0f || p_value > 4.0f);
+	if (adjustments.tonal_saturation[1] == p_value) {
+		return;
+	}
+	adjustments.tonal_saturation[1] = p_value;
+	_update_tonal_settings();
+}
+
+float LightmapGI::get_midtones_saturation() const {
+	return adjustments.tonal_saturation[1];
+}
+
+void LightmapGI::set_midtones_contrast(float p_value) {
+	ERR_FAIL_COND(!Math::is_finite(p_value) || p_value < 0.0f || p_value > 4.0f);
+	if (adjustments.tonal_contrast[1] == p_value) {
+		return;
+	}
+	adjustments.tonal_contrast[1] = p_value;
+	_update_tonal_settings();
+}
+
+float LightmapGI::get_midtones_contrast() const {
+	return adjustments.tonal_contrast[1];
+}
+
+void LightmapGI::set_highlights_saturation(float p_value) {
+	ERR_FAIL_COND(!Math::is_finite(p_value) || p_value < 0.0f || p_value > 4.0f);
+	if (adjustments.tonal_saturation[2] == p_value) {
+		return;
+	}
+	adjustments.tonal_saturation[2] = p_value;
+	_update_tonal_settings();
+}
+
+float LightmapGI::get_highlights_saturation() const {
+	return adjustments.tonal_saturation[2];
+}
+
+void LightmapGI::set_highlights_contrast(float p_value) {
+	ERR_FAIL_COND(!Math::is_finite(p_value) || p_value < 0.0f || p_value > 4.0f);
+	if (adjustments.tonal_contrast[2] == p_value) {
+		return;
+	}
+	adjustments.tonal_contrast[2] = p_value;
+	_update_tonal_settings();
+}
+
+float LightmapGI::get_highlights_contrast() const {
+	return adjustments.tonal_contrast[2];
+}
+
+void LightmapGI::_update_tonal_settings() {
+	if (light_data.is_valid()) {
+		RS::get_singleton()->lightmap_set_tonal_settings(light_data->get_rid(), adjustments.tonal_ranges, adjustments.shadows_tint, adjustments.midtones_tint, adjustments.highlights_tint, adjustments.tonal_saturation, adjustments.tonal_contrast, adjustments.debug_mode);
+	}
+}
+
+void LightmapGI::_set_tonal_range(int p_index, float p_value) {
+	ERR_FAIL_COND(!Math::is_finite(p_value));
+	const Color previous = adjustments.tonal_ranges;
+	const float minimum[4] = { 0.0f, 0.0001f, 0.0001f, 0.0002f };
+	const float maximum[4] = { 0.9998f, 0.9999f, 0.9999f, 1.0f };
+	const float gap[3] = { 0.0001f, 0.0f, 0.0001f };
+	adjustments.tonal_ranges[p_index] = CLAMP(p_value, minimum[p_index], maximum[p_index]);
+	// Move adjacent boundaries when necessary, keeping both transitions ordered.
+	// Independent setter limits also allow valid ranges to round-trip during scene loading.
+	for (int i = p_index - 1; i >= 0; i--) {
+		adjustments.tonal_ranges[i] = MIN(adjustments.tonal_ranges[i], adjustments.tonal_ranges[i + 1] - gap[i]);
+	}
+	for (int i = p_index + 1; i < 4; i++) {
+		adjustments.tonal_ranges[i] = MAX(adjustments.tonal_ranges[i], adjustments.tonal_ranges[i - 1] + gap[i - 1]);
+	}
+	if (previous == adjustments.tonal_ranges) {
+		return;
+	}
+	_update_tonal_settings();
+}
+
+void LightmapGI::set_tonal_midtones_start(float p_value) {
+	_set_tonal_range(0, p_value);
+}
+
+float LightmapGI::get_tonal_midtones_start() const {
+	return adjustments.tonal_ranges[0];
+}
+
+void LightmapGI::set_tonal_shadows_end(float p_value) {
+	_set_tonal_range(1, p_value);
+}
+
+float LightmapGI::get_tonal_shadows_end() const {
+	return adjustments.tonal_ranges[1];
+}
+
+void LightmapGI::set_tonal_highlights_start(float p_value) {
+	_set_tonal_range(2, p_value);
+}
+
+float LightmapGI::get_tonal_highlights_start() const {
+	return adjustments.tonal_ranges[2];
+}
+
+void LightmapGI::set_tonal_midtones_end(float p_value) {
+	_set_tonal_range(3, p_value);
+}
+
+float LightmapGI::get_tonal_midtones_end() const {
+	return adjustments.tonal_ranges[3];
+}
+
+void LightmapGI::set_shadows_tint(const Color &p_value) {
+	ERR_FAIL_COND(!Math::is_finite(p_value.r) || !Math::is_finite(p_value.g) || !Math::is_finite(p_value.b) || p_value.r < 0.0f || p_value.g < 0.0f || p_value.b < 0.0f);
+	if (adjustments.shadows_tint == p_value) {
+		return;
+	}
+	adjustments.shadows_tint = p_value;
+	_update_tonal_settings();
+}
+
+Color LightmapGI::get_shadows_tint() const {
+	return adjustments.shadows_tint;
+}
+
+void LightmapGI::set_midtones_tint(const Color &p_value) {
+	ERR_FAIL_COND(!Math::is_finite(p_value.r) || !Math::is_finite(p_value.g) || !Math::is_finite(p_value.b) || p_value.r < 0.0f || p_value.g < 0.0f || p_value.b < 0.0f);
+	if (adjustments.midtones_tint == p_value) {
+		return;
+	}
+	adjustments.midtones_tint = p_value;
+	_update_tonal_settings();
+}
+
+Color LightmapGI::get_midtones_tint() const {
+	return adjustments.midtones_tint;
+}
+
+void LightmapGI::set_highlights_tint(const Color &p_value) {
+	ERR_FAIL_COND(!Math::is_finite(p_value.r) || !Math::is_finite(p_value.g) || !Math::is_finite(p_value.b) || p_value.r < 0.0f || p_value.g < 0.0f || p_value.b < 0.0f);
+	if (adjustments.highlights_tint == p_value) {
+		return;
+	}
+	adjustments.highlights_tint = p_value;
+	_update_tonal_settings();
+}
+
+Color LightmapGI::get_highlights_tint() const {
+	return adjustments.highlights_tint;
+}
+
+void LightmapGI::set_debug_mode(DebugMode p_value) {
+	ERR_FAIL_COND(p_value < DEBUG_DISABLED || p_value > DEBUG_HIGHLIGHTS);
+	if (adjustments.debug_mode == p_value) {
+		return;
+	}
+	adjustments.debug_mode = p_value;
+	_update_tonal_settings();
+}
+
+LightmapGI::DebugMode LightmapGI::get_debug_mode() const {
+	return (DebugMode)adjustments.debug_mode;
+}
+
+void LightmapGI::set_adjustments_enabled(bool p_enabled) {
+	if (adjustments.enabled == p_enabled) {
+		return;
+	}
+	adjustments.enabled = p_enabled;
+	if (light_data.is_valid()) {
+		RS::get_singleton()->lightmap_set_adjustments_enabled(light_data->get_rid(), p_enabled);
+	}
+}
+
+bool LightmapGI::is_adjustments_enabled() const {
+	return adjustments.enabled;
+}
+
+void LightmapGI::_update_adjustments() {
+	if (light_data.is_valid()) {
+		RS::get_singleton()->lightmap_set_adjustments_enabled(light_data->get_rid(), adjustments.enabled);
+		RS::get_singleton()->lightmap_set_adjustments(light_data->get_rid(), adjustments.energy, adjustments.tint, adjustments.saturation, adjustments.contrast, adjustments.shadows, adjustments.midtones, adjustments.highlights, adjustments.directionality_strength);
+	}
+}
+
+void LightmapGI::set_energy(float p_value) {
+	ERR_FAIL_COND(!Math::is_finite(p_value));
+	ERR_FAIL_COND(p_value < 0.0f);
+	if (adjustments.energy == p_value) {
+		return;
+	}
+	adjustments.energy = p_value;
+	_update_adjustments();
+}
+
+float LightmapGI::get_energy() const {
+	return adjustments.energy;
+}
+
+void LightmapGI::set_tint(const Color &p_value) {
+	ERR_FAIL_COND(!Math::is_finite(p_value.r) || !Math::is_finite(p_value.g) || !Math::is_finite(p_value.b) || !Math::is_finite(p_value.a) || p_value.r < 0.0f || p_value.g < 0.0f || p_value.b < 0.0f);
+	if (adjustments.tint == p_value) {
+		return;
+	}
+	adjustments.tint = p_value;
+	_update_adjustments();
+}
+
+Color LightmapGI::get_tint() const {
+	return adjustments.tint;
+}
+
+void LightmapGI::set_saturation(float p_value) {
+	ERR_FAIL_COND(!Math::is_finite(p_value));
+	ERR_FAIL_COND(p_value < 0.0f);
+	if (adjustments.saturation == p_value) {
+		return;
+	}
+	adjustments.saturation = p_value;
+	_update_adjustments();
+}
+
+float LightmapGI::get_saturation() const {
+	return adjustments.saturation;
+}
+
+void LightmapGI::set_contrast(float p_value) {
+	ERR_FAIL_COND(!Math::is_finite(p_value));
+	ERR_FAIL_COND(p_value < 0.0f || p_value > 4.0f);
+	if (adjustments.contrast == p_value) {
+		return;
+	}
+	adjustments.contrast = p_value;
+	_update_adjustments();
+}
+
+float LightmapGI::get_contrast() const {
+	return adjustments.contrast;
+}
+
+void LightmapGI::set_shadows(float p_value) {
+	ERR_FAIL_COND(!Math::is_finite(p_value));
+	ERR_FAIL_COND(p_value < -4.0f || p_value > 4.0f);
+	if (adjustments.shadows == p_value) {
+		return;
+	}
+	adjustments.shadows = p_value;
+	_update_adjustments();
+}
+
+float LightmapGI::get_shadows() const {
+	return adjustments.shadows;
+}
+
+void LightmapGI::set_midtones(float p_value) {
+	ERR_FAIL_COND(!Math::is_finite(p_value));
+	ERR_FAIL_COND(p_value < -4.0f || p_value > 4.0f);
+	if (adjustments.midtones == p_value) {
+		return;
+	}
+	adjustments.midtones = p_value;
+	_update_adjustments();
+}
+
+float LightmapGI::get_midtones() const {
+	return adjustments.midtones;
+}
+
+void LightmapGI::set_highlights(float p_value) {
+	ERR_FAIL_COND(!Math::is_finite(p_value));
+	ERR_FAIL_COND(p_value < -4.0f || p_value > 4.0f);
+	if (adjustments.highlights == p_value) {
+		return;
+	}
+	adjustments.highlights = p_value;
+	_update_adjustments();
+}
+
+float LightmapGI::get_highlights() const {
+	return adjustments.highlights;
+}
+
+void LightmapGI::set_directionality_strength(float p_value) {
+	ERR_FAIL_COND(!Math::is_finite(p_value));
+	ERR_FAIL_COND(p_value < 0.0f || p_value > 4.0f);
+	if (adjustments.directionality_strength == p_value) {
+		return;
+	}
+	adjustments.directionality_strength = p_value;
+	_update_adjustments();
+}
+
+float LightmapGI::get_directionality_strength() const {
+	return adjustments.directionality_strength;
+}
+
 float LightmapGI::get_specular_intensity() const {
 	return specular_intensity;
 }
@@ -2328,6 +2651,95 @@ void LightmapGI::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("get_specular_intensity"), &LightmapGI::get_specular_intensity);
 
 	//	ClassDB::bind_method(D_METHOD("bake", "from_node"), &LightmapGI::bake, DEFVAL(Variant()));
+
+	ClassDB::bind_method(D_METHOD("set_energy", "value"), &LightmapGI::set_energy);
+	ClassDB::bind_method(D_METHOD("get_energy"), &LightmapGI::get_energy);
+	ClassDB::bind_method(D_METHOD("set_tint", "value"), &LightmapGI::set_tint);
+	ClassDB::bind_method(D_METHOD("get_tint"), &LightmapGI::get_tint);
+	ClassDB::bind_method(D_METHOD("set_saturation", "value"), &LightmapGI::set_saturation);
+	ClassDB::bind_method(D_METHOD("get_saturation"), &LightmapGI::get_saturation);
+	ClassDB::bind_method(D_METHOD("set_contrast", "value"), &LightmapGI::set_contrast);
+	ClassDB::bind_method(D_METHOD("get_contrast"), &LightmapGI::get_contrast);
+	ClassDB::bind_method(D_METHOD("set_shadows", "value"), &LightmapGI::set_shadows);
+	ClassDB::bind_method(D_METHOD("get_shadows"), &LightmapGI::get_shadows);
+	ClassDB::bind_method(D_METHOD("set_midtones", "value"), &LightmapGI::set_midtones);
+	ClassDB::bind_method(D_METHOD("get_midtones"), &LightmapGI::get_midtones);
+	ClassDB::bind_method(D_METHOD("set_highlights", "value"), &LightmapGI::set_highlights);
+	ClassDB::bind_method(D_METHOD("get_highlights"), &LightmapGI::get_highlights);
+	ClassDB::bind_method(D_METHOD("set_directionality_strength", "value"), &LightmapGI::set_directionality_strength);
+	ClassDB::bind_method(D_METHOD("get_directionality_strength"), &LightmapGI::get_directionality_strength);
+
+	ClassDB::bind_method(D_METHOD("set_shadows_tint", "value"), &LightmapGI::set_shadows_tint);
+	ClassDB::bind_method(D_METHOD("get_shadows_tint"), &LightmapGI::get_shadows_tint);
+	ClassDB::bind_method(D_METHOD("set_midtones_tint", "value"), &LightmapGI::set_midtones_tint);
+	ClassDB::bind_method(D_METHOD("get_midtones_tint"), &LightmapGI::get_midtones_tint);
+	ClassDB::bind_method(D_METHOD("set_highlights_tint", "value"), &LightmapGI::set_highlights_tint);
+	ClassDB::bind_method(D_METHOD("get_highlights_tint"), &LightmapGI::get_highlights_tint);
+	ClassDB::bind_method(D_METHOD("set_debug_mode", "value"), &LightmapGI::set_debug_mode);
+	ClassDB::bind_method(D_METHOD("get_debug_mode"), &LightmapGI::get_debug_mode);
+	BIND_ENUM_CONSTANT(DEBUG_DISABLED);
+	BIND_ENUM_CONSTANT(DEBUG_SHADOWS);
+	BIND_ENUM_CONSTANT(DEBUG_MIDDLETONES);
+	BIND_ENUM_CONSTANT(DEBUG_HIGHLIGHTS);
+
+	ClassDB::bind_method(D_METHOD("set_shadows_saturation", "value"), &LightmapGI::set_shadows_saturation);
+	ClassDB::bind_method(D_METHOD("get_shadows_saturation"), &LightmapGI::get_shadows_saturation);
+	ClassDB::bind_method(D_METHOD("set_shadows_contrast", "value"), &LightmapGI::set_shadows_contrast);
+	ClassDB::bind_method(D_METHOD("get_shadows_contrast"), &LightmapGI::get_shadows_contrast);
+	ClassDB::bind_method(D_METHOD("set_midtones_saturation", "value"), &LightmapGI::set_midtones_saturation);
+	ClassDB::bind_method(D_METHOD("get_midtones_saturation"), &LightmapGI::get_midtones_saturation);
+	ClassDB::bind_method(D_METHOD("set_midtones_contrast", "value"), &LightmapGI::set_midtones_contrast);
+	ClassDB::bind_method(D_METHOD("get_midtones_contrast"), &LightmapGI::get_midtones_contrast);
+	ClassDB::bind_method(D_METHOD("set_highlights_saturation", "value"), &LightmapGI::set_highlights_saturation);
+	ClassDB::bind_method(D_METHOD("get_highlights_saturation"), &LightmapGI::get_highlights_saturation);
+	ClassDB::bind_method(D_METHOD("set_highlights_contrast", "value"), &LightmapGI::set_highlights_contrast);
+	ClassDB::bind_method(D_METHOD("get_highlights_contrast"), &LightmapGI::get_highlights_contrast);
+
+	ClassDB::bind_method(D_METHOD("set_tonal_midtones_start", "value"), &LightmapGI::set_tonal_midtones_start);
+	ClassDB::bind_method(D_METHOD("get_tonal_midtones_start"), &LightmapGI::get_tonal_midtones_start);
+	ClassDB::bind_method(D_METHOD("set_tonal_shadows_end", "value"), &LightmapGI::set_tonal_shadows_end);
+	ClassDB::bind_method(D_METHOD("get_tonal_shadows_end"), &LightmapGI::get_tonal_shadows_end);
+	ClassDB::bind_method(D_METHOD("set_tonal_highlights_start", "value"), &LightmapGI::set_tonal_highlights_start);
+	ClassDB::bind_method(D_METHOD("get_tonal_highlights_start"), &LightmapGI::get_tonal_highlights_start);
+	ClassDB::bind_method(D_METHOD("set_tonal_midtones_end", "value"), &LightmapGI::set_tonal_midtones_end);
+	ClassDB::bind_method(D_METHOD("get_tonal_midtones_end"), &LightmapGI::get_tonal_midtones_end);
+
+	ClassDB::bind_method(D_METHOD("set_adjustments_enabled", "enabled"), &LightmapGI::set_adjustments_enabled);
+	ClassDB::bind_method(D_METHOD("is_adjustments_enabled"), &LightmapGI::is_adjustments_enabled);
+
+	ADD_GROUP("Adjustments", "");
+	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "adjustments_enabled"), "set_adjustments_enabled", "is_adjustments_enabled");
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "energy", PROPERTY_HINT_RANGE, "0,4,0.01,or_greater"), "set_energy", "get_energy");
+	ADD_PROPERTY(PropertyInfo(Variant::COLOR, "tint", PROPERTY_HINT_COLOR_NO_ALPHA), "set_tint", "get_tint");
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "saturation", PROPERTY_HINT_RANGE, "0,4,0.01,or_greater"), "set_saturation", "get_saturation");
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "contrast", PROPERTY_HINT_RANGE, "0,4,0.01"), "set_contrast", "get_contrast");
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "directionality_strength", PROPERTY_HINT_RANGE, "0,4,0.01"), "set_directionality_strength", "get_directionality_strength");
+
+	ADD_PROPERTY(PropertyInfo(Variant::INT, "debug_mode", PROPERTY_HINT_ENUM, "Disabled,Shadows,Middletones,Highlights"), "set_debug_mode", "get_debug_mode");
+
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "shadows", PROPERTY_HINT_RANGE, "-4,4,0.01,suffix:EV", PROPERTY_USAGE_STORAGE), "set_shadows", "get_shadows");
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "midtones", PROPERTY_HINT_RANGE, "-4,4,0.01,suffix:EV", PROPERTY_USAGE_STORAGE), "set_midtones", "get_midtones");
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "highlights", PROPERTY_HINT_RANGE, "-4,4,0.01,suffix:EV", PROPERTY_USAGE_STORAGE), "set_highlights", "get_highlights");
+	ADD_SUBGROUP("Tonal Ranges", "tonal_");
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "tonal_midtones_start", PROPERTY_HINT_RANGE, "0,1,0.001"), "set_tonal_midtones_start", "get_tonal_midtones_start");
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "tonal_shadows_end", PROPERTY_HINT_RANGE, "0,1,0.001"), "set_tonal_shadows_end", "get_tonal_shadows_end");
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "tonal_highlights_start", PROPERTY_HINT_RANGE, "0,1,0.001"), "set_tonal_highlights_start", "get_tonal_highlights_start");
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "tonal_midtones_end", PROPERTY_HINT_RANGE, "0,1,0.001"), "set_tonal_midtones_end", "get_tonal_midtones_end");
+	ADD_SUBGROUP("Shadows", "shadows_");
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "shadows_exposure", PROPERTY_HINT_RANGE, "-4,4,0.01,suffix:EV", PROPERTY_USAGE_EDITOR), "set_shadows", "get_shadows");
+	ADD_PROPERTY(PropertyInfo(Variant::COLOR, "shadows_tint", PROPERTY_HINT_COLOR_NO_ALPHA), "set_shadows_tint", "get_shadows_tint");
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "shadows_saturation", PROPERTY_HINT_RANGE, "0,4,0.01"), "set_shadows_saturation", "get_shadows_saturation");
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "shadows_contrast", PROPERTY_HINT_RANGE, "0,4,0.01"), "set_shadows_contrast", "get_shadows_contrast");
+	ADD_SUBGROUP("Midtones", "midtones_");
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "midtones_exposure", PROPERTY_HINT_RANGE, "-4,4,0.01,suffix:EV", PROPERTY_USAGE_EDITOR), "set_midtones", "get_midtones");
+	ADD_PROPERTY(PropertyInfo(Variant::COLOR, "midtones_tint", PROPERTY_HINT_COLOR_NO_ALPHA), "set_midtones_tint", "get_midtones_tint");
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "midtones_saturation", PROPERTY_HINT_RANGE, "0,4,0.01"), "set_midtones_saturation", "get_midtones_saturation");
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "midtones_contrast", PROPERTY_HINT_RANGE, "0,4,0.01"), "set_midtones_contrast", "get_midtones_contrast");
+	ADD_SUBGROUP("Highlights", "highlights_");
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "highlights_exposure", PROPERTY_HINT_RANGE, "-4,4,0.01,suffix:EV", PROPERTY_USAGE_EDITOR), "set_highlights", "get_highlights");
+	ADD_PROPERTY(PropertyInfo(Variant::COLOR, "highlights_tint", PROPERTY_HINT_COLOR_NO_ALPHA), "set_highlights_tint", "get_highlights_tint");
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "highlights_saturation", PROPERTY_HINT_RANGE, "0,4,0.01"), "set_highlights_saturation", "get_highlights_saturation");
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "highlights_contrast", PROPERTY_HINT_RANGE, "0,4,0.01"), "set_highlights_contrast", "get_highlights_contrast");
 
 	ADD_GROUP("Tweaks", "");
 	ADD_PROPERTY(PropertyInfo(Variant::INT, "quality", PROPERTY_HINT_ENUM, "Low,Medium,High,Ultra"), "set_bake_quality", "get_bake_quality");

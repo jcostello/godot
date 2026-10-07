@@ -34,6 +34,7 @@
 #include "core/templates/local_vector.h"
 #include "scene/3d/lightmapper.h"
 #include "scene/3d/visual_instance_3d.h"
+#include "servers/rendering/lightmap_adjustments.h"
 
 class CameraAttributes;
 class Light3D;
@@ -188,6 +189,13 @@ public:
 		ENVIRONMENT_MODE_CUSTOM_COLOR,
 	};
 
+	enum DebugMode {
+		DEBUG_DISABLED,
+		DEBUG_SHADOWS,
+		DEBUG_MIDDLETONES,
+		DEBUG_HIGHLIGHTS,
+	};
+
 private:
 	BakeQuality bake_quality = BAKE_QUALITY_MEDIUM;
 	bool use_denoiser = true;
@@ -216,6 +224,10 @@ private:
 	GenerateProbes gen_probes = GENERATE_PROBES_SUBDIV_8;
 	Ref<CameraAttributes> camera_attributes;
 	float specular_intensity = 0.0f;
+	LightmapAdjustments adjustments;
+	void _update_adjustments();
+	void _update_tonal_settings();
+	void _set_tonal_range(int p_index, float p_value);
 
 	Ref<LightmapGIData> light_data;
 	Node *last_owner = nullptr;
@@ -375,6 +387,56 @@ public:
 	void set_camera_attributes(const Ref<CameraAttributes> &p_camera_attributes);
 	Ref<CameraAttributes> get_camera_attributes() const;
 
+	void set_shadows_saturation(float p_value);
+	float get_shadows_saturation() const;
+	void set_shadows_contrast(float p_value);
+	float get_shadows_contrast() const;
+	void set_midtones_saturation(float p_value);
+	float get_midtones_saturation() const;
+	void set_midtones_contrast(float p_value);
+	float get_midtones_contrast() const;
+	void set_highlights_saturation(float p_value);
+	float get_highlights_saturation() const;
+	void set_highlights_contrast(float p_value);
+	float get_highlights_contrast() const;
+
+	void set_tonal_midtones_start(float p_value);
+	float get_tonal_midtones_start() const;
+	void set_tonal_shadows_end(float p_value);
+	float get_tonal_shadows_end() const;
+	void set_tonal_highlights_start(float p_value);
+	float get_tonal_highlights_start() const;
+	void set_tonal_midtones_end(float p_value);
+	float get_tonal_midtones_end() const;
+	void set_shadows_tint(const Color &p_value);
+	Color get_shadows_tint() const;
+	void set_midtones_tint(const Color &p_value);
+	Color get_midtones_tint() const;
+	void set_highlights_tint(const Color &p_value);
+	Color get_highlights_tint() const;
+	void set_debug_mode(DebugMode p_value);
+	DebugMode get_debug_mode() const;
+
+	void set_adjustments_enabled(bool p_enabled);
+	bool is_adjustments_enabled() const;
+
+	void set_energy(float p_value);
+	float get_energy() const;
+	void set_tint(const Color &p_value);
+	Color get_tint() const;
+	void set_saturation(float p_value);
+	float get_saturation() const;
+	void set_contrast(float p_value);
+	float get_contrast() const;
+	void set_shadows(float p_value);
+	float get_shadows() const;
+	void set_midtones(float p_value);
+	float get_midtones() const;
+	void set_highlights(float p_value);
+	float get_highlights() const;
+	void set_directionality_strength(float p_value);
+	float get_directionality_strength() const;
+
 	float get_specular_intensity() const;
 	void set_specular_intensity(float p_strength);
 
@@ -392,3 +454,4 @@ VARIANT_ENUM_CAST(LightmapGI::BakeQuality);
 VARIANT_ENUM_CAST(LightmapGI::GenerateProbes);
 VARIANT_ENUM_CAST(LightmapGI::BakeError);
 VARIANT_ENUM_CAST(LightmapGI::EnvironmentMode);
+VARIANT_ENUM_CAST(LightmapGI::DebugMode);

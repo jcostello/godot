@@ -305,6 +305,14 @@ directional_lights;
 
 struct Lightmap {
 	mat3x4 normal_xform_and_specular_intensity; // "normal_xform" is the 3x3 matrix. "specular_intensity" is the 4th row of the 1st column.
+	vec4 tint_energy;
+	vec4 grading;
+	vec4 tonal;
+	vec4 shadows_tint;
+	vec4 midtones_tint;
+	vec4 highlights_tint;
+	vec4 tonal_contrast;
+	vec4 tonal_ranges;
 	vec2 light_texture_size;
 	float exposure_normalization;
 	uint flags;

@@ -9,6 +9,7 @@
 #include "editor/gui/editor_spin_slider.h"
 #include "editor/inspector/editor_properties.h"
 #include "editor/themes/editor_scale.h"
+#include "scene/3d/lightmap_gi.h"
 #include "scene/gui/box_container.h"
 #include "scene/gui/tab_container.h"
 #include "scene/resources/environment.h"
@@ -270,7 +271,7 @@ EnvironmentColorGradingEditor::EnvironmentColorGradingEditor(bool p_lift_gamma_g
 }
 
 bool EditorInspectorEnvironmentColorGradingPlugin::can_handle(Object *p_object) {
-	return Object::cast_to<Environment>(p_object) != nullptr;
+	return Object::cast_to<Environment>(p_object) != nullptr || Object::cast_to<LightmapGI>(p_object) != nullptr;
 }
 
 float EnvironmentTonalRangesControl::_value_to_x(float p_value) const {
@@ -352,7 +353,7 @@ void EnvironmentTonalRangesControl::gui_input(const Ref<InputEvent> &p_event) {
 			float closest_distance = INFINITY;
 			for (int i = 0; i < 4; i++) {
 				const float distance = Math::abs(_value_to_x(limits[i]) - button->get_position().x);
-				if (distance < closest_distance) {
+				if (distance < closest_distance || (editor->lightmap_mode && Math::is_equal_approx(distance, closest_distance) && button->get_position().x > _value_to_x(limits[i]))) {
 					closest_distance = distance;
 					dragging_handle = i;
 				}
@@ -392,7 +393,6 @@ EnvironmentTonalRangesControl::EnvironmentTonalRangesControl(EnvironmentTonalRan
 void EnvironmentTonalRangesEditor::update_property() {
 	Object *edited_object = get_edited_object();
 	ERR_FAIL_NULL(edited_object);
-	const char *properties[4] = { "adjustment_shadows_start", "adjustment_shadows_end", "adjustment_highlights_start", "adjustment_highlights_end" };
 	float values[4];
 	for (int i = 0; i < 4; i++) {
 		values[i] = edited_object->get(properties[i]);
@@ -417,10 +417,19 @@ void EnvironmentTonalRangesEditor::set_tonal_cutoff(int p_handle, float p_value,
 	}
 	Object *edited_object = get_edited_object();
 	ERR_FAIL_NULL(edited_object);
-	const char *properties[4] = { "adjustment_shadows_start", "adjustment_shadows_end", "adjustment_highlights_start", "adjustment_highlights_end" };
-	const int pair_start = p_handle & ~1;
-	const float other = edited_object->get(properties[p_handle % 2 == 0 ? pair_start + 1 : pair_start]);
-	const float value = p_handle % 2 == 0 ? CLAMP(p_value, 0.0f, other) : CLAMP(p_value, other, 1.0f);
+	float value;
+	if (lightmap_mode) {
+		// Keep this edit within its neighbors so Undo/Redo changes only the selected property.
+		// The runtime setters can move adjacent boundaries when scripts assign crossing values.
+		const float gap[3] = { 0.0001f, 0.0f, 0.0001f };
+		const float minimum = p_handle == 0 ? 0.0f : float(edited_object->get(properties[p_handle - 1])) + gap[p_handle - 1];
+		const float maximum = p_handle == 3 ? 1.0f : float(edited_object->get(properties[p_handle + 1])) - gap[p_handle];
+		value = CLAMP(p_value, minimum, maximum);
+	} else {
+		const int pair_start = p_handle & ~1;
+		const float other = edited_object->get(properties[p_handle % 2 == 0 ? pair_start + 1 : pair_start]);
+		value = p_handle % 2 == 0 ? CLAMP(p_value, 0.0f, other) : CLAMP(p_value, other, 1.0f);
+	}
 	emit_changed(properties[p_handle], value, StringName(), p_changing);
 	cutoff_sliders[p_handle]->set_value_no_signal(value);
 	float values[4];
@@ -430,7 +439,14 @@ void EnvironmentTonalRangesEditor::set_tonal_cutoff(int p_handle, float p_value,
 	ranges_control->set_values(values);
 }
 
-EnvironmentTonalRangesEditor::EnvironmentTonalRangesEditor() {
+EnvironmentTonalRangesEditor::EnvironmentTonalRangesEditor(bool p_lightmap_mode) {
+	lightmap_mode = p_lightmap_mode;
+	if (lightmap_mode) {
+		properties[0] = "tonal_midtones_start";
+		properties[1] = "tonal_shadows_end";
+		properties[2] = "tonal_highlights_start";
+		properties[3] = "tonal_midtones_end";
+	}
 	set_draw_label(true);
 	set_label(TTR("Tonal Transitions"));
 	VBoxContainer *container = memnew(VBoxContainer);
@@ -442,7 +458,7 @@ EnvironmentTonalRangesEditor::EnvironmentTonalRangesEditor() {
 	for (int i = 0; i < 4; i++) {
 		cutoff_sliders[i] = memnew(EditorSpinSlider);
 		cutoff_sliders[i]->set_label(labels[i]);
-		cutoff_sliders[i]->set_tooltip_text(TTR("Limit used by the Unity-style smooth transition over scene-linear luminance before tonemapping."));
+		cutoff_sliders[i]->set_tooltip_text(lightmap_mode ? TTR("Transition boundary over baked lightmap luminance mapped to L / (1 + L). Shadows Start is where midtones begin; Highlights End is where midtones stop contributing.") : TTR("Limit used by the Unity-style smooth transition over scene-linear luminance before tonemapping."));
 		cutoff_sliders[i]->set_min(0.0);
 		cutoff_sliders[i]->set_max(1.0);
 		cutoff_sliders[i]->set_step(0.001);
@@ -601,6 +617,19 @@ EnvironmentTonalCorrectionEditor::EnvironmentTonalCorrectionEditor() {
 }
 
 bool EditorInspectorEnvironmentColorGradingPlugin::parse_property(Object *p_object, const Variant::Type p_type, const String &p_path, const PropertyHint p_hint, const String &p_hint_text, const BitField<PropertyUsageFlags> p_usage, const bool p_wide) {
+	if (Object::cast_to<LightmapGI>(p_object)) {
+		static const Vector<String> lightmap_properties = {
+			"tonal_midtones_start",
+			"tonal_shadows_end",
+			"tonal_highlights_start",
+			"tonal_midtones_end",
+		};
+		if (p_path == lightmap_properties[0]) {
+			add_property_editor_for_multiple_properties(String(), lightmap_properties, memnew(EnvironmentTonalRangesEditor(true)));
+			return true;
+		}
+		return lightmap_properties.has(p_path);
+	}
 	static const Vector<String> correction_properties = []() {
 		Vector<String> result;
 		for (int range = 0; range < 4; range++) {

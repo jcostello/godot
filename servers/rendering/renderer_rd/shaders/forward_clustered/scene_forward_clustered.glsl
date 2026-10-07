@@ -942,6 +942,7 @@ layout(location = 9) in float dp_clip;
 layout(location = 10) in flat uint instance_index_interp;
 
 #ifdef USE_LIGHTMAP
+#include "../../../shaders/lightmap_adjustments_inc.glsl"
 #include "../bicubic_filter_inc.glsl"
 #endif //USE_LIGHTMAP
 
@@ -1193,6 +1194,8 @@ void fragment_shader(in SceneData scene_data) {
 	float transmittance_boost = 0.0;
 	float metallic_highp = 0.0;
 	float specular = 0.5;
+	bool lightmap_debug_active = false;
+	vec3 lightmap_debug_value = vec3(0.0);
 	vec3 emission = vec3(0.0);
 	float roughness_highp = 1.0;
 	float rim = 0.0;
@@ -1839,6 +1842,7 @@ void fragment_shader(in SceneData scene_data) {
 				scene_data.IBL_exposure_normalization;
 
 	} else if (bool(instances.data[instance_index].flags & INSTANCE_FLAGS_USE_LIGHTMAP)) { // has actual lightmap
+		vec3 lightmap_debug_raw = vec3(0.0);
 		bool uses_sh = bool(instances.data[instance_index].flags & INSTANCE_FLAGS_USE_SH_LIGHTMAP);
 		uint ofs = instances.data[instance_index].gi_offset & 0xFFFF;
 		uint slice = instances.data[instance_index].gi_offset >> 16;
@@ -1865,6 +1869,12 @@ void fragment_shader(in SceneData scene_data) {
 				lm_light_l1p1 = (textureLod(sampler2DArray(lightmap_textures[ofs], SAMPLER_LINEAR_CLAMP), uvw + vec3(0.0, 0.0, 3.0), 0.0).rgb - vec3(0.5)) * 2.0;
 			}
 
+			if (lightmaps.data[ofs].grading.w != 0.0 && lightmaps.data[ofs].grading.z != 1.0) {
+				lm_light_l1n1 *= lightmaps.data[ofs].grading.z;
+				lm_light_l1_0 *= lightmaps.data[ofs].grading.z;
+				lm_light_l1p1 *= lightmaps.data[ofs].grading.z;
+			}
+
 			mat3 normal_xform = mat3(lightmaps.data[ofs].normal_xform_and_specular_intensity);
 #if defined(DO_SIDE_CHECK) || defined(UBERSHADER)
 			bool compensate_reflection_probe_cull = bool(scene_data.flags & SCENE_DATA_FLAGS_REFLECTION_PROBE_PASS);
@@ -1876,16 +1886,16 @@ void fragment_shader(in SceneData scene_data) {
 			}
 #endif
 			vec3 n = normalize(normal_xform * indirect_normal);
-			float en = lightmaps.data[ofs].exposure_normalization;
 
 			vec3 sh_light = lm_light_l0;
 			sh_light += lm_light_l0 * lm_light_l1n1 * n.y * 4.0;
 			sh_light += lm_light_l0 * lm_light_l1_0 * n.z * 4.0;
 			sh_light += lm_light_l0 * lm_light_l1p1 * n.x * 4.0;
-			sh_light *= lightmaps.data[ofs].exposure_normalization;
+			lightmap_debug_raw = vec3(sh_light);
+			sh_light = lightmap_apply_adjustments(sh_light, lightmaps.data[ofs].tint_energy, lightmaps.data[ofs].grading, lightmaps.data[ofs].tonal, lightmaps.data[ofs].shadows_tint, lightmaps.data[ofs].midtones_tint, lightmaps.data[ofs].highlights_tint, lightmaps.data[ofs].tonal_contrast, lightmaps.data[ofs].tonal_ranges) * lightmaps.data[ofs].exposure_normalization;
 			ambient_light += sh_light;
 
-			if (sc_use_lightmap_specular()) {
+			if (sc_use_lightmap_specular() && lightmaps.data[ofs].tonal.w == 0.0) {
 				// fake specular light to create some direct light specular lobes for directional lightmaps.
 				// https://media.contentapi.ea.com/content/dam/eacom/frostbite/files/gdc2018-precomputedgiobalilluminationinfrostbite.pdf (slides 66-71)
 				const vec3 luminance_weights = vec3(0.2126, 0.7152, 0.0722);
@@ -1907,7 +1917,7 @@ void fragment_shader(in SceneData scene_data) {
 						specular_irradiance += lm_light_l0 * lm_light_l1n1 * specular_lightmap_normal.y * 4.0;
 						specular_irradiance += lm_light_l0 * lm_light_l1_0 * specular_lightmap_normal.z * 4.0;
 						specular_irradiance += lm_light_l0 * lm_light_l1p1 * specular_lightmap_normal.x * 4.0;
-						specular_irradiance *= lightmaps.data[ofs].exposure_normalization;
+						specular_irradiance = lightmap_apply_adjustments(specular_irradiance, lightmaps.data[ofs].tint_energy, lightmaps.data[ofs].grading, lightmaps.data[ofs].tonal, lightmaps.data[ofs].shadows_tint, lightmaps.data[ofs].midtones_tint, lightmaps.data[ofs].highlights_tint, lightmaps.data[ofs].tonal_contrast, lightmaps.data[ofs].tonal_ranges) * lightmaps.data[ofs].exposure_normalization;
 						vec3 specular_light_color = max(specular_irradiance, vec3(0.0)) / max(NdotL, 0.1);
 
 						vec3 f0 = F0(metallic, specular, albedo);
@@ -1944,10 +1954,16 @@ void fragment_shader(in SceneData scene_data) {
 
 		} else {
 			if (sc_use_lightmap_bicubic_filter()) {
-				ambient_light += texture_array_bicubic(lightmap_textures[ofs], uvw, lightmaps.data[ofs].light_texture_size).rgb * lightmaps.data[ofs].exposure_normalization;
+				lightmap_debug_raw = texture_array_bicubic(lightmap_textures[ofs], uvw, lightmaps.data[ofs].light_texture_size).rgb;
+				ambient_light += lightmap_apply_adjustments(lightmap_debug_raw, lightmaps.data[ofs].tint_energy, lightmaps.data[ofs].grading, lightmaps.data[ofs].tonal, lightmaps.data[ofs].shadows_tint, lightmaps.data[ofs].midtones_tint, lightmaps.data[ofs].highlights_tint, lightmaps.data[ofs].tonal_contrast, lightmaps.data[ofs].tonal_ranges) * lightmaps.data[ofs].exposure_normalization;
 			} else {
-				ambient_light += textureLod(sampler2DArray(lightmap_textures[ofs], SAMPLER_LINEAR_CLAMP), uvw, 0.0).rgb * lightmaps.data[ofs].exposure_normalization;
+				lightmap_debug_raw = textureLod(sampler2DArray(lightmap_textures[ofs], SAMPLER_LINEAR_CLAMP), uvw, 0.0).rgb;
+				ambient_light += lightmap_apply_adjustments(lightmap_debug_raw, lightmaps.data[ofs].tint_energy, lightmaps.data[ofs].grading, lightmaps.data[ofs].tonal, lightmaps.data[ofs].shadows_tint, lightmaps.data[ofs].midtones_tint, lightmaps.data[ofs].highlights_tint, lightmaps.data[ofs].tonal_contrast, lightmaps.data[ofs].tonal_ranges) * lightmaps.data[ofs].exposure_normalization;
 			}
+		}
+		lightmap_debug_active = lightmaps.data[ofs].tonal.w != 0.0;
+		if (lightmap_debug_active) {
+			lightmap_debug_value = lightmap_debug_color(lightmap_debug_raw, lightmaps.data[ofs].grading, lightmaps.data[ofs].tonal_ranges, lightmaps.data[ofs].tonal.w, lightmaps.data[ofs].exposure_normalization);
 		}
 	}
 #else
@@ -3214,6 +3230,20 @@ void fragment_shader(in SceneData scene_data) {
 	frag_color.rgb *= scene_data.reflection_probe_capture_exposure;
 
 #endif //MODE_SEPARATE_SPECULAR
+
+#if defined(USE_LIGHTMAP) && !defined(MODE_UNSHADED)
+	if (lightmap_debug_active) {
+#ifdef MODE_SEPARATE_SPECULAR
+		diffuse_buffer = vec4(lightmap_debug_value, 0.0);
+		specular_buffer = vec4(0.0);
+#else
+		frag_color.rgb = lightmap_debug_value;
+#ifdef PREMUL_ALPHA_USED
+		frag_color.rgb *= premul_alpha;
+#endif
+#endif
+	}
+#endif
 
 	if (bool(instances.data[instance_index].layer_mask & scene_data.editor_gizmo_layer_mask)) {
 		float gizmo_exposure = scene_data.editor_gizmo_exposure;

@@ -2716,6 +2716,9 @@ void RenderingServer::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("lightmap_get_probe_capture_sh", "lightmap"), &RenderingServer::lightmap_get_probe_capture_sh);
 	ClassDB::bind_method(D_METHOD("lightmap_get_probe_capture_tetrahedra", "lightmap"), &RenderingServer::lightmap_get_probe_capture_tetrahedra);
 	ClassDB::bind_method(D_METHOD("lightmap_get_probe_capture_bsp_tree", "lightmap"), &RenderingServer::lightmap_get_probe_capture_bsp_tree);
+	ClassDB::bind_method(D_METHOD("lightmap_set_adjustments_enabled", "lightmap", "enabled"), &RenderingServer::lightmap_set_adjustments_enabled);
+	ClassDB::bind_method(D_METHOD("lightmap_set_tonal_settings", "lightmap", "ranges", "shadows_tint", "midtones_tint", "highlights_tint", "saturation", "contrast", "debug_mode"), &RenderingServer::lightmap_set_tonal_settings);
+	ClassDB::bind_method(D_METHOD("lightmap_set_adjustments", "lightmap", "energy", "tint", "saturation", "contrast", "shadows", "midtones", "highlights", "directionality_strength"), &RenderingServer::lightmap_set_adjustments);
 	ClassDB::bind_method(D_METHOD("lightmap_set_baked_exposure_normalization", "lightmap", "baked_exposure"), &RenderingServer::lightmap_set_baked_exposure_normalization);
 
 	ClassDB::bind_method(D_METHOD("lightmap_set_probe_capture_update_speed", "speed"), &RenderingServer::lightmap_set_probe_capture_update_speed);

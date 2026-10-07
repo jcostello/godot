@@ -3463,6 +3463,15 @@ void RasterizerSceneGLES3::_render_list_template(RenderListParameters *p_params,
 			}
 		}
 
+		bool lightmap_debug_active = false;
+		if constexpr (p_pass_mode == PASS_MODE_COLOR) {
+			if (!shader->unshaded && inst->lightmap_instance.is_valid()) {
+				const GLES3::LightmapInstance *li = GLES3::LightStorage::get_singleton()->get_lightmap_instance(inst->lightmap_instance);
+				const GLES3::Lightmap *lm = GLES3::LightStorage::get_singleton()->get_lightmap(li->lightmap);
+				lightmap_debug_active = lm->adjustments.enabled && lm->adjustments.debug_mode != 0;
+			}
+		}
+
 		bool uses_additive_lighting = (inst->light_passes.size() + p_render_data->directional_shadow_count) > 0;
 		uses_additive_lighting = uses_additive_lighting && !shader->unshaded;
 
@@ -3473,6 +3482,10 @@ void RasterizerSceneGLES3::_render_list_template(RenderListParameters *p_params,
 		 */
 
 		for (int32_t pass = 0; pass < MAX(1, int32_t(inst->light_passes.size() + p_render_data->directional_shadow_count)); pass++) {
+			if (pass > 0 && lightmap_debug_active) {
+				// Diagnostic output replaces all lighting, including additive shadow passes.
+				break;
+			}
 			if constexpr (p_pass_mode == PASS_MODE_DEPTH || p_pass_mode == PASS_MODE_SHADOW || p_pass_mode == PASS_MODE_MOTION_VECTORS) {
 				if (pass > 0) {
 					// Don't render shadow passes when doing depth, shadow, or motion vector pass.
@@ -3967,6 +3980,16 @@ void RasterizerSceneGLES3::_render_list_template(RenderListParameters *p_params,
 							exposure_normalization = enf / MAX(1e-20f, lm->baked_exposure);
 						}
 						material_storage->shaders.scene_shader.version_set_uniform(SceneShaderGLES3::LIGHTMAP_EXPOSURE_NORMALIZATION, exposure_normalization, shader->version, instance_variant, spec_constants);
+						float tint_energy[4], grading[4], tonal[4], shadows_tint[4], midtones_tint[4], highlights_tint[4], tonal_contrast[4], tonal_ranges[4];
+						lm->adjustments.store(tint_energy, grading, tonal, shadows_tint, midtones_tint, highlights_tint, tonal_contrast, tonal_ranges);
+						material_storage->shaders.scene_shader.version_set_uniform(SceneShaderGLES3::LIGHTMAP_TINT_ENERGY, Color(tint_energy[0], tint_energy[1], tint_energy[2], tint_energy[3]), shader->version, instance_variant, spec_constants);
+						material_storage->shaders.scene_shader.version_set_uniform(SceneShaderGLES3::LIGHTMAP_GRADING, Color(grading[0], grading[1], grading[2], grading[3]), shader->version, instance_variant, spec_constants);
+						material_storage->shaders.scene_shader.version_set_uniform(SceneShaderGLES3::LIGHTMAP_TONAL, Color(tonal[0], tonal[1], tonal[2], tonal[3]), shader->version, instance_variant, spec_constants);
+						material_storage->shaders.scene_shader.version_set_uniform(SceneShaderGLES3::LIGHTMAP_SHADOWS_TINT, Color(shadows_tint[0], shadows_tint[1], shadows_tint[2], shadows_tint[3]), shader->version, instance_variant, spec_constants);
+						material_storage->shaders.scene_shader.version_set_uniform(SceneShaderGLES3::LIGHTMAP_MIDTONES_TINT, Color(midtones_tint[0], midtones_tint[1], midtones_tint[2], midtones_tint[3]), shader->version, instance_variant, spec_constants);
+						material_storage->shaders.scene_shader.version_set_uniform(SceneShaderGLES3::LIGHTMAP_HIGHLIGHTS_TINT, Color(highlights_tint[0], highlights_tint[1], highlights_tint[2], highlights_tint[3]), shader->version, instance_variant, spec_constants);
+						material_storage->shaders.scene_shader.version_set_uniform(SceneShaderGLES3::LIGHTMAP_TONAL_CONTRAST, Color(tonal_contrast[0], tonal_contrast[1], tonal_contrast[2], tonal_contrast[3]), shader->version, instance_variant, spec_constants);
+						material_storage->shaders.scene_shader.version_set_uniform(SceneShaderGLES3::LIGHTMAP_TONAL_RANGES, Color(tonal_ranges[0], tonal_ranges[1], tonal_ranges[2], tonal_ranges[3]), shader->version, instance_variant, spec_constants);
 						if (spec_constants & SceneShaderGLES3::USE_LIGHTMAP_SPECULAR) {
 							material_storage->shaders.scene_shader.version_set_uniform(SceneShaderGLES3::LIGHTMAP_SPECULAR_INTENSITY, lm->specular_intensity, shader->version, instance_variant, spec_constants);
 						}

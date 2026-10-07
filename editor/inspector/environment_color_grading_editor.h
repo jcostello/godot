@@ -93,6 +93,8 @@ class EnvironmentTonalRangesEditor : public EditorProperty {
 
 	friend class EnvironmentTonalRangesControl;
 
+	const char *properties[4] = { "adjustment_shadows_start", "adjustment_shadows_end", "adjustment_highlights_start", "adjustment_highlights_end" };
+	bool lightmap_mode = false;
 	EnvironmentTonalRangesControl *ranges_control = nullptr;
 	EditorSpinSlider *cutoff_sliders[4] = {};
 	void _cutoff_changed(double p_value, int p_handle);
@@ -103,7 +105,7 @@ protected:
 public:
 	void update_property() override;
 	void set_tonal_cutoff(int p_handle, float p_value, bool p_changing);
-	EnvironmentTonalRangesEditor();
+	EnvironmentTonalRangesEditor(bool p_lightmap_mode = false);
 };
 
 class EnvironmentTonalCorrectionEditor : public EditorProperty {

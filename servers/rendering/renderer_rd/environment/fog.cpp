@@ -1178,6 +1178,8 @@ void Fog::volumetric_fog_update(const VolumetricFogSettings &p_settings, const P
 		to_probe_volume.basis = Basis::from_scale(Vector3(1.0f / bounds.size.x, 1.0f / bounds.size.y, 1.0f / bounds.size.z)) * to_local.basis;
 		to_probe_volume.origin = (to_local.xform(p_cam_transform.origin) - bounds.position) / bounds.size;
 		RendererRD::MaterialStorage::store_transform(to_probe_volume, params.lightmap_probe_xforms[i]);
+		light_storage->lightmap_get_adjustments(lightmap).store(params.lightmap_probe_tint_energy[i], params.lightmap_probe_grading[i], params.lightmap_probe_tonal[i], params.lightmap_probe_shadows_tint[i], params.lightmap_probe_midtones_tint[i], params.lightmap_probe_highlights_tint[i], params.lightmap_probe_tonal_contrast[i], params.lightmap_probe_tonal_ranges[i]);
+		params.lightmap_probe_tonal[i][3] = 0.0f; // Surface debugging does not affect fog lighting.
 		params.lightmap_probe_exposures[i][0] = p_settings.exposure_normalization / MAX(1e-20f, light_storage->lightmap_get_baked_exposure_normalization(lightmap));
 	}
 	params.temporal_frame = RSG::rasterizer->get_frame_number() % VolumetricFog::MAX_TEMPORAL_FRAMES;

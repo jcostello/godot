@@ -2254,7 +2254,9 @@ bool LightStorage::_lightmap_tap_sh_light(const Lightmap *p_lightmap, const Vect
 void LightStorage::lightmap_tap_sh_light(RID p_lightmap, const Vector3 &p_point, Color *r_sh) {
 	Lightmap *lm = lightmap_owner.get_or_null(p_lightmap);
 	ERR_FAIL_NULL(lm);
-	_lightmap_tap_sh_light(lm, p_point, r_sh);
+	if (_lightmap_tap_sh_light(lm, p_point, r_sh)) {
+		lm->adjustments.apply_sh(r_sh);
+	}
 }
 
 void LightStorage::_lightmap_update_probe_volume(Lightmap *p_lightmap) {
@@ -2384,6 +2386,77 @@ float LightStorage::lightmap_get_specular_intensity(RID p_lightmap) {
 	ERR_FAIL_NULL_V(lm, 0.0f);
 
 	return lm->specular_intensity;
+}
+
+void LightStorage::lightmap_set_adjustments_enabled(RID p_lightmap, bool p_enabled) {
+	Lightmap *lm = lightmap_owner.get_or_null(p_lightmap);
+	ERR_FAIL_NULL(lm);
+	if (lm->adjustments.enabled == p_enabled) {
+		return;
+	}
+	lm->adjustments.enabled = p_enabled;
+	lm->dependency.changed_notify(Dependency::DEPENDENCY_CHANGED_AABB);
+}
+
+void LightStorage::lightmap_set_tonal_settings(RID p_lightmap, const Color &p_ranges, const Color &p_shadows_tint, const Color &p_midtones_tint, const Color &p_highlights_tint, const Vector3 &p_saturation, const Vector3 &p_contrast, int p_debug_mode) {
+	Lightmap *lm = lightmap_owner.get_or_null(p_lightmap);
+	ERR_FAIL_NULL(lm);
+	ERR_FAIL_COND(!Math::is_finite(p_ranges.r) || !Math::is_finite(p_ranges.g) || !Math::is_finite(p_ranges.b) || !Math::is_finite(p_ranges.a));
+	ERR_FAIL_COND(p_ranges.r < 0.0f || p_ranges.a > 1.0f || p_ranges.g <= p_ranges.r || p_ranges.b < p_ranges.g || p_ranges.a <= p_ranges.b);
+	ERR_FAIL_COND(p_debug_mode < 0 || p_debug_mode > 3);
+	const Color colors[3] = { p_shadows_tint, p_midtones_tint, p_highlights_tint };
+	for (const Color &color : colors) {
+		ERR_FAIL_COND(!Math::is_finite(color.r) || !Math::is_finite(color.g) || !Math::is_finite(color.b) || color.r < 0.0f || color.g < 0.0f || color.b < 0.0f);
+	}
+	ERR_FAIL_COND(!p_saturation.is_finite() || p_saturation.x < 0.0f || p_saturation.y < 0.0f || p_saturation.z < 0.0f || p_saturation.x > 4.0f || p_saturation.y > 4.0f || p_saturation.z > 4.0f);
+	ERR_FAIL_COND(!p_contrast.is_finite() || p_contrast.x < 0.0f || p_contrast.y < 0.0f || p_contrast.z < 0.0f || p_contrast.x > 4.0f || p_contrast.y > 4.0f || p_contrast.z > 4.0f);
+	const LightmapAdjustments previous = lm->adjustments;
+	lm->adjustments.tonal_saturation = p_saturation;
+	lm->adjustments.tonal_contrast = p_contrast;
+	lm->adjustments.tonal_ranges = p_ranges;
+	lm->adjustments.shadows_tint = p_shadows_tint.srgb_to_linear();
+	lm->adjustments.shadows_tint.a = 1.0f;
+	lm->adjustments.midtones_tint = p_midtones_tint.srgb_to_linear();
+	lm->adjustments.midtones_tint.a = 1.0f;
+	lm->adjustments.highlights_tint = p_highlights_tint.srgb_to_linear();
+	lm->adjustments.highlights_tint.a = 1.0f;
+	lm->adjustments.debug_mode = p_debug_mode;
+	if (!previous.probe_lighting_equal(lm->adjustments)) {
+		lm->dependency.changed_notify(Dependency::DEPENDENCY_CHANGED_AABB);
+	}
+}
+
+void LightStorage::lightmap_set_adjustments(RID p_lightmap, float p_energy, const Color &p_tint, float p_saturation, float p_contrast, float p_shadows, float p_midtones, float p_highlights, float p_directionality_strength) {
+	Lightmap *lm = lightmap_owner.get_or_null(p_lightmap);
+	ERR_FAIL_NULL(lm);
+	ERR_FAIL_COND(!Math::is_finite(p_energy) || p_energy < 0.0f);
+	ERR_FAIL_COND(!Math::is_finite(p_tint.r) || !Math::is_finite(p_tint.g) || !Math::is_finite(p_tint.b) || !Math::is_finite(p_tint.a) || p_tint.r < 0.0f || p_tint.g < 0.0f || p_tint.b < 0.0f);
+	ERR_FAIL_COND(!Math::is_finite(p_saturation) || p_saturation < 0.0f);
+	ERR_FAIL_COND(!Math::is_finite(p_contrast) || p_contrast < 0.0f || p_contrast > 4.0f);
+	ERR_FAIL_COND(!Math::is_finite(p_shadows) || p_shadows < -4.0f || p_shadows > 4.0f);
+	ERR_FAIL_COND(!Math::is_finite(p_midtones) || p_midtones < -4.0f || p_midtones > 4.0f);
+	ERR_FAIL_COND(!Math::is_finite(p_highlights) || p_highlights < -4.0f || p_highlights > 4.0f);
+	ERR_FAIL_COND(!Math::is_finite(p_directionality_strength) || p_directionality_strength < 0.0f || p_directionality_strength > 4.0f);
+	const LightmapAdjustments previous = lm->adjustments;
+	lm->adjustments.energy = p_energy;
+	lm->adjustments.tint = p_tint.srgb_to_linear();
+	lm->adjustments.tint.a = 1.0f;
+	lm->adjustments.saturation = p_saturation;
+	lm->adjustments.contrast = p_contrast;
+	lm->adjustments.shadows = p_shadows;
+	lm->adjustments.midtones = p_midtones;
+	lm->adjustments.highlights = p_highlights;
+	lm->adjustments.directionality_strength = p_directionality_strength;
+	if (!previous.probe_lighting_equal(lm->adjustments)) {
+		lm->dependency.changed_notify(Dependency::DEPENDENCY_CHANGED_AABB);
+	}
+}
+
+const LightmapAdjustments &LightStorage::lightmap_get_adjustments(RID p_lightmap) const {
+	const Lightmap *lm = lightmap_owner.get_or_null(p_lightmap);
+	static const LightmapAdjustments defaults;
+	ERR_FAIL_NULL_V(lm, defaults);
+	return lm->adjustments;
 }
 
 void LightStorage::lightmap_set_specular_intensity(RID p_lightmap, float p_intensity) {
