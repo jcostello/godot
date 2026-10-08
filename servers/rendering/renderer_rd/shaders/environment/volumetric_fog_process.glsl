@@ -195,18 +195,8 @@ layout(set = 0, binding = 15, std140) uniform Params {
 	uvec4 lightmap_probe_params;
 	mat4 lightmap_probe_xforms[8];
 	vec4 lightmap_probe_exposures[8];
-	vec4 lightmap_probe_tint_energy[8];
-	vec4 lightmap_probe_grading[8];
-	vec4 lightmap_probe_tonal[8];
-	vec4 lightmap_probe_shadows_tint[8];
-	vec4 lightmap_probe_midtones_tint[8];
-	vec4 lightmap_probe_highlights_tint[8];
-	vec4 lightmap_probe_tonal_contrast[8];
-	vec4 lightmap_probe_tonal_ranges[8];
 }
 params;
-#include "../../../shaders/lightmap_adjustments_inc.glsl"
-
 #ifndef MODE_COPY
 layout(set = 0, binding = 16) uniform texture3D prev_density_texture;
 
@@ -739,7 +729,7 @@ void main() {
 			vec3 uvw = (params.lightmap_probe_xforms[i] * vec4(world_pos, 1.0)).xyz;
 			if (all(greaterThanEqual(uvw, vec3(0.0))) && all(lessThanEqual(uvw, vec3(1.0)))) {
 				vec4 probe_light = texture(sampler3D(lightmap_probe_volumes[i], linear_sampler), uvw);
-				lightmap_probe_light += lightmap_apply_adjustments(probe_light.rgb, params.lightmap_probe_tint_energy[i], params.lightmap_probe_grading[i], params.lightmap_probe_tonal[i], params.lightmap_probe_shadows_tint[i], params.lightmap_probe_midtones_tint[i], params.lightmap_probe_highlights_tint[i], params.lightmap_probe_tonal_contrast[i], params.lightmap_probe_tonal_ranges[i]) * probe_light.a * params.lightmap_probe_exposures[i].x;
+				lightmap_probe_light += probe_light.rgb * probe_light.a * params.lightmap_probe_exposures[i].x;
 				lightmap_probe_weight += probe_light.a;
 			}
 		}

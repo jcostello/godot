@@ -782,7 +782,6 @@ void RenderForwardMobile::_setup_lightmaps(const RenderDataRD *p_render_data, co
 
 		float &specular_intensity = scene_state.lightmaps[i].normal_xform_and_specular_intensity[3];
 		specular_intensity = light_storage->lightmap_get_specular_intensity(lightmap);
-		light_storage->lightmap_get_adjustments(lightmap).store(scene_state.lightmaps[i].tint_energy, scene_state.lightmaps[i].grading, scene_state.lightmaps[i].tonal, scene_state.lightmaps[i].shadows_tint, scene_state.lightmaps[i].midtones_tint, scene_state.lightmaps[i].highlights_tint, scene_state.lightmaps[i].tonal_contrast, scene_state.lightmaps[i].tonal_ranges);
 		scene_state.lightmap_has_specular[i] = scene_state.lightmap_has_sh[i] && (specular_intensity > 0.0f);
 
 		scene_state.lightmaps_used++;

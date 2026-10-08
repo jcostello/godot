@@ -44,15 +44,15 @@ private:
 	enum TonemapMode {
 		TONEMAP_MODE_NORMAL,
 		TONEMAP_MODE_BICUBIC_GLOW_FILTER,
-		TONEMAP_MODE_1D_LUT,
-		TONEMAP_MODE_BICUBIC_GLOW_FILTER_1D_LUT,
-
 		TONEMAP_MODE_NORMAL_MULTIVIEW,
 		TONEMAP_MODE_BICUBIC_GLOW_FILTER_MULTIVIEW,
-		TONEMAP_MODE_1D_LUT_MULTIVIEW,
-		TONEMAP_MODE_BICUBIC_GLOW_FILTER_1D_LUT_MULTIVIEW,
-
-		TONEMAP_MODE_MAX
+		TONEMAP_MODE_WHITE_BALANCE_NORMAL,
+		TONEMAP_MODE_WHITE_BALANCE_BICUBIC_GLOW_FILTER,
+		TONEMAP_MODE_WHITE_BALANCE_NORMAL_MULTIVIEW,
+		TONEMAP_MODE_WHITE_BALANCE_BICUBIC_GLOW_FILTER_MULTIVIEW,
+		TONEMAP_MODE_FORWARD_GRADING = 8,
+		TONEMAP_MODE_FORWARD_CURVES = 16,
+		TONEMAP_MODE_MAX = 32
 	};
 
 	enum TonemapModeMobile {
@@ -70,15 +70,11 @@ private:
 	};
 
 	enum Flags {
-		TONEMAP_FLAG_USE_BCS = (1 << 0),
 		TONEMAP_FLAG_USE_GLOW = (1 << 1),
 		TONEMAP_FLAG_USE_AUTO_EXPOSURE = (1 << 2),
-		TONEMAP_FLAG_USE_COLOR_CORRECTION = (1 << 3),
 		TONEMAP_FLAG_USE_FXAA = (1 << 4),
 		TONEMAP_FLAG_USE_8_BIT_DEBANDING = (1 << 5),
 		TONEMAP_FLAG_CONVERT_TO_SRGB = (1 << 6),
-		TONEMAP_FLAG_USE_COLOR_GRADING = (1 << 7),
-		TONEMAP_FLAG_USE_COLOR_GRADING_CURVES = (1 << 8),
 	};
 
 	enum FlagsMobile {
@@ -108,7 +104,9 @@ private:
 	};
 
 	struct TonemapPushConstant {
-		float bcs[3]; // 12 - 12
+		float padding_0; // 4 - 4
+		float saturation; // 4 - 8
+		float padding; // 4 - 12
 		uint32_t flags; //  4 - 16
 
 		float pixel_size[2]; //  8 - 24
@@ -128,16 +126,7 @@ private:
 		float luminance_multiplier; //  4 - 96
 
 		float tonemapper_params[4]; //  16 - 112
-		float offset[4]; // 16 - 128
-		float tint_midtones_range[4]; // 16 - 144
-		float tonal_softness[4]; // 16 - 160
-		float tonemap_temperature[3];
-		float vibrance;
-		float color_adjustment_flags;
-		float contrast_pivot;
-		float vignette;
-		float pad;
-		float vignette_range[2];
+		float adjustment_controls[4]; // 16 - 128: soft contrast, pivot, mode bits, pivot bias
 	};
 
 	struct TonemapPushConstantMobile {
@@ -153,7 +142,7 @@ private:
 		float white; //  4 - 48
 
 		float tonemapper_params[4]; //  16 - 64
-		float offset[4]; // 16 - 80
+		float padding_offset[4]; // 16 - 80
 		float tint_midtones_range[4]; // 16 - 96
 		float tonal_softness[4]; // 16 - 112
 		float tonemap_temperature[3]; // 12 - 124
@@ -167,24 +156,34 @@ private:
 
 public:
 	struct TonemapSettings;
-	struct GradingData {
-		float shadows[4];
-		float midtones[4];
-		float highlights[4];
-		float lift[4];
-		float gamma[4];
-		float gain[4]; // Alpha indicates whether lift/gamma/gain is non-neutral.
+	struct MobileGradingData {
 		float white_balance[3][4]; // Three rows; first row alpha enables chromatic adaptation.
 		float tonal_correction[10][4]; // Four ranges, lift, controls and four linear RGB colors.
-		float tonemap_controls[4]; // Tone curve amount followed by padding.
 	};
 
 private:
-	static_assert(sizeof(GradingData) == 320, "GradingData must match the shader layout.");
-	static_assert(sizeof(TonemapPushConstant) == 200, "TonemapPushConstant must match the shader layout.");
+	static_assert(sizeof(MobileGradingData) == 208, "MobileGradingData must match the shader layout.");
+	static_assert(sizeof(TonemapPushConstant) == 128, "TonemapPushConstant must match the shader layout.");
 	static_assert(sizeof(TonemapPushConstantMobile) == 152, "TonemapPushConstantMobile must match the shader layout.");
-	MultiUmaBuffer<1, 8> grading_buffers = MultiUmaBuffer<1, 8>("ToneMapper::grading_buffers");
-	RID _upload_grading_buffer(const TonemapSettings &p_settings);
+	// Mobile and Forward+ use separate grading buffers.
+	MultiUmaBuffer<1, 8> mobile_grading_buffers = MultiUmaBuffer<1, 8>("ToneMapper::mobile_grading_buffers");
+	struct ForwardGradingData {
+		float rows[13][4] = {};
+	};
+	static_assert(sizeof(ForwardGradingData) == 208, "Forward grading UBO must match the shader layout.");
+	float cached_correction_pivot = -1.0f;
+	float cached_correction_logit = 0.0f;
+	float cached_soft_contrast = -1.0f;
+	float cached_soft_contrast_pivot = -1.0f;
+	float cached_soft_contrast_bias = 0.0f;
+	RID forward_grading_buffer;
+	ForwardGradingData uploaded_forward_grading;
+	RID _get_forward_grading_buffer(const TonemapSettings &p_settings);
+	RID white_balance_buffer;
+	Basis uploaded_white_balance_matrix;
+	Vector3 uploaded_white_balance_offset;
+	RID _get_white_balance_buffer(const Basis &p_matrix, const Vector3 &p_offset);
+	RID _upload_mobile_grading_buffer(const TonemapSettings &p_settings);
 
 	/* tonemap actually writes to a framebuffer, which is
 	 * better to do using the raster pipeline rather than
@@ -223,7 +222,6 @@ public:
 		float tonemapper_params[4] = { 0.0, 0.0, 0.0, 0.0 };
 		float tonemap_temperature[3] = { 1.0, 1.0, 1.0 };
 		float exposure = 1.0;
-		float tone_curve_amount = 1.0;
 		float white = 1.0;
 		float max_value = 1.0;
 
@@ -238,9 +236,6 @@ public:
 		float saturation = 1.0;
 		Vector2 color_modes = Vector2(0.0f, 0.5f); // Packed saturation/contrast flags and sRGB pivot.
 		bool use_color_grading = false;
-		float color_grading_intensity = 1.0;
-		Color offset_color = Color(1, 1, 1);
-		float offset_luminance = 1.0;
 		float tint = 0.0;
 		float shadows_start = 0.0;
 		float shadows_end = 0.3;
@@ -249,15 +244,10 @@ public:
 		float midtones_end = 0.55;
 		float highlights_start = 0.55;
 		float highlights_end = 1.0;
-		Color shadows_color = Color(1, 1, 1);
-		float shadows_luminance = 1.0;
-		Color midtones_color = Color(1, 1, 1);
-		float midtones_luminance = 1.0;
-		Color highlights_color = Color(1, 1, 1);
-		float highlights_luminance = 1.0;
-		Color lift = Color(0, 0, 0);
-		Color gamma = Color(1, 1, 1);
-		Color gain = Color(1, 1, 1);
+		uint32_t forward_adjustment_flags = 0;
+		uint32_t forward_curve_flags = 0;
+		bool use_forward_white_balance = false;
+		Vector3 forward_white_balance_offset;
 		bool use_chromatic_adaptation = false;
 		Basis white_balance_matrix;
 		Vector4 tonal_correction[10] = { Vector4(1, 1, 1, 1), Vector4(1, 1, 1, 1), Vector4(1, 1, 1, 1), Vector4(1, 1, 1, 1), Vector4(), Vector4(0, 0, 0, 0.5), Vector4(1, 1, 1, 0), Vector4(1, 1, 1, 0), Vector4(1, 1, 1, 0), Vector4(1, 1, 1, 0) };

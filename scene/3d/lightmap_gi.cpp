@@ -1928,8 +1928,7 @@ void LightmapGI::set_light_data(const Ref<LightmapGIData> &p_data) {
 		}
 		light_data->update_shadowmask_mode(shadowmask_mode);
 		light_data->update_specular_intensity(specular_intensity);
-		_update_adjustments();
-		_update_tonal_settings();
+		_update_color_adjustments();
 	}
 
 	update_gizmos();
@@ -2181,7 +2180,7 @@ void LightmapGI::set_shadows_saturation(float p_value) {
 		return;
 	}
 	adjustments.tonal_saturation[0] = p_value;
-	_update_tonal_settings();
+	_update_color_adjustments();
 }
 
 float LightmapGI::get_shadows_saturation() const {
@@ -2194,7 +2193,7 @@ void LightmapGI::set_shadows_contrast(float p_value) {
 		return;
 	}
 	adjustments.tonal_contrast[0] = p_value;
-	_update_tonal_settings();
+	_update_color_adjustments();
 }
 
 float LightmapGI::get_shadows_contrast() const {
@@ -2207,7 +2206,7 @@ void LightmapGI::set_midtones_saturation(float p_value) {
 		return;
 	}
 	adjustments.tonal_saturation[1] = p_value;
-	_update_tonal_settings();
+	_update_color_adjustments();
 }
 
 float LightmapGI::get_midtones_saturation() const {
@@ -2220,7 +2219,7 @@ void LightmapGI::set_midtones_contrast(float p_value) {
 		return;
 	}
 	adjustments.tonal_contrast[1] = p_value;
-	_update_tonal_settings();
+	_update_color_adjustments();
 }
 
 float LightmapGI::get_midtones_contrast() const {
@@ -2233,7 +2232,7 @@ void LightmapGI::set_highlights_saturation(float p_value) {
 		return;
 	}
 	adjustments.tonal_saturation[2] = p_value;
-	_update_tonal_settings();
+	_update_color_adjustments();
 }
 
 float LightmapGI::get_highlights_saturation() const {
@@ -2246,17 +2245,11 @@ void LightmapGI::set_highlights_contrast(float p_value) {
 		return;
 	}
 	adjustments.tonal_contrast[2] = p_value;
-	_update_tonal_settings();
+	_update_color_adjustments();
 }
 
 float LightmapGI::get_highlights_contrast() const {
 	return adjustments.tonal_contrast[2];
-}
-
-void LightmapGI::_update_tonal_settings() {
-	if (light_data.is_valid()) {
-		RS::get_singleton()->lightmap_set_tonal_settings(light_data->get_rid(), adjustments.tonal_ranges, adjustments.shadows_tint, adjustments.midtones_tint, adjustments.highlights_tint, adjustments.tonal_saturation, adjustments.tonal_contrast, adjustments.debug_mode);
-	}
 }
 
 void LightmapGI::_set_tonal_range(int p_index, float p_value) {
@@ -2277,7 +2270,7 @@ void LightmapGI::_set_tonal_range(int p_index, float p_value) {
 	if (previous == adjustments.tonal_ranges) {
 		return;
 	}
-	_update_tonal_settings();
+	_update_color_adjustments();
 }
 
 void LightmapGI::set_tonal_midtones_start(float p_value) {
@@ -2318,7 +2311,7 @@ void LightmapGI::set_shadows_tint(const Color &p_value) {
 		return;
 	}
 	adjustments.shadows_tint = p_value;
-	_update_tonal_settings();
+	_update_color_adjustments();
 }
 
 Color LightmapGI::get_shadows_tint() const {
@@ -2331,7 +2324,7 @@ void LightmapGI::set_midtones_tint(const Color &p_value) {
 		return;
 	}
 	adjustments.midtones_tint = p_value;
-	_update_tonal_settings();
+	_update_color_adjustments();
 }
 
 Color LightmapGI::get_midtones_tint() const {
@@ -2344,7 +2337,7 @@ void LightmapGI::set_highlights_tint(const Color &p_value) {
 		return;
 	}
 	adjustments.highlights_tint = p_value;
-	_update_tonal_settings();
+	_update_color_adjustments();
 }
 
 Color LightmapGI::get_highlights_tint() const {
@@ -2357,11 +2350,21 @@ void LightmapGI::set_debug_mode(DebugMode p_value) {
 		return;
 	}
 	adjustments.debug_mode = p_value;
-	_update_tonal_settings();
+	_update_color_adjustments();
 }
 
 LightmapGI::DebugMode LightmapGI::get_debug_mode() const {
 	return (DebugMode)adjustments.debug_mode;
+}
+
+void LightmapGI::_update_color_adjustments() {
+	if (light_data.is_null()) {
+		return;
+	}
+	const RID lightmap = light_data->get_rid();
+	RS::get_singleton()->lightmap_set_adjustments(lightmap, adjustments.energy, adjustments.tint, adjustments.saturation, adjustments.contrast, adjustments.shadows, adjustments.midtones, adjustments.highlights, 1.0f);
+	RS::get_singleton()->lightmap_set_tonal_settings(lightmap, adjustments.tonal_ranges, adjustments.shadows_tint, adjustments.midtones_tint, adjustments.highlights_tint, adjustments.tonal_saturation, adjustments.tonal_contrast, adjustments.debug_mode);
+	RS::get_singleton()->lightmap_set_adjustments_enabled(lightmap, adjustments.enabled);
 }
 
 void LightmapGI::set_adjustments_enabled(bool p_enabled) {
@@ -2369,20 +2372,11 @@ void LightmapGI::set_adjustments_enabled(bool p_enabled) {
 		return;
 	}
 	adjustments.enabled = p_enabled;
-	if (light_data.is_valid()) {
-		RS::get_singleton()->lightmap_set_adjustments_enabled(light_data->get_rid(), p_enabled);
-	}
+	_update_color_adjustments();
 }
 
 bool LightmapGI::is_adjustments_enabled() const {
 	return adjustments.enabled;
-}
-
-void LightmapGI::_update_adjustments() {
-	if (light_data.is_valid()) {
-		RS::get_singleton()->lightmap_set_adjustments_enabled(light_data->get_rid(), adjustments.enabled);
-		RS::get_singleton()->lightmap_set_adjustments(light_data->get_rid(), adjustments.energy, adjustments.tint, adjustments.saturation, adjustments.contrast, adjustments.shadows, adjustments.midtones, adjustments.highlights, adjustments.directionality_strength);
-	}
 }
 
 void LightmapGI::set_energy(float p_value) {
@@ -2392,7 +2386,7 @@ void LightmapGI::set_energy(float p_value) {
 		return;
 	}
 	adjustments.energy = p_value;
-	_update_adjustments();
+	_update_color_adjustments();
 }
 
 float LightmapGI::get_energy() const {
@@ -2405,7 +2399,7 @@ void LightmapGI::set_tint(const Color &p_value) {
 		return;
 	}
 	adjustments.tint = p_value;
-	_update_adjustments();
+	_update_color_adjustments();
 }
 
 Color LightmapGI::get_tint() const {
@@ -2419,7 +2413,7 @@ void LightmapGI::set_saturation(float p_value) {
 		return;
 	}
 	adjustments.saturation = p_value;
-	_update_adjustments();
+	_update_color_adjustments();
 }
 
 float LightmapGI::get_saturation() const {
@@ -2433,7 +2427,7 @@ void LightmapGI::set_contrast(float p_value) {
 		return;
 	}
 	adjustments.contrast = p_value;
-	_update_adjustments();
+	_update_color_adjustments();
 }
 
 float LightmapGI::get_contrast() const {
@@ -2447,7 +2441,7 @@ void LightmapGI::set_shadows(float p_value) {
 		return;
 	}
 	adjustments.shadows = p_value;
-	_update_adjustments();
+	_update_color_adjustments();
 }
 
 float LightmapGI::get_shadows() const {
@@ -2461,7 +2455,7 @@ void LightmapGI::set_midtones(float p_value) {
 		return;
 	}
 	adjustments.midtones = p_value;
-	_update_adjustments();
+	_update_color_adjustments();
 }
 
 float LightmapGI::get_midtones() const {
@@ -2475,7 +2469,7 @@ void LightmapGI::set_highlights(float p_value) {
 		return;
 	}
 	adjustments.highlights = p_value;
-	_update_adjustments();
+	_update_color_adjustments();
 }
 
 float LightmapGI::get_highlights() const {
@@ -2489,7 +2483,6 @@ void LightmapGI::set_directionality_strength(float p_value) {
 		return;
 	}
 	adjustments.directionality_strength = p_value;
-	_update_adjustments();
 }
 
 float LightmapGI::get_directionality_strength() const {

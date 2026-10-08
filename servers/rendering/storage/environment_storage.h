@@ -87,7 +87,6 @@ private:
 		RSE::EnvironmentToneMapper tone_mapper;
 		float exposure = 1.0;
 		float white = 1.0;
-		float tonemap_curve_amount = 1.0;
 		float tonemap_agx_contrast = 1.25; // Default to approximately Blender's AgX contrast
 		float tonemap_temperature = 6500.0;
 		float max_value = 1.0;
@@ -177,8 +176,9 @@ private:
 
 		// Adjustments
 		bool adjustments_enabled = false;
+		uint32_t forward_adjustment_flags = 0;
+		uint32_t forward_curve_flags = 0;
 		bool adjustments_advance = true;
-		float adjustments_color_grading_intensity = 1.0;
 		float adjustments_brightness = 1.0f;
 		float adjustments_contrast = 1.0f;
 		float adjustments_saturation = 1.0f;
@@ -186,6 +186,14 @@ private:
 		float adjustments_tint = 0.0f;
 		bool adjustments_white_balance_enabled = false;
 		Basis adjustments_white_balance_matrix;
+		bool adjustment_levels_enabled = false;
+		Vector3 adjustment_levels_scale = Vector3(1, 1, 1);
+		Vector3 adjustment_levels_offset;
+		Basis forward_adjustment_matrix;
+		Vector3 forward_adjustment_offset;
+		bool white_balance_cache_valid = false;
+		float white_balance_cached_temperature = 6500.0f;
+		float white_balance_cached_tint = 0.0f;
 		float adjustments_shadows_start = 0.0f;
 		float adjustments_shadows_end = 0.3f;
 		Vector2 adjustments_tonal_softness = Vector2(0.1f, 0.1f);
@@ -205,7 +213,7 @@ private:
 		Color adjustments_gamma = Color(1, 1, 1);
 		Color adjustments_gain = Color(1, 1, 1);
 		// Master, shadows, midtones, highlights: saturation/contrast/gamma/gain.
-		// Followed by lift per range, amount/enabled/preview/pivot, then four linear RGB colors.
+		// Followed by lift per range, reserved/enabled/preview/pivot, then four linear RGB colors.
 		Vector4 adjustments_tonal_correction[10] = { Vector4(1, 1, 1, 1), Vector4(1, 1, 1, 1), Vector4(1, 1, 1, 1), Vector4(1, 1, 1, 1), Vector4(), Vector4(0, 0, 0, 0.5), Vector4(1, 1, 1, 0), Vector4(1, 1, 1, 0), Vector4(1, 1, 1, 0), Vector4(1, 1, 1, 0) };
 		RID adjustments_hue_vs_hue;
 		RID adjustments_hue_vs_saturation;
@@ -219,6 +227,8 @@ private:
 		float adjustments_vignette_end = 1.0f;
 	};
 
+	void _update_forward_adjustment_transform(Environment *p_env);
+	void _update_forward_adjustment_flags(Environment *p_env);
 	mutable RID_Owner<Environment, true> environment_owner;
 
 public:
@@ -269,8 +279,6 @@ public:
 	float environment_get_white(RID p_env, bool p_limit_agx_white, float p_output_max_value) const;
 	void environment_set_tonemap_temperature(RID p_env, float p_temperature);
 	float environment_get_tonemap_temperature(RID p_env) const;
-	void environment_set_tonemap_curve_amount(RID p_env, float p_amount);
-	float environment_get_tonemap_curve_amount(RID p_env) const;
 	void environment_set_tonemap_agx_contrast(RID p_env, float p_agx_contrast);
 	float environment_get_tonemap_agx_contrast(RID p_env) const;
 	TonemapParameters environment_get_tonemap_parameters(RID p_env, bool p_limit_agx_white, float p_output_max_value) const;
@@ -371,27 +379,30 @@ public:
 	void environment_set_adjustment_offset(RID p_env, const Color &p_color, float p_luminance);
 	void environment_set_adjustment_lift_gamma_gain(RID p_env, const Color &p_lift_color, float p_lift_intensity, const Color &p_gamma_color, float p_gamma_intensity, const Color &p_gain_color, float p_gain_intensity);
 	void environment_set_adjustment_tint(RID p_env, float p_tint);
-	void environment_set_adjustment_white_balance(RID p_env, bool p_chromatic_adaptation, float p_temperature, float p_tint, float p_intensity);
+	void environment_set_adjustment_white_balance(RID p_env, bool p_chromatic_adaptation, float p_temperature, float p_tint);
+	void environment_set_adjustment_levels(RID p_env, bool p_enabled, const Color &p_black, const Color &p_white);
 	void environment_set_adjustment_tonal_softness(RID p_env, float p_shadows_softness, float p_highlights_softness);
 	void environment_set_adjustment_midtones_range(RID p_env, float p_shadows_start, float p_shadows_end, float p_midtones_start, float p_midtones_end, float p_highlights_start, float p_highlights_end);
-	void environment_set_adjustment_advance(RID p_env, bool p_enable, float p_intensity);
+	void environment_set_adjustment_advance(RID p_env, bool p_enable);
 	void environment_set_adjustment_tonal_correction_colors(RID p_env, const Color &p_master, const Color &p_shadows, const Color &p_midtones, const Color &p_highlights);
 	void environment_set_adjustment_tonal_correction(RID p_env, const Vector4 &p_master, const Vector4 &p_shadows, const Vector4 &p_midtones, const Vector4 &p_highlights, const Vector4 &p_lift, const Vector4 &p_controls);
 	Vector4 environment_get_adjustment_tonal_correction(RID p_env, int p_index) const;
-	void environment_set_adjustment_curves(RID p_env, RID p_hue_vs_hue, RID p_hue_vs_saturation, RID p_saturation_vs_saturation, RID p_luminance_vs_saturation);
+	void environment_set_adjustment_curves(RID p_env, RID p_hue_vs_hue, RID p_hue_vs_saturation, RID p_saturation_vs_saturation, RID p_luminance_vs_saturation, uint32_t p_flags);
 	void environment_set_adjustment_color_modes(RID p_env, bool p_preserve_luminance, bool p_soft_contrast, float p_pivot);
 	Vector2 environment_get_adjustment_color_modes(RID p_env) const;
 	void environment_set_adjustment_vibrance(RID p_env, float p_vibrance);
 	void environment_set_adjustment_vignette(RID p_env, float p_vignette, float p_start, float p_end);
 	bool environment_get_adjustments_enabled(RID p_env) const;
+	uint32_t environment_get_forward_adjustment_flags(RID p_env) const;
+	uint32_t environment_get_forward_curve_flags(RID p_env) const;
 	float environment_get_adjustments_brightness(RID p_env) const;
 	float environment_get_adjustments_contrast(RID p_env) const;
 	float environment_get_adjustments_saturation(RID p_env) const;
 	bool environment_get_adjustment_advance(RID p_env) const;
-	float environment_get_adjustment_color_grading_intensity(RID p_env) const;
 	float environment_get_adjustment_tint(RID p_env) const;
 	bool environment_get_adjustment_white_balance_enabled(RID p_env) const;
 	Basis environment_get_adjustment_white_balance_matrix(RID p_env) const;
+	Vector3 environment_get_adjustment_white_balance_offset(RID p_env) const;
 	float environment_get_adjustment_shadows_start(RID p_env) const;
 	float environment_get_adjustment_shadows_end(RID p_env) const;
 	Vector2 environment_get_adjustment_tonal_softness(RID p_env) const;

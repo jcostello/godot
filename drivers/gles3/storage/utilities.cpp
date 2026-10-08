@@ -251,9 +251,6 @@ void Utilities::base_update_dependency(RID p_base, DependencyTracker *p_instance
 	} else if (LightStorage::get_singleton()->owns_reflection_probe(p_base)) {
 		Dependency *dependency = LightStorage::get_singleton()->reflection_probe_get_dependency(p_base);
 		p_instance->update_dependency(dependency);
-	} else if (LightStorage::get_singleton()->owns_lightmap(p_base)) {
-		Lightmap *lightmap = LightStorage::get_singleton()->get_lightmap(p_base);
-		p_instance->update_dependency(&lightmap->dependency);
 	} else if (LightStorage::get_singleton()->owns_light(p_base)) {
 		Light *l = LightStorage::get_singleton()->get_light(p_base);
 		p_instance->update_dependency(&l->dependency);

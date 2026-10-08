@@ -458,7 +458,7 @@ EnvironmentTonalRangesEditor::EnvironmentTonalRangesEditor(bool p_lightmap_mode)
 	for (int i = 0; i < 4; i++) {
 		cutoff_sliders[i] = memnew(EditorSpinSlider);
 		cutoff_sliders[i]->set_label(labels[i]);
-		cutoff_sliders[i]->set_tooltip_text(lightmap_mode ? TTR("Transition boundary over baked lightmap luminance mapped to L / (1 + L). Shadows Start is where midtones begin; Highlights End is where midtones stop contributing.") : TTR("Limit used by the Unity-style smooth transition over scene-linear luminance before tonemapping."));
+		cutoff_sliders[i]->set_tooltip_text(lightmap_mode ? TTR("Transition boundary over the original lightmap luminance: 0 is the texture minimum and 1 is its maximum. Shadows Start is where midtones begin; Highlights End is where midtones stop contributing.") : TTR("Limit used by the Unity-style smooth transition over scene-linear luminance before tonemapping."));
 		cutoff_sliders[i]->set_min(0.0);
 		cutoff_sliders[i]->set_max(1.0);
 		cutoff_sliders[i]->set_step(0.001);

@@ -486,20 +486,13 @@ private:
 			float exposure = 1.0;
 			int32_t tonemapper = 0;
 			int32_t pad = 0;
-			float tone_curve_amount = 1.0;
+			float pad2 = 0.0;
 			float tonemapper_params[4] = { 0.0, 0.0, 0.0, 0.0 };
 			float brightness = 1.0;
 			float contrast = 1.0;
 			float saturation = 1.0;
 			int32_t pad3 = 0;
-			float shadows[4] = { 1.0, 1.0, 1.0, 1.0 };
-			float midtones[4] = { 1.0, 1.0, 1.0, 1.0 };
-			float highlights[4] = { 1.0, 1.0, 1.0, 1.0 };
-			float lift[4] = { 0.0, 0.0, 0.0, 0.0 };
-			float gamma[4] = { 1.0, 1.0, 1.0, 0.0 };
-			float gain[4] = { 1.0, 1.0, 1.0, 0.0 }; // Alpha indicates whether lift/gamma/gain is non-neutral.
 			float white_balance[12] = { 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0 };
-			float offset[4] = { 1.0, 1.0, 1.0, 1.0 };
 			float tint_midtones_range[4] = { 0.0, 0.3, 0.55, 0.0 };
 			float tonemap_temperature[4] = { 1.0, 1.0, 1.0, 0.0 };
 			float tonal_softness[4] = { 0.0, 0.3, 0.55, 1.0 };
@@ -507,7 +500,7 @@ private:
 			float vignette_range[4] = { 0.6, 1.0, 0.0, 0.0 };
 			float tonal_correction[10][4] = {};
 		};
-		static_assert(sizeof(TonemapUBO) == 448, "TonemapUBO must match the shader layout.");
+		static_assert(sizeof(TonemapUBO) == 336, "TonemapUBO must match the shader layout.");
 
 		UBO data;
 		UBO prev_data;

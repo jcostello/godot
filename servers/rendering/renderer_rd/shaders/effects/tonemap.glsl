@@ -43,48 +43,34 @@ layout(location = 0) in vec2 uv_interp;
 #else
 #define SAMPLER_FORMAT sampler2D
 #endif
-layout(set = 3, binding = 1) uniform sampler2D hue_vs_hue_curve;
-layout(set = 3, binding = 2) uniform sampler2D hue_vs_saturation_curve;
-layout(set = 3, binding = 3) uniform sampler2D saturation_vs_saturation_curve;
-layout(set = 3, binding = 4) uniform sampler2D luminance_vs_saturation_curve;
+#ifdef USE_WHITE_BALANCE
+layout(set = 3, binding = 0, std140) uniform WhiteBalance {
+	vec4 row_0;
+	vec4 row_1;
+	vec4 row_2;
+}
+white_balance;
 
-layout(set = 3, binding = 5, std140) uniform GradingData {
-	vec4 shadows;
-	vec4 midtones;
-	vec4 highlights;
-	vec4 lift;
-	vec4 gamma;
-	vec4 gain;
-	vec4 white_balance_0;
-	vec4 white_balance_1;
-	vec4 white_balance_2;
-	vec4 tonal_correction[10];
-	vec4 tonemap_controls;
-} grading;
+vec3 apply_white_balance(vec3 color) {
+	return max(vec3(dot(white_balance.row_0, vec4(color, 1.0)), dot(white_balance.row_1, vec4(color, 1.0)), dot(white_balance.row_2, vec4(color, 1.0))), vec3(0.0));
+}
+#endif
 
 layout(set = 0, binding = 0) uniform SAMPLER_FORMAT source_color;
 layout(set = 1, binding = 0) uniform sampler2D source_auto_exposure;
 layout(set = 2, binding = 0) uniform SAMPLER_FORMAT source_glow;
 layout(set = 2, binding = 1) uniform sampler2D glow_map; // TODO needs multiview support
 
-#ifdef USE_1D_LUT
-layout(set = 3, binding = 0) uniform sampler2D source_color_correction;
-#else
-layout(set = 3, binding = 0) uniform sampler3D source_color_correction;
-#endif
-
-#define FLAG_USE_BCS (1 << 0)
 #define FLAG_USE_GLOW (1 << 1)
 #define FLAG_USE_AUTO_EXPOSURE (1 << 2)
-#define FLAG_USE_COLOR_CORRECTION (1 << 3)
 #define FLAG_USE_FXAA (1 << 4)
 #define FLAG_USE_8_BIT_DEBANDING (1 << 5)
 #define FLAG_CONVERT_TO_SRGB (1 << 6)
-#define FLAG_USE_COLOR_GRADING (1 << 7)
-#define FLAG_USE_COLOR_GRADING_CURVES (1 << 8)
 
 layout(push_constant, std430) uniform Params {
-	vec3 bcs;
+	float padding_0;
+	float saturation;
+	float padding_1;
 	uint flags;
 
 	vec2 pixel_size;
@@ -104,19 +90,42 @@ layout(push_constant, std430) uniform Params {
 	float luminance_multiplier;
 
 	vec4 tonemapper_params;
-	vec4 offset;
-	vec4 tint_midtones_range;
-	vec4 tonal_softness;
-	vec3 tonemap_temperature;
-	float vibrance;
-	float color_adjustment_flags;
-	float contrast_pivot;
-	float vignette;
-	vec2 vignette_range;
+	vec4 adjustment_controls;
 }
 params;
 
+// Pipeline specializations remove inactive adjustment paths, including their register pressure.
+layout(constant_id = 0) const bool use_soft_contrast = false;
+layout(constant_id = 1) const bool use_saturation = false;
+layout(constant_id = 2) const bool preserve_saturation_luminance = false;
+// Diagnostic reference: retains the previous runtime branches for A/B comparison.
+layout(constant_id = 3) const bool adjustment_runtime_branches = false;
+
 layout(location = 0) out vec4 frag_color;
+
+// Soft contrast operates in scene-linear HDR in Forward+.
+float forward_basic_soft_contrast_channel(float value, float contrast, float pivot) {
+	// Preserve HDR headroom and negative values from preceding adjustments.
+	if (contrast == 1.0 || value <= 0.0 || value >= 1.0) {
+		return value;
+	}
+	if (contrast <= 0.0) {
+		return pivot;
+	}
+	// A pivot-centered sigmoid. Log odds avoid overflow with large contrast.
+	// Cache the pivot bias on CPU; only one logarithm per channel.
+	float log_odds = contrast * log(value / (1.0 - value)) + params.adjustment_controls.w;
+	float e = exp(-abs(log_odds));
+	return log_odds >= 0.0 ? 1.0 / (1.0 + e) : e / (1.0 + e);
+}
+
+vec3 forward_basic_soft_contrast(vec3 color, float contrast, float pivot) {
+	return vec3(forward_basic_soft_contrast_channel(color.r, contrast, pivot),
+			forward_basic_soft_contrast_channel(color.g, contrast, pivot),
+			forward_basic_soft_contrast_channel(color.b, contrast, pivot));
+}
+
+#include "forward_adjustments_inc.glsl"
 
 // Based on Reinhard's extended formula, see equation 4 in https://doi.org/cjbgrt
 vec3 tonemap_reinhard(vec3 color) {
@@ -272,7 +281,7 @@ vec3 srgb_to_linear(vec3 color) {
 #define TONEMAPPER_ACES 3
 #define TONEMAPPER_AGX 4
 
-vec3 apply_full_tonemapping(vec3 color) { // inputs are LINEAR
+vec3 apply_tonemapping(vec3 color) { // inputs are LINEAR
 	if (params.tonemapper == TONEMAPPER_LINEAR) {
 		return color;
 	}
@@ -290,22 +299,6 @@ vec3 apply_full_tonemapping(vec3 color) { // inputs are LINEAR
 	} else { // TONEMAPPER_AGX
 		return tonemap_agx(color);
 	}
-}
-
-vec3 apply_tonemapping(vec3 color) {
-	float amount = grading.tonemap_controls.x;
-	if (amount == 0.0) {
-		return color;
-	}
-	vec3 mapped = apply_full_tonemapping(color);
-	return amount == 1.0 ? mapped : mix(color, mapped, amount);
-}
-
-vec3 apply_temperature_balance(vec3 color) {
-	if (grading.white_balance_0.w > 0.5) {
-		return vec3(dot(grading.white_balance_0.xyz, color), dot(grading.white_balance_1.xyz, color), dot(grading.white_balance_2.xyz, color));
-	}
-	return color * params.tonemap_temperature;
 }
 
 #ifdef USE_GLOW_FILTER_BICUBIC
@@ -497,23 +490,6 @@ vec3 apply_glow(vec3 color, vec3 glow, float white) {
 		return glow;
 	}
 }
-
-#ifdef USE_1D_LUT
-vec3 apply_color_correction(vec3 color) {
-	color.r = texture(source_color_correction, vec2(color.r, 0.0f)).r;
-	color.g = texture(source_color_correction, vec2(color.g, 0.0f)).g;
-	color.b = texture(source_color_correction, vec2(color.b, 0.0f)).b;
-	return color;
-}
-#else
-vec3 apply_color_correction(vec3 color) {
-	return textureLod(source_color_correction, color, 0.0).rgb;
-}
-#endif
-
-#define COLOR_GRADING_CURVES
-#include "../../../shaders/color_adjustments_inc.glsl"
-#include "../../../shaders/color_grading_inc.glsl"
 
 // FXAA 3.11 compact, Ported from https://github.com/kosua20/Rendu/blob/master/resources/common/shaders/screens/fxaa.frag
 ///////////////////////////////////////////////////////////////////////////////////
@@ -901,8 +877,6 @@ vec3 screen_space_dither(vec2 frag_coord, float bit_alignment_diviser) {
 }
 
 void main() {
-	vec3 tonal_correction_weights = vec3(0.0, 1.0, 0.0);
-	float tonal_correction_mask = -1.0;
 #ifdef USE_MULTIVIEW
 	vec4 color = textureLod(source_color, vec3(uv_interp, ViewIndex), 0.0f);
 #else
@@ -926,10 +900,8 @@ void main() {
 		color.rgb = do_fxaa(color.rgb, exposure, uv_interp);
 	}
 
-	color.rgb = apply_temperature_balance(color.rgb);
-
 	if (bool(params.flags & FLAG_USE_GLOW) && params.glow_mode != GLOW_MODE_SOFTLIGHT) {
-		vec3 glow = apply_temperature_balance(gather_glow(source_glow, uv_interp) * params.glow_intensity);
+		vec3 glow = gather_glow(source_glow, uv_interp) * params.glow_intensity;
 		if (params.glow_map_strength > 0.001) {
 			glow = mix(glow, texture(glow_map, uv_interp).rgb * glow, params.glow_map_strength);
 		}
@@ -941,14 +913,18 @@ void main() {
 		}
 	}
 
-	// Unity 6 URP applies shadows/midtones/highlights and lift/gamma/gain to
-	// scene-linear HDR color before tonemapping.
-	if (bool(params.flags & FLAG_USE_BCS) && bool(params.flags & FLAG_USE_COLOR_GRADING)) {
-		color.rgb = apply_grading_linear(color.rgb, params.tonal_softness, grading.shadows, grading.midtones, grading.highlights, grading.lift, grading.gamma, grading.gain, params.tint_midtones_range.w, grading.tonal_correction, tonal_correction_weights);
-	}
-
 	// Tonemap to lower dynamic range.
 
+#ifdef USE_WHITE_BALANCE
+	color.rgb = apply_white_balance(color.rgb);
+#endif
+	if (use_soft_contrast || (adjustment_runtime_branches && (int(params.adjustment_controls.z) & 2) != 0 && params.adjustment_controls.x != 1.0)) {
+		color.rgb = forward_basic_soft_contrast(color.rgb, params.adjustment_controls.x, params.adjustment_controls.y);
+	}
+#ifdef USE_FORWARD_GRADING
+	vec3 forward_correction_weights_main;
+	color.rgb = forward_adjustments_pre(color.rgb, uv_interp, forward_correction_weights_main);
+#endif
 	color.rgb = apply_tonemapping(color.rgb);
 
 	// Post-tonemap glow.
@@ -961,85 +937,51 @@ void main() {
 		if (params.glow_map_strength > 0.001) {
 			glow = mix(glow, texture(glow_map, uv_interp).rgb * glow, params.glow_map_strength);
 		}
-		glow = apply_temperature_balance(glow);
+#ifdef USE_WHITE_BALANCE
+		glow = apply_white_balance(glow);
+#endif
+		if (use_soft_contrast || (adjustment_runtime_branches && (int(params.adjustment_controls.z) & 2) != 0 && params.adjustment_controls.x != 1.0)) {
+			glow = forward_basic_soft_contrast(glow, params.adjustment_controls.x, params.adjustment_controls.y);
+		}
+#ifdef USE_FORWARD_GRADING
+		vec3 unused_correction_weights;
+		glow = forward_adjustments_pre(glow, uv_interp, unused_correction_weights);
+#endif
 		glow = apply_tonemapping(glow);
 		color.rgb = apply_glow(color.rgb, glow, params.white);
 	}
 
-	// Additional effects.
+#ifdef USE_FORWARD_GRADING
+	color.rgb = forward_adjustments_post(color.rgb, forward_correction_weights_main);
+	if (forward_grading.correction[5].z > 0.5) {
+		color.rgb = vec3(grading_tonal_correction_mask(forward_correction_weights_main, int(forward_grading.correction[5].z)));
+	}
+#endif
 
-	if (bool(params.flags & FLAG_USE_BCS)) {
-		// Apply brightness:
-		// Apply to relative luminance. This ensures that the hue and saturation of
-		// colors is not affected by the adjustment, but requires the multiplication
-		// to be performed on linear-encoded values.
-		color.rgb = color.rgb * params.bcs.x;
-
-		color.rgb = linear_to_srgb(color.rgb);
-
-		// Apply contrast:
-		// By applying contrast to RGB values that are perceptually uniform (nonlinear),
-		// the darkest values are not hard-clipped as badly, which produces a
-		// higher quality contrast adjustment and maintains compatibility with
-		// existing projects.
-		if ((int(params.color_adjustment_flags) & 2) != 0) {
-			color.rgb = adjustment_soft_contrast(color.rgb, params.bcs.y, params.contrast_pivot);
-		} else {
-			color.rgb = mix(vec3(0.5), color.rgb, params.bcs.y);
-		}
-
-		// Apply saturation:
-		// By applying saturation adjustment to nonlinear sRGB-encoded values with
-		// even weights the preceived brightness of blues are affected, but this
-		// maintains compatibility with existing projects.
-		if ((int(params.color_adjustment_flags) & 1) != 0) {
-			color.rgb = adjustment_luminance_saturation(color.rgb, params.bcs.z);
-		} else {
-			color.rgb = mix(vec3(dot(vec3(1.0), color.rgb) * (1.0 / 3.0)), color.rgb, params.bcs.z);
-		}
-
-		vec3 color_before_grading = color.rgb;
-		if (bool(params.flags & FLAG_USE_COLOR_GRADING)) {
-			color.rgb += params.offset.rgb - vec3(1.0);
-			color.rgb *= params.offset.a;
-			float tint = grading.white_balance_0.w > 0.5 ? 0.0 : params.tint_midtones_range.x;
-			vec3 tint_balance = vec3(1.0 + tint, 1.0 - tint, 1.0 + tint);
-			color.rgb *= tint_balance;
-			color.rgb = apply_grading_tonal_correction(color.rgb, tonal_correction_weights, grading.tonal_correction);
-			if (grading.tonal_correction[5].z > 0.5) {
-				tonal_correction_mask = grading_tonal_correction_mask(tonal_correction_weights, int(grading.tonal_correction[5].z));
+	// Saturation follows tonemapping and soft-light glow, in display-linear RGB.
+	// The condition is uniform across the draw; neutral skips the arithmetic.
+	if (use_saturation || (adjustment_runtime_branches && params.saturation != 1.0)) {
+		float luminance = dot(color.rgb, vec3(0.2126, 0.7152, 0.0722));
+		vec3 chroma = (color.rgb - vec3(luminance)) * params.saturation;
+		float scale = 1.0;
+		if (preserve_saturation_luminance || (adjustment_runtime_branches && (int(params.adjustment_controls.z) & 1) != 0)) {
+			// Reduce chroma at gamut boundaries instead of clipping RGB independently.
+			float upper = max(1.0, max(color.r, max(color.g, color.b)));
+			for (int channel = 0; channel < 3; channel++) {
+				if (chroma[channel] > 0.0) {
+					scale = min(scale, (upper - luminance) / chroma[channel]);
+				} else if (chroma[channel] < 0.0) {
+					scale = min(scale, -luminance / chroma[channel]);
+				}
 			}
 		}
-
-		if (bool(params.flags & FLAG_USE_COLOR_GRADING_CURVES)) {
-			color.rgb = apply_color_grading_curves(color.rgb);
-		}
-
-		if (bool(params.flags & FLAG_USE_COLOR_GRADING)) {
-			if (abs(params.vibrance) > 0.001) {
-				color.rgb = apply_grading_vibrance(color.rgb, params.vibrance);
-			}
-			if (params.vignette > 0.001) {
-				color.rgb *= grading_vignette(uv_interp, params.pixel_size.y / params.pixel_size.x, params.vignette, params.vignette_range);
-			}
-			color.rgb = mix(color_before_grading, color.rgb, params.tint_midtones_range.w);
-		}
-
-		if (bool(params.flags & FLAG_USE_COLOR_CORRECTION)) {
-			color.rgb = clamp(color.rgb, vec3(0.0), vec3(1.0));
-			color.rgb = apply_color_correction(color.rgb);
-			// When using color correction and  FLAG_CONVERT_TO_SRGB is false, there
-			// is no need to convert back to linear because the color correction
-			// texture sampling does this for us.
-		} else if (!bool(params.flags & FLAG_CONVERT_TO_SRGB)) {
-			color.rgb = srgb_to_linear(color.rgb);
-		}
-	} else if (bool(params.flags & FLAG_CONVERT_TO_SRGB)) {
-		color.rgb = linear_to_srgb(color.rgb);
+		color.rgb = max(vec3(luminance) + chroma * scale, vec3(0.0));
 	}
 
-	if (tonal_correction_mask >= 0.0) {
-		color.rgb = bool(params.flags & FLAG_CONVERT_TO_SRGB) ? vec3(tonal_correction_mask) : srgb_to_linear(vec3(tonal_correction_mask));
+	// Additional effects.
+
+	if (bool(params.flags & FLAG_CONVERT_TO_SRGB)) {
+		color.rgb = linear_to_srgb(color.rgb);
 	}
 
 	// Debanding should be done at the end of tonemapping, but before writing to the LDR buffer.

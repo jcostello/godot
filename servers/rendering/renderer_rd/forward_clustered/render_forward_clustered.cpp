@@ -1268,6 +1268,8 @@ void RenderForwardClustered::_setup_lightmaps(const RenderDataRD *p_render_data,
 		// Exposure.
 		scene_state.lightmaps[i].exposure_normalization = 1.0;
 		scene_state.lightmaps[i].flags = light_storage->lightmap_get_shadowmask_mode(lightmap);
+		light_storage->lightmap_prepare_color_texture(lightmap);
+		scene_state.lightmaps[i].flags |= light_storage->lightmap_get_editor_color_adjustments(lightmap, &scene_state.lightmaps[i].color_adjustment_data[0][0]);
 		if (p_render_data->camera_attributes.is_valid()) {
 			float baked_exposure = light_storage->lightmap_get_baked_exposure_normalization(lightmap);
 			float enf = RSG::camera_attributes->camera_attributes_get_render_exposure_normalization_factor(p_render_data->camera_attributes);
@@ -1279,7 +1281,6 @@ void RenderForwardClustered::_setup_lightmaps(const RenderDataRD *p_render_data,
 
 		float &specular_intensity = scene_state.lightmaps[i].normal_xform_and_specular_intensity[3];
 		specular_intensity = light_storage->lightmap_get_specular_intensity(lightmap);
-		light_storage->lightmap_get_adjustments(lightmap).store(scene_state.lightmaps[i].tint_energy, scene_state.lightmaps[i].grading, scene_state.lightmaps[i].tonal, scene_state.lightmaps[i].shadows_tint, scene_state.lightmaps[i].midtones_tint, scene_state.lightmaps[i].highlights_tint, scene_state.lightmaps[i].tonal_contrast, scene_state.lightmaps[i].tonal_ranges);
 		scene_state.lightmap_has_specular[i] = scene_state.lightmap_has_sh[i] && (specular_intensity > 0.0f);
 
 		scene_state.lightmaps_used++;
@@ -3626,7 +3627,7 @@ RID RenderForwardClustered::_setup_render_pass_uniform_set(RenderListType p_rend
 
 		RID default_tex = texture_storage->texture_rd_get_default(RendererRD::TextureStorage::DEFAULT_RD_TEXTURE_2D_ARRAY_WHITE);
 		for (uint32_t i = 0; i < scene_state.max_lightmaps * 2; i++) {
-			uint32_t current_lightmap_index = i < scene_state.max_lightmaps ? i : i - scene_state.max_lightmaps;
+			uint32_t current_lightmap_index = i % scene_state.max_lightmaps;
 
 			if (p_render_data && current_lightmap_index < p_render_data->lightmaps->size()) {
 				RID base = light_storage->lightmap_instance_get_lightmap((*p_render_data->lightmaps)[current_lightmap_index]);
@@ -3634,7 +3635,8 @@ RID RenderForwardClustered::_setup_render_pass_uniform_set(RenderListType p_rend
 
 				if (i < scene_state.max_lightmaps) {
 					// Lightmap
-					texture = light_storage->lightmap_get_texture(base);
+					textures.write[i] = light_storage->lightmap_get_color_texture(base);
+					continue;
 				} else {
 					// Shadowmask
 					texture = light_storage->shadowmask_get_texture(base);

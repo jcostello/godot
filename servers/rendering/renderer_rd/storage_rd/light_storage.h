@@ -35,6 +35,7 @@
 #include "servers/rendering/lightmap_adjustments.h"
 #include "servers/rendering/renderer_rd/cluster_builder_rd.h"
 #include "servers/rendering/renderer_rd/environment/sky.h"
+#include "servers/rendering/renderer_rd/shaders/effects/lightmap_color_cache.glsl.gen.h"
 #include "servers/rendering/renderer_rd/storage_rd/forward_id_storage.h"
 #include "servers/rendering/renderer_rd/storage_rd/render_scene_buffers_rd.h"
 #include "servers/rendering/renderer_rd/storage_rd/texture_storage.h"
@@ -356,6 +357,18 @@ private:
 		static constexpr int PROBE_VOLUME_MAX_SIZE = 32;
 		static constexpr int PROBE_VOLUME_MIN_SIZE = 4;
 
+		LightmapAdjustments color_adjustments;
+		float color_adjustment_data[11][4] = {};
+		uint32_t color_adjustment_flags = 0;
+		bool color_texture_dirty = true;
+		RID color_texture;
+		RID color_parameters_buffer;
+		RID color_source;
+		uint64_t color_source_version = 0;
+		RID tonal_range_source;
+		uint64_t tonal_range_source_version = 0;
+		float tonal_luminance_min = 0.0f;
+		float tonal_luminance_scale = 0.0f;
 		RID light_texture;
 		RID shadow_texture;
 		RID probe_volume_texture;
@@ -372,7 +385,6 @@ private:
 		PackedInt32Array tetrahedra;
 		PackedInt32Array bsp_tree;
 		float specular_intensity = 0.0f;
-		LightmapAdjustments adjustments;
 
 		struct BSP {
 			static const int32_t EMPTY_LEAF = INT32_MIN;
@@ -383,6 +395,9 @@ private:
 		Dependency dependency;
 	};
 
+	LightmapColorCacheShaderRD color_cache_shader;
+	RID color_cache_shader_version;
+	RID color_cache_pipeline;
 	bool using_lightmap_array;
 	Vector<RID> lightmap_textures;
 	uint64_t lightmap_array_version = 0;
@@ -1034,6 +1049,15 @@ public:
 	virtual void lightmap_initialize(RID p_lightmap) override;
 	virtual void lightmap_free(RID p_rid) override;
 
+	void _update_lightmap_color_adjustments(Lightmap *p_lightmap);
+	void _update_lightmap_tonal_luminance_range(Lightmap *p_lightmap);
+	void lightmap_set_adjustments_enabled(RID p_lightmap, bool p_enabled) override;
+	void lightmap_set_adjustments(RID p_lightmap, float p_energy, const Color &p_tint, float p_saturation, float p_contrast, float p_shadows, float p_midtones, float p_highlights, float p_directionality_strength) override;
+	void lightmap_set_tonal_settings(RID p_lightmap, const Color &p_ranges, const Color &p_shadows_tint, const Color &p_midtones_tint, const Color &p_highlights_tint, const Vector3 &p_saturation, const Vector3 &p_contrast, int p_debug_mode) override;
+	uint32_t lightmap_prepare_color_texture(RID p_lightmap);
+	RID lightmap_get_color_texture(RID p_lightmap) const;
+	uint32_t lightmap_get_editor_color_adjustments(RID p_lightmap, float *r_data) const;
+
 	virtual void lightmap_set_textures(RID p_lightmap, RID p_light, bool p_uses_spherical_haromics) override;
 	virtual void lightmap_set_probe_bounds(RID p_lightmap, const AABB &p_bounds) override;
 	virtual void lightmap_set_probe_interior(RID p_lightmap, bool p_interior) override;
@@ -1054,10 +1078,6 @@ public:
 	virtual RSE::ShadowmaskMode lightmap_get_shadowmask_mode(RID p_lightmap) override;
 	virtual void lightmap_set_shadowmask_mode(RID p_lightmap, RSE::ShadowmaskMode p_mode) override;
 	virtual float lightmap_get_specular_intensity(RID p_lightmap) override;
-	virtual void lightmap_set_adjustments_enabled(RID p_lightmap, bool p_enabled) override;
-	virtual void lightmap_set_tonal_settings(RID p_lightmap, const Color &p_ranges, const Color &p_shadows_tint, const Color &p_midtones_tint, const Color &p_highlights_tint, const Vector3 &p_saturation, const Vector3 &p_contrast, int p_debug_mode) override;
-	virtual void lightmap_set_adjustments(RID p_lightmap, float p_energy, const Color &p_tint, float p_saturation, float p_contrast, float p_shadows, float p_midtones, float p_highlights, float p_directionality_strength) override;
-	const LightmapAdjustments &lightmap_get_adjustments(RID p_lightmap) const;
 	virtual void lightmap_set_specular_intensity(RID p_lightmap, float p_intensity) override;
 
 	virtual float lightmap_get_probe_capture_update_speed() const override {

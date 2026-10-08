@@ -30,46 +30,97 @@
 
 #include "tone_mapper.h"
 
+#include "core/os/os.h"
 #include "servers/rendering/renderer_rd/renderer_compositor_rd.h"
 #include "servers/rendering/renderer_rd/storage_rd/material_storage.h"
+#include "servers/rendering/renderer_rd/storage_rd/texture_storage.h"
 #include "servers/rendering/renderer_rd/uniform_set_cache_rd.h"
 
 using namespace RendererRD;
 
-RID ToneMapper::_upload_grading_buffer(const TonemapSettings &p_settings) {
-	ToneMapper::GradingData data = {};
-	const Color values[] = { p_settings.shadows_color, p_settings.midtones_color, p_settings.highlights_color, p_settings.lift, p_settings.gamma, p_settings.gain };
-	const float luminance[] = { p_settings.shadows_luminance, p_settings.midtones_luminance, p_settings.highlights_luminance, 0.0f, 0.0f, 0.0f };
-	float *destinations[] = { data.shadows, data.midtones, data.highlights, data.lift, data.gamma, data.gain };
-	for (int i = 0; i < 6; i++) {
-		destinations[i][0] = values[i].r;
-		destinations[i][1] = values[i].g;
-		destinations[i][2] = values[i].b;
-		destinations[i][3] = luminance[i];
-	}
-	data.gain[3] = !(p_settings.lift.is_equal_approx(Color(0, 0, 0)) && p_settings.gamma.is_equal_approx(Color(1, 1, 1)) && p_settings.gain.is_equal_approx(Color(1, 1, 1)));
+RID ToneMapper::_upload_mobile_grading_buffer(const TonemapSettings &p_settings) {
+	ToneMapper::MobileGradingData data = {};
 	for (int row = 0; row < 3; row++) {
 		for (int column = 0; column < 3; column++) {
 			data.white_balance[row][column] = p_settings.white_balance_matrix[row][column];
 		}
 	}
 	data.white_balance[0][3] = p_settings.use_chromatic_adaptation;
-	data.tonemap_controls[0] = p_settings.tone_curve_amount;
 	for (int range = 0; range < 10; range++) {
 		for (int parameter = 0; parameter < 4; parameter++) {
 			data.tonal_correction[range][parameter] = p_settings.tonal_correction[range][parameter];
 		}
 	}
-	grading_buffers.prepare_for_upload();
-	RID buffer = grading_buffers._get(0);
-	grading_buffers.upload(0, &data, sizeof(data));
+	mobile_grading_buffers.prepare_for_upload();
+	RID buffer = mobile_grading_buffers._get(0);
+	mobile_grading_buffers.upload(0, &data, sizeof(data));
 	return buffer;
 }
 
+RID ToneMapper::_get_white_balance_buffer(const Basis &p_matrix, const Vector3 &p_offset) {
+	if (white_balance_buffer.is_valid() && uploaded_white_balance_matrix == p_matrix && uploaded_white_balance_offset == p_offset) {
+		return white_balance_buffer;
+	}
+	float rows[3][4] = {};
+	for (int row = 0; row < 3; row++) {
+		for (int column = 0; column < 3; column++) {
+			rows[row][column] = p_matrix[row][column];
+		}
+		rows[row][3] = p_offset[row];
+	}
+	if (white_balance_buffer.is_null()) {
+		white_balance_buffer = RD::get_singleton()->uniform_buffer_create(sizeof(rows));
+		ERR_FAIL_COND_V(white_balance_buffer.is_null(), RID());
+	}
+	RD::get_singleton()->buffer_update(white_balance_buffer, 0, sizeof(rows), rows);
+	uploaded_white_balance_matrix = p_matrix;
+	uploaded_white_balance_offset = p_offset;
+	return white_balance_buffer;
+}
+
+RID ToneMapper::_get_forward_grading_buffer(const TonemapSettings &p_settings) {
+	ForwardGradingData data;
+	data.rows[0][0] = p_settings.shadows_start;
+	data.rows[0][1] = p_settings.shadows_end;
+	data.rows[0][2] = p_settings.highlights_start;
+	data.rows[0][3] = p_settings.highlights_end;
+	for (int range = 0; range < 10; range++) {
+		for (int channel = 0; channel < 4; channel++) {
+			data.rows[1 + range][channel] = p_settings.tonal_correction[range][channel];
+		}
+	}
+	data.rows[11][0] = p_settings.vibrance;
+	data.rows[11][1] = p_settings.vignette;
+	data.rows[11][2] = p_settings.vignette_start;
+	data.rows[11][3] = p_settings.vignette_end;
+	data.rows[12][0] = p_settings.forward_curve_flags;
+	data.rows[12][1] = p_settings.forward_adjustment_flags;
+	data.rows[12][2] = p_settings.use_1d_color_correction;
+	if ((p_settings.forward_adjustment_flags & 512) != 0) {
+		const float pivot = p_settings.tonal_correction[5].w;
+		if (cached_correction_pivot != pivot) {
+			cached_correction_pivot = pivot;
+			cached_correction_logit = Math::log(pivot / (1.0f - pivot));
+		}
+		data.rows[12][3] = cached_correction_logit;
+	}
+
+	if (forward_grading_buffer.is_valid() && memcmp(&data, &uploaded_forward_grading, sizeof(data)) == 0) {
+		return forward_grading_buffer;
+	}
+	if (forward_grading_buffer.is_null()) {
+		forward_grading_buffer = RD::get_singleton()->uniform_buffer_create(sizeof(data));
+		ERR_FAIL_COND_V(forward_grading_buffer.is_null(), RID());
+	}
+	RD::get_singleton()->buffer_update(forward_grading_buffer, 0, sizeof(data), &data);
+	uploaded_forward_grading = data;
+	return forward_grading_buffer;
+}
+
 ToneMapper::ToneMapper(bool p_use_mobile_version) {
-	grading_buffers.set_uniform_size(0, sizeof(GradingData));
 	using_mobile_version = p_use_mobile_version;
 	if (using_mobile_version) {
+		mobile_grading_buffers.set_uniform_size(0, sizeof(MobileGradingData));
 		// Initialize tonemapper
 		Vector<String> tonemap_modes;
 		tonemap_modes.push_back("\n");
@@ -96,7 +147,7 @@ ToneMapper::ToneMapper(bool p_use_mobile_version) {
 
 		tonemap_mobile.shader_version = tonemap_mobile.shader.version_create();
 
-		for (int i = 0; i < TONEMAP_MODE_MAX; i++) {
+		for (int i = 0; i < TONEMAP_MOBILE_MODE_MAX; i++) {
 			if (tonemap_mobile.shader.is_variant_enabled(i)) {
 				tonemap_mobile.pipelines[i].setup(tonemap_mobile.shader.version_get_shader(tonemap_mobile.shader_version, i), RD::RENDER_PRIMITIVE_TRIANGLES, RD::PipelineRasterizationState(), RD::PipelineMultisampleState(), RD::PipelineDepthStencilState(), RD::PipelineColorBlendState::create_disabled(), 0);
 			} else {
@@ -109,24 +160,34 @@ ToneMapper::ToneMapper(bool p_use_mobile_version) {
 		Vector<String> tonemap_modes;
 		tonemap_modes.push_back("\n");
 		tonemap_modes.push_back("\n#define USE_GLOW_FILTER_BICUBIC\n");
-		tonemap_modes.push_back("\n#define USE_1D_LUT\n");
-		tonemap_modes.push_back("\n#define USE_GLOW_FILTER_BICUBIC\n#define USE_1D_LUT\n");
 
 		// multiview versions of our shaders
 		tonemap_modes.push_back("\n#define USE_MULTIVIEW\n");
 		tonemap_modes.push_back("\n#define USE_MULTIVIEW\n#define USE_GLOW_FILTER_BICUBIC\n");
-		tonemap_modes.push_back("\n#define USE_MULTIVIEW\n#define USE_1D_LUT\n");
-		tonemap_modes.push_back("\n#define USE_MULTIVIEW\n#define USE_GLOW_FILTER_BICUBIC\n#define USE_1D_LUT\n");
 
-		Vector<uint64_t> dynamic_buffers;
-		dynamic_buffers.push_back(ShaderRD::DynamicBuffer::encode(3, 5));
-		tonemap.shader.initialize(tonemap_modes, "", Vector<RD::PipelineImmutableSampler>(), dynamic_buffers);
+		const int base_variant_count = tonemap_modes.size();
+		for (int i = 0; i < base_variant_count; i++) {
+			String defines = tonemap_modes[i] + "\n#define USE_WHITE_BALANCE\n";
+			tonemap_modes.push_back(defines);
+		}
+		for (int i = 0; i < 8; i++) {
+			tonemap_modes.push_back(tonemap_modes[i] + "\n#define USE_FORWARD_GRADING\n");
+		}
+		for (int i = 0; i < 16; i++) {
+			tonemap_modes.push_back(tonemap_modes[i] + "\n#define USE_FORWARD_CURVES\n" + (i < 8 ? "#define USE_FORWARD_GRADING\n" : ""));
+		}
+		tonemap.shader.initialize(tonemap_modes);
+		// Curves always use the grading data, so skip duplicate curves-only variants.
+		for (int i = 16; i < 24; i++) {
+			tonemap.shader.set_variant_enabled(i, false);
+		}
 
 		if (!RendererCompositorRD::get_singleton()->is_xr_enabled()) {
-			tonemap.shader.set_variant_enabled(TONEMAP_MODE_NORMAL_MULTIVIEW, false);
-			tonemap.shader.set_variant_enabled(TONEMAP_MODE_BICUBIC_GLOW_FILTER_MULTIVIEW, false);
-			tonemap.shader.set_variant_enabled(TONEMAP_MODE_1D_LUT_MULTIVIEW, false);
-			tonemap.shader.set_variant_enabled(TONEMAP_MODE_BICUBIC_GLOW_FILTER_1D_LUT_MULTIVIEW, false);
+			for (int i = 0; i < TONEMAP_MODE_MAX; i++) {
+				if ((i & 2) != 0) {
+					tonemap.shader.set_variant_enabled(i, false);
+				}
+			}
 		}
 
 		tonemap.shader_version = tonemap.shader.version_create();
@@ -142,8 +203,14 @@ ToneMapper::ToneMapper(bool p_use_mobile_version) {
 }
 
 ToneMapper::~ToneMapper() {
-	grading_buffers.uninit();
+	if (forward_grading_buffer.is_valid()) {
+		RD::get_singleton()->free_rid(forward_grading_buffer);
+	}
+	if (white_balance_buffer.is_valid()) {
+		RD::get_singleton()->free_rid(white_balance_buffer);
+	}
 	if (using_mobile_version) {
+		mobile_grading_buffers.uninit();
 		tonemap_mobile.shader.version_free(tonemap_mobile.shader_version);
 	} else {
 		tonemap.shader.version_free(tonemap.shader_version);
@@ -157,14 +224,50 @@ void ToneMapper::tonemapper(RID p_source_color, RID p_dst_framebuffer, const Ton
 	MaterialStorage *material_storage = MaterialStorage::get_singleton();
 	ERR_FAIL_NULL(material_storage);
 
-	memset(&tonemap.push_constant, 0, sizeof(TonemapPushConstant));
+	// Read diagnostics once per process. Normal runs do not print or read the environment per frame.
+	static const String test_mode = OS::get_singleton()->get_environment("GODOT_FORK_ADJUSTMENTS_TEST");
+	static const bool test_off = test_mode == "off";
+	static const bool test_no_transform = test_off || test_mode == "no_transform";
+	static const bool test_no_saturation = test_off || test_mode == "no_saturation";
+	static const bool test_no_soft_contrast = test_off || test_mode == "no_soft_contrast";
+	static const bool test_runtime_branches = test_mode == "runtime_branches";
+	const uint32_t forward_flags = test_off ? 0 : p_settings.forward_adjustment_flags;
+	const bool use_curves = (forward_flags & (64 | 128)) != 0;
+	const bool use_forward_grading = forward_flags != 0;
+	const bool use_transform = p_settings.use_forward_white_balance && !test_no_transform;
+	const float saturation = test_no_saturation ? 1.0f : p_settings.saturation;
+	const int color_modes = int(p_settings.color_modes.x);
+	const bool soft_contrast = !test_no_soft_contrast && (color_modes & 2) != 0 && p_settings.contrast != 1.0f;
+	const bool preserve_luminance = (color_modes & 1) != 0;
+	uint32_t adjustment_specializations = 0;
+	if (test_runtime_branches) {
+		adjustment_specializations = 1 << 3;
+	} else {
+		adjustment_specializations |= soft_contrast ? 1 << 0 : 0;
+		adjustment_specializations |= saturation != 1.0f ? 1 << 1 : 0;
+		adjustment_specializations |= saturation != 1.0f && preserve_luminance ? 1 << 2 : 0;
+	}
+	adjustment_specializations |= forward_flags << 4;
+	static const bool print_diagnostics = OS::get_singleton()->get_environment("GODOT_FORK_ADJUSTMENTS_PROFILE") == "1" || !test_mode.is_empty();
+	static bool diagnostic_printed = false;
+	if (print_diagnostics && !diagnostic_printed) {
+		print_line(vformat("[Forward adjustments] test=%s transform=%s soft_contrast=%s saturation=%s preserve_luminance=%s runtime_branches=%s modules=%s", test_mode.is_empty() ? "normal" : test_mode, use_transform, soft_contrast, saturation, preserve_luminance, test_runtime_branches, forward_flags));
+		diagnostic_printed = true;
+	}
 
-	tonemap.push_constant.flags |= p_settings.use_bcs ? TONEMAP_FLAG_USE_BCS : 0;
-	tonemap.push_constant.bcs[0] = p_settings.brightness;
-	tonemap.push_constant.bcs[1] = p_settings.contrast;
-	tonemap.push_constant.bcs[2] = p_settings.saturation;
-	tonemap.push_constant.flags |= p_settings.use_color_grading ? TONEMAP_FLAG_USE_COLOR_GRADING : 0;
-	tonemap.push_constant.flags |= p_settings.use_color_grading_curves ? TONEMAP_FLAG_USE_COLOR_GRADING_CURVES : 0;
+	memset(&tonemap.push_constant, 0, sizeof(TonemapPushConstant));
+	tonemap.push_constant.saturation = saturation;
+	tonemap.push_constant.adjustment_controls[0] = test_no_soft_contrast ? 1.0f : p_settings.contrast;
+	tonemap.push_constant.adjustment_controls[1] = p_settings.color_modes.y;
+	tonemap.push_constant.adjustment_controls[2] = p_settings.color_modes.x;
+	if (soft_contrast && p_settings.contrast > 0.0f) {
+		if (cached_soft_contrast != p_settings.contrast || cached_soft_contrast_pivot != p_settings.color_modes.y) {
+			cached_soft_contrast = p_settings.contrast;
+			cached_soft_contrast_pivot = p_settings.color_modes.y;
+			cached_soft_contrast_bias = (1.0f - cached_soft_contrast) * Math::log(cached_soft_contrast_pivot / (1.0f - cached_soft_contrast_pivot));
+		}
+		tonemap.push_constant.adjustment_controls[3] = cached_soft_contrast_bias;
+	}
 
 	tonemap.push_constant.flags |= p_settings.use_glow ? TONEMAP_FLAG_USE_GLOW : 0;
 	tonemap.push_constant.glow_intensity = p_settings.glow_intensity;
@@ -181,44 +284,18 @@ void ToneMapper::tonemapper(RID p_source_color, RID p_dst_framebuffer, const Ton
 	tonemap.push_constant.glow_mode = p_settings.glow_mode;
 
 	int mode = p_settings.glow_use_bicubic_upscale ? TONEMAP_MODE_BICUBIC_GLOW_FILTER : TONEMAP_MODE_NORMAL;
-	if (p_settings.use_1d_color_correction) {
-		mode += 2;
-	}
 
 	tonemap.push_constant.tonemapper = p_settings.tonemap_mode;
 	tonemap.push_constant.tonemapper_params[0] = p_settings.tonemapper_params[0];
 	tonemap.push_constant.tonemapper_params[1] = p_settings.tonemapper_params[1];
 	tonemap.push_constant.tonemapper_params[2] = p_settings.tonemapper_params[2];
 	tonemap.push_constant.tonemapper_params[3] = p_settings.tonemapper_params[3];
-	tonemap.push_constant.offset[0] = p_settings.offset_color.r;
-	tonemap.push_constant.offset[1] = p_settings.offset_color.g;
-	tonemap.push_constant.offset[2] = p_settings.offset_color.b;
-	tonemap.push_constant.offset[3] = p_settings.offset_luminance;
-	tonemap.push_constant.tint_midtones_range[0] = p_settings.tint;
-	tonemap.push_constant.tint_midtones_range[1] = p_settings.midtones_start;
-	tonemap.push_constant.tint_midtones_range[2] = p_settings.midtones_end;
-	tonemap.push_constant.tint_midtones_range[3] = p_settings.color_grading_intensity;
-	tonemap.push_constant.tonal_softness[0] = p_settings.shadows_start;
-	tonemap.push_constant.tonal_softness[1] = p_settings.shadows_end;
-	tonemap.push_constant.tonal_softness[2] = p_settings.highlights_start;
-	tonemap.push_constant.tonal_softness[3] = p_settings.highlights_end;
 	tonemap.push_constant.flags |= p_settings.use_auto_exposure ? TONEMAP_FLAG_USE_AUTO_EXPOSURE : 0;
 	tonemap.push_constant.exposure = p_settings.exposure;
 	tonemap.push_constant.white = p_settings.white;
 	tonemap.push_constant.auto_exposure_scale = p_settings.auto_exposure_scale;
 	tonemap.push_constant.luminance_multiplier = p_settings.luminance_multiplier;
 	tonemap.push_constant.output_max_value = MAX(p_settings.max_value, 1.0f);
-	tonemap.push_constant.tonemap_temperature[0] = p_settings.tonemap_temperature[0];
-	tonemap.push_constant.tonemap_temperature[1] = p_settings.tonemap_temperature[1];
-	tonemap.push_constant.tonemap_temperature[2] = p_settings.tonemap_temperature[2];
-	tonemap.push_constant.vibrance = p_settings.vibrance;
-	tonemap.push_constant.color_adjustment_flags = p_settings.color_modes.x;
-	tonemap.push_constant.contrast_pivot = p_settings.color_modes.y;
-	tonemap.push_constant.vignette = p_settings.vignette;
-	tonemap.push_constant.vignette_range[0] = p_settings.vignette_start;
-	tonemap.push_constant.vignette_range[1] = p_settings.vignette_end;
-
-	tonemap.push_constant.flags |= p_settings.use_color_correction ? TONEMAP_FLAG_USE_COLOR_CORRECTION : 0;
 
 	tonemap.push_constant.flags |= p_settings.use_fxaa ? TONEMAP_FLAG_USE_FXAA : 0;
 	if (p_settings.debanding_mode == TonemapSettings::DEBANDING_MODE_8_BIT) {
@@ -231,7 +308,7 @@ void ToneMapper::tonemapper(RID p_source_color, RID p_dst_framebuffer, const Ton
 
 	if (p_settings.view_count > 1) {
 		// Use USE_MULTIVIEW versions
-		mode += 4;
+		mode += TONEMAP_MODE_NORMAL_MULTIVIEW;
 	}
 
 	RID default_sampler = material_storage->sampler_rd_get_default(RSE::CANVAS_ITEM_TEXTURE_FILTER_LINEAR, RSE::CANVAS_ITEM_TEXTURE_REPEAT_DISABLED);
@@ -258,29 +335,55 @@ void ToneMapper::tonemapper(RID p_source_color, RID p_dst_framebuffer, const Ton
 	u_glow_map.append_id(default_mipmap_sampler);
 	u_glow_map.append_id(p_settings.glow_map);
 
-	RD::Uniform u_color_correction_texture;
-	u_color_correction_texture.uniform_type = RD::UNIFORM_TYPE_SAMPLER_WITH_TEXTURE;
-	u_color_correction_texture.binding = 0;
-	u_color_correction_texture.append_id(default_sampler);
-	u_color_correction_texture.append_id(p_settings.color_correction_texture);
+	RD::Uniform u_white_balance;
+	if (use_transform) {
+		mode += TONEMAP_MODE_WHITE_BALANCE_NORMAL;
+		RID buffer = _get_white_balance_buffer(p_settings.white_balance_matrix, p_settings.forward_white_balance_offset);
+		ERR_FAIL_COND(buffer.is_null());
+		u_white_balance = RD::Uniform(RD::UNIFORM_TYPE_UNIFORM_BUFFER, 0, Vector<RID>({ buffer }));
+	}
 
-	RD::Uniform u_hue_vs_hue(RD::UNIFORM_TYPE_SAMPLER_WITH_TEXTURE, 1, Vector<RID>({ default_sampler, p_settings.hue_vs_hue_texture }));
-	RD::Uniform u_hue_vs_saturation(RD::UNIFORM_TYPE_SAMPLER_WITH_TEXTURE, 2, Vector<RID>({ default_sampler, p_settings.hue_vs_saturation_texture }));
-	RD::Uniform u_saturation_vs_saturation(RD::UNIFORM_TYPE_SAMPLER_WITH_TEXTURE, 3, Vector<RID>({ default_sampler, p_settings.saturation_vs_saturation_texture }));
-	RD::Uniform u_luminance_vs_saturation(RD::UNIFORM_TYPE_SAMPLER_WITH_TEXTURE, 4, Vector<RID>({ default_sampler, p_settings.luminance_vs_saturation_texture }));
-	RID grading_buffer = _upload_grading_buffer(p_settings);
-	RD::Uniform u_grading(RD::UNIFORM_TYPE_UNIFORM_BUFFER_DYNAMIC, 5, Vector<RID>({ grading_buffer }));
-
+	RD::Uniform u_forward_grading;
+	if (use_forward_grading) {
+		mode += TONEMAP_MODE_FORWARD_GRADING;
+		RID buffer = _get_forward_grading_buffer(p_settings);
+		ERR_FAIL_COND(buffer.is_null());
+		u_forward_grading = RD::Uniform(RD::UNIFORM_TYPE_UNIFORM_BUFFER, 0, Vector<RID>({ buffer }));
+	}
+	LocalVector<RD::Uniform> curve_uniforms;
+	if (use_curves) {
+		mode += TONEMAP_MODE_FORWARD_CURVES;
+		const RID textures[] = { p_settings.hue_vs_hue_texture, p_settings.hue_vs_saturation_texture, p_settings.saturation_vs_saturation_texture, p_settings.luminance_vs_saturation_texture };
+		for (int i = 0; i < 4; i++) {
+			curve_uniforms.push_back(RD::Uniform(RD::UNIFORM_TYPE_SAMPLER_WITH_TEXTURE, i, Vector<RID>({ default_sampler, textures[i] })));
+		}
+		// Both LUT dimensions have stable bindings; only the selected one is sampled.
+		RID lut_3d = TextureStorage::get_singleton()->texture_rd_get_default(TextureStorage::DEFAULT_RD_TEXTURE_3D_WHITE);
+		if ((forward_flags & 128) != 0 && !p_settings.use_1d_color_correction) {
+			lut_3d = p_settings.color_correction_texture;
+		}
+		curve_uniforms.push_back(RD::Uniform(RD::UNIFORM_TYPE_SAMPLER_WITH_TEXTURE, 4, Vector<RID>({ default_sampler, (forward_flags & 128) != 0 && p_settings.use_1d_color_correction ? p_settings.color_correction_texture : TextureStorage::get_singleton()->texture_rd_get_default(TextureStorage::DEFAULT_RD_TEXTURE_WHITE) })));
+		curve_uniforms.push_back(RD::Uniform(RD::UNIFORM_TYPE_SAMPLER_WITH_TEXTURE, 5, Vector<RID>({ default_sampler, lut_3d })));
+	}
 	RID shader = tonemap.shader.version_get_shader(tonemap.shader_version, mode);
 	ERR_FAIL_COND(shader.is_null());
 
 	RD::DrawListID draw_list = RD::get_singleton()->draw_list_begin(p_dst_framebuffer);
-	RD::get_singleton()->draw_list_bind_render_pipeline(draw_list, tonemap.pipelines[mode].get_render_pipeline(RD::INVALID_ID, RD::get_singleton()->framebuffer_get_format(p_dst_framebuffer), false, RD::get_singleton()->draw_list_get_current_pass()));
+	RD::get_singleton()->draw_list_bind_render_pipeline(draw_list, tonemap.pipelines[mode].get_render_pipeline(RD::INVALID_ID, RD::get_singleton()->framebuffer_get_format(p_dst_framebuffer), false, RD::get_singleton()->draw_list_get_current_pass(), adjustment_specializations));
 	RD::get_singleton()->draw_list_bind_uniform_set(draw_list, uniform_set_cache->get_cache(shader, 0, u_source_color), 0);
 	RD::get_singleton()->draw_list_bind_uniform_set(draw_list, uniform_set_cache->get_cache(shader, 1, u_exposure_texture), 1);
 	RD::get_singleton()->draw_list_bind_uniform_set(draw_list, uniform_set_cache->get_cache(shader, 2, u_glow_texture, u_glow_map), 2);
-	RD::get_singleton()->draw_list_bind_uniform_set(draw_list, uniform_set_cache->get_cache(shader, 3, u_color_correction_texture, u_hue_vs_hue, u_hue_vs_saturation, u_saturation_vs_saturation, u_luminance_vs_saturation, u_grading), 3);
 
+	if (use_transform) {
+		RD::get_singleton()->draw_list_bind_uniform_set(draw_list, uniform_set_cache->get_cache(shader, 3, u_white_balance), 3);
+	}
+
+	if (use_forward_grading) {
+		RD::get_singleton()->draw_list_bind_uniform_set(draw_list, uniform_set_cache->get_cache(shader, 4, u_forward_grading), 4);
+	}
+	if (use_curves) {
+		RD::get_singleton()->draw_list_bind_uniform_set(draw_list, uniform_set_cache->get_cache_vec(shader, 5, curve_uniforms), 5);
+	}
 	RD::get_singleton()->draw_list_set_push_constant(draw_list, &tonemap.push_constant, sizeof(TonemapPushConstant));
 	RD::get_singleton()->draw_list_draw(draw_list, false, 1u, 3u);
 	RD::get_singleton()->draw_list_end();
@@ -324,14 +427,9 @@ void ToneMapper::tonemapper_mobile(RID p_source_color, RID p_dst_framebuffer, co
 	tonemap_mobile.push_constant.tonemapper_params[1] = p_settings.tonemapper_params[1];
 	tonemap_mobile.push_constant.tonemapper_params[2] = p_settings.tonemapper_params[2];
 	tonemap_mobile.push_constant.tonemapper_params[3] = p_settings.tonemapper_params[3];
-	tonemap_mobile.push_constant.offset[0] = p_settings.offset_color.r;
-	tonemap_mobile.push_constant.offset[1] = p_settings.offset_color.g;
-	tonemap_mobile.push_constant.offset[2] = p_settings.offset_color.b;
-	tonemap_mobile.push_constant.offset[3] = p_settings.offset_luminance;
 	tonemap_mobile.push_constant.tint_midtones_range[0] = p_settings.tint;
 	tonemap_mobile.push_constant.tint_midtones_range[1] = p_settings.midtones_start;
 	tonemap_mobile.push_constant.tint_midtones_range[2] = p_settings.midtones_end;
-	tonemap_mobile.push_constant.tint_midtones_range[3] = p_settings.color_grading_intensity;
 	tonemap_mobile.push_constant.tonal_softness[0] = p_settings.shadows_start;
 	tonemap_mobile.push_constant.tonal_softness[1] = p_settings.shadows_end;
 	tonemap_mobile.push_constant.tonal_softness[2] = p_settings.highlights_start;
@@ -393,7 +491,7 @@ void ToneMapper::tonemapper_mobile(RID p_source_color, RID p_dst_framebuffer, co
 	RD::Uniform u_hue_vs_saturation(RD::UNIFORM_TYPE_SAMPLER_WITH_TEXTURE, 5, Vector<RID>({ default_sampler, p_settings.hue_vs_saturation_texture }));
 	RD::Uniform u_saturation_vs_saturation(RD::UNIFORM_TYPE_SAMPLER_WITH_TEXTURE, 6, Vector<RID>({ default_sampler, p_settings.saturation_vs_saturation_texture }));
 	RD::Uniform u_luminance_vs_saturation(RD::UNIFORM_TYPE_SAMPLER_WITH_TEXTURE, 7, Vector<RID>({ default_sampler, p_settings.luminance_vs_saturation_texture }));
-	RID grading_buffer = _upload_grading_buffer(p_settings);
+	RID grading_buffer = _upload_mobile_grading_buffer(p_settings);
 	RD::Uniform u_grading(RD::UNIFORM_TYPE_UNIFORM_BUFFER_DYNAMIC, 8, Vector<RID>({ grading_buffer }));
 
 	RID shader = tonemap_mobile.shader.version_get_shader(tonemap_mobile.shader_version, mode);
@@ -444,14 +542,9 @@ void ToneMapper::tonemapper_subpass(RD::DrawListID p_subpass_draw_list, RID p_so
 	tonemap_mobile.push_constant.tonemapper_params[1] = p_settings.tonemapper_params[1];
 	tonemap_mobile.push_constant.tonemapper_params[2] = p_settings.tonemapper_params[2];
 	tonemap_mobile.push_constant.tonemapper_params[3] = p_settings.tonemapper_params[3];
-	tonemap_mobile.push_constant.offset[0] = p_settings.offset_color.r;
-	tonemap_mobile.push_constant.offset[1] = p_settings.offset_color.g;
-	tonemap_mobile.push_constant.offset[2] = p_settings.offset_color.b;
-	tonemap_mobile.push_constant.offset[3] = p_settings.offset_luminance;
 	tonemap_mobile.push_constant.tint_midtones_range[0] = p_settings.tint;
 	tonemap_mobile.push_constant.tint_midtones_range[1] = p_settings.midtones_start;
 	tonemap_mobile.push_constant.tint_midtones_range[2] = p_settings.midtones_end;
-	tonemap_mobile.push_constant.tint_midtones_range[3] = p_settings.color_grading_intensity;
 	tonemap_mobile.push_constant.tonal_softness[0] = p_settings.shadows_start;
 	tonemap_mobile.push_constant.tonal_softness[1] = p_settings.shadows_end;
 	tonemap_mobile.push_constant.tonal_softness[2] = p_settings.highlights_start;
@@ -513,7 +606,7 @@ void ToneMapper::tonemapper_subpass(RD::DrawListID p_subpass_draw_list, RID p_so
 	RD::Uniform u_hue_vs_saturation(RD::UNIFORM_TYPE_SAMPLER_WITH_TEXTURE, 5, Vector<RID>({ default_sampler, p_settings.hue_vs_saturation_texture }));
 	RD::Uniform u_saturation_vs_saturation(RD::UNIFORM_TYPE_SAMPLER_WITH_TEXTURE, 6, Vector<RID>({ default_sampler, p_settings.saturation_vs_saturation_texture }));
 	RD::Uniform u_luminance_vs_saturation(RD::UNIFORM_TYPE_SAMPLER_WITH_TEXTURE, 7, Vector<RID>({ default_sampler, p_settings.luminance_vs_saturation_texture }));
-	RID grading_buffer = _upload_grading_buffer(p_settings);
+	RID grading_buffer = _upload_mobile_grading_buffer(p_settings);
 	RD::Uniform u_grading(RD::UNIFORM_TYPE_UNIFORM_BUFFER_DYNAMIC, 8, Vector<RID>({ grading_buffer }));
 
 	RID shader = tonemap_mobile.shader.version_get_shader(tonemap_mobile.shader_version, mode);

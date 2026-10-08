@@ -189,7 +189,7 @@ void main() {
 #endif
 
 #ifdef USE_COLOR_GRADING
-	color.rgb = apply_grading_linear(color.rgb, tonal_softness, shadows, midtones, highlights, lift, gamma, gain, tint_midtones_range.w, tonal_correction, tonal_correction_weights);
+	tonal_correction_weights = grading_correction_weights(color.rgb, tonal_softness, tonal_correction);
 #endif
 
 	color.rgb = apply_tonemapping(color.rgb);
@@ -225,11 +225,8 @@ void main() {
 	}
 
 #if defined(USE_COLOR_GRADING) || defined(USE_COLOR_GRADING_CURVES)
-	vec3 color_before_grading = color.rgb;
 #endif
 #ifdef USE_COLOR_GRADING
-	color.rgb += offset.rgb - vec3(1.0);
-	color.rgb *= offset.a;
 	float tint = white_balance_0.w > 0.5 ? 0.0 : tint_midtones_range.x;
 	color.rgb *= vec3(1.0 + tint, 1.0 - tint, 1.0 + tint);
 	color.rgb = apply_grading_tonal_correction(color.rgb, tonal_correction_weights, tonal_correction);
@@ -249,7 +246,6 @@ void main() {
 	if (grading_effects.w > 0.001) {
 		color.rgb *= grading_vignette(uv_interp, pixel_size.y / pixel_size.x, grading_effects.w, vignette_range.xy);
 	}
-	color.rgb = mix(color_before_grading, color.rgb, tint_midtones_range.w);
 #endif
 #else
 	color.rgb = linear_to_srgb(color.rgb);

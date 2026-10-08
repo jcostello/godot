@@ -20,7 +20,7 @@
 	</tutorials>
 	<members>
 		<member name="adjustments_enabled" type="bool" setter="set_adjustments_enabled" getter="is_adjustments_enabled" default="true">
-			Enables runtime lightmap adjustments. If [code]false[/code], skips global and per-range grading, directional strength adjustments, probe SH projection, and tonal range debugging. Uses the original baked lightmap lighting, including its existing specular intensity. The GPU retains a uniform enable check, but skips the grading calculations. Stored control values are preserved for re-enabling. Applies to lightmap textures, dynamic object probes, and volumetric fog without rebaking.
+			Enables lightmap color adjustments in Forward+. The editor applies them per pixel to the original texture; the game uses a cached derived texture. An additional packed positive HDR texture is generated on the GPU when controls or the original texture change; stable frames only sample the cached result. Controls include energy, tint, saturation, contrast and tonal ranges. Directional lightmaps process only the L0 color layer; normals, dynamic object probes and volumetric fog use their original data. Direction layers are copied without grading into the reduced precision format. Generated specular shares the adjusted L0 through the original material sampling path. Disabled or neutral settings use the original texture. Settings are shared by nodes using the same LightmapGIData. The cache uses 4 bytes per texel across all layers and requires packed HDR sampling/storage support. Signed BC6H sources or unsupported devices retain the original lightmap. Regeneration occurs only when controls or the source change. No rebaking is required.
 		</member>
 		<member name="ao_distance" type="float" setter="set_ao_distance" getter="get_ao_distance" default="1.0">
 			The maximum distance, in world units, at which geometry occludes a texel for baked ambient occlusion. Occlusion decreases smoothly to zero at this distance. Only effective if [member bake_ao] is [code]true[/code].
@@ -54,7 +54,7 @@
 			Runtime luminance contrast of baked lighting, with a fixed pivot at linear luminance [code]0.18[/code]. [code]1.0[/code] preserves contrast; smaller values reduce it and larger values increase it. The range is [code]0.0[/code] to [code]4.0[/code]. Preserves HDR values and leaves completely black lighting black. Does not require rebaking.
 		</member>
 		<member name="debug_mode" type="int" enum="LightmapGI.DebugMode" setter="set_debug_mode" getter="get_debug_mode" default="0">
-			[constant DEBUG_SHADOWS], [constant DEBUG_MIDDLETONES], and [constant DEBUG_HIGHLIGHTS] show the weight of the selected tonal range on shaded meshes using this lightmap, as a grayscale mask. White indicates full weight, black indicates no contribution, and gray shows the smooth transition. Smooth transitions match grading before per-range adjustments. Material color, emission, other surface lighting, reflections, and surface fog are excluded. The mask uses the same exposure normalization as this lightmap, followed by final camera exposure, tonemapping, and later viewport effects. Exposure changes mask brightness without changing range selection. Dynamic objects using probes, unshaded materials, other lightmaps, and volumetric fog retain normal rendering. Shared by nodes using the same [LightmapGIData].
+			Shows the selected tonal weight in Forward+. In the editor, the mask is displayed directly in grayscale, independently of material color, directional modulation, other lighting and fog. Camera exposure, tonemapping and screen effects still apply. Weights use original L0 luminance normalized between the texture minimum and maximum, before adjustments. In game, this mode continues to use the cached texture through the normal shading path. Settings are shared by nodes using the same LightmapGIData.
 		</member>
 		<member name="denoiser_range" type="int" setter="set_denoiser_range" getter="get_denoiser_range" default="10">
 			The distance in pixels from which the denoiser samples. Lower values preserve more details, but may give blotchy results if the lightmap quality is not high enough. Only effective if [member use_denoiser] is [code]true[/code] and [member ProjectSettings.rendering/lightmapping/denoising/denoiser] is set to JNLM.
@@ -67,7 +67,7 @@
 			[b]Note:[/b] The property's name has no relationship with [DirectionalLight3D]. [member directional] works with all light types.
 		</member>
 		<member name="directionality_strength" type="float" setter="set_directionality_strength" getter="get_directionality_strength" default="1.0">
-			Runtime strength of directional baked lighting, from [code]0.0[/code] to [code]4.0[/code]. [code]0.0[/code] removes directional variation, [code]1.0[/code] preserves it, and larger values exaggerate it. Affects directional lightmaps, including their generated specular contribution, and directional probe coefficients. Has no effect on non-directional lightmap textures or the direction-independent probe contribution to volumetric fog. Does not require rebaking.
+			Stored compatibility control. Runtime color adjustments do not modify directional coefficients or normals, so this property currently has no rendering effect.
 		</member>
 		<member name="energy" type="float" setter="set_energy" getter="get_energy" default="1.0">
 			Runtime energy multiplier for baked lighting. A value of [code]0.0[/code] disables its contribution and [code]1.0[/code] preserves the baked energy. Does not require rebaking.
@@ -90,7 +90,7 @@
 			[b]Note:[/b] Regardless of [member generate_probes_subdiv], direct lighting on dynamic objects is always applied using [Light3D] nodes in real-time.
 		</member>
 		<member name="highlights" type="float" setter="set_highlights" getter="get_highlights" default="0.0">
-			Runtime exposure adjustment for bright baked lighting, in stops, from [code]-4.0[/code] to [code]4.0[/code]. Positive values brighten and negative values darken. The highlight weight increases smoothly between [member tonal_highlights_start] and [member tonal_midtones_end], using luminance mapped with [code]L / (1 + L)[/code]. Preserves HDR values. Does not require rebaking.
+			Runtime exposure adjustment for bright baked lighting, in stops, from [code]-4.0[/code] to [code]4.0[/code]. Positive values brighten and negative values darken. The highlight weight increases smoothly between [member tonal_highlights_start] and [member tonal_midtones_end], using luminance normalized between the original texture minimum and maximum. Preserves HDR values. Does not require rebaking.
 		</member>
 		<member name="highlights_contrast" type="float" setter="set_highlights_contrast" getter="get_highlights_contrast" default="1.0">
 			Runtime contrast multiplier for the highlights range, from [code]0.0[/code] to [code]4.0[/code]. [code]1.0[/code] is neutral. The three range controls blend smoothly, then multiply global [member contrast], with the combined exponent capped at [code]4.0[/code]. The pivot is fixed at linear luminance [code]0.18[/code]. Does not require rebaking.
@@ -99,7 +99,7 @@
 			Inspector alias for [member highlights], expressed in exposure stops. Both properties modify the same value; scenes serialize [member highlights] for compatibility.
 		</member>
 		<member name="highlights_saturation" type="float" setter="set_highlights_saturation" getter="get_highlights_saturation" default="1.0">
-			Runtime saturation multiplier for the highlights range, from [code]0.0[/code] (grayscale) to [code]4.0[/code]. [code]1.0[/code] is neutral. The three range controls blend smoothly; ranges are selected after global saturation and before per-range adjustments. Does not require rebaking.
+			Runtime saturation multiplier for the highlights range, from [code]0.0[/code] (grayscale) to [code]4.0[/code]. [code]1.0[/code] is neutral. The three range controls blend smoothly; ranges are selected from the texture color after global saturation and before per-range adjustments. Does not require rebaking.
 		</member>
 		<member name="highlights_tint" type="Color" setter="set_highlights_tint" getter="get_highlights_tint" default="Color(1, 1, 1, 1)">
 			Runtime color multiplier for the highlights range of baked lighting. Converted from sRGB to linear space; alpha is ignored. White is neutral. The three range tints blend smoothly using the luminance ranges defined by the four tonal range boundaries. Applies after per-range saturation and contrast and before global [member tint] and [member energy]. Does not require rebaking.
@@ -123,7 +123,7 @@
 			Inspector alias for [member midtones], expressed in exposure stops. Both properties modify the same value; scenes serialize [member midtones] for compatibility.
 		</member>
 		<member name="midtones_saturation" type="float" setter="set_midtones_saturation" getter="get_midtones_saturation" default="1.0">
-			Runtime saturation multiplier for the midtones range, from [code]0.0[/code] (grayscale) to [code]4.0[/code]. [code]1.0[/code] is neutral. The three range controls blend smoothly; ranges are selected after global saturation and before per-range adjustments. Does not require rebaking.
+			Runtime saturation multiplier for the midtones range, from [code]0.0[/code] (grayscale) to [code]4.0[/code]. [code]1.0[/code] is neutral. The three range controls blend smoothly; ranges are selected from the texture color after global saturation and before per-range adjustments. Does not require rebaking.
 		</member>
 		<member name="midtones_tint" type="Color" setter="set_midtones_tint" getter="get_midtones_tint" default="Color(1, 1, 1, 1)">
 			Runtime color multiplier for the midtones range of baked lighting. Converted from sRGB to linear space; alpha is ignored. White is neutral. The three range tints blend smoothly using the luminance ranges defined by the four tonal range boundaries. Applies after per-range saturation and contrast and before global [member tint] and [member energy]. Does not require rebaking.
@@ -142,7 +142,7 @@
 			[b]Note:[/b] The shadowmask texture is only created if [member shadowmask_mode] is not [constant LightmapGIData.SHADOWMASK_MODE_NONE]. To see a difference, you need to bake lightmaps again after switching from [constant LightmapGIData.SHADOWMASK_MODE_NONE] to any other mode.
 		</member>
 		<member name="shadows" type="float" setter="set_shadows" getter="get_shadows" default="0.0">
-			Runtime exposure adjustment for dark baked lighting, in stops, from [code]-4.0[/code] to [code]4.0[/code]. Positive values brighten and negative values darken. The shadow weight fades out smoothly between [member tonal_midtones_start] and [member tonal_shadows_end], using luminance mapped with [code]L / (1 + L)[/code]. Does not create illumination in completely black areas or require rebaking.
+			Runtime exposure adjustment for dark baked lighting, in stops, from [code]-4.0[/code] to [code]4.0[/code]. Positive values brighten and negative values darken. The shadow weight fades out smoothly between [member tonal_midtones_start] and [member tonal_shadows_end], using luminance normalized between the original texture minimum and maximum. Does not create illumination in completely black areas or require rebaking.
 		</member>
 		<member name="shadows_contrast" type="float" setter="set_shadows_contrast" getter="get_shadows_contrast" default="1.0">
 			Runtime contrast multiplier for the shadows range, from [code]0.0[/code] to [code]4.0[/code]. [code]1.0[/code] is neutral. The three range controls blend smoothly, then multiply global [member contrast], with the combined exponent capped at [code]4.0[/code]. The pivot is fixed at linear luminance [code]0.18[/code]. Does not require rebaking.
@@ -151,7 +151,7 @@
 			Inspector alias for [member shadows], expressed in exposure stops. Both properties modify the same value; scenes serialize [member shadows] for compatibility.
 		</member>
 		<member name="shadows_saturation" type="float" setter="set_shadows_saturation" getter="get_shadows_saturation" default="1.0">
-			Runtime saturation multiplier for the shadows range, from [code]0.0[/code] (grayscale) to [code]4.0[/code]. [code]1.0[/code] is neutral. The three range controls blend smoothly; ranges are selected after global saturation and before per-range adjustments. Does not require rebaking.
+			Runtime saturation multiplier for the shadows range, from [code]0.0[/code] (grayscale) to [code]4.0[/code]. [code]1.0[/code] is neutral. The three range controls blend smoothly; ranges are selected from the texture color after global saturation and before per-range adjustments. Does not require rebaking.
 		</member>
 		<member name="shadows_tint" type="Color" setter="set_shadows_tint" getter="get_shadows_tint" default="Color(1, 1, 1, 1)">
 			Runtime color multiplier for the shadows range of baked lighting. Converted from sRGB to linear space; alpha is ignored. White is neutral. The three range tints blend smoothly using the luminance ranges defined by the four tonal range boundaries. Applies after per-range saturation and contrast and before global [member tint] and [member energy]. Does not require rebaking.
@@ -177,16 +177,16 @@
 			Runtime color multiplier for baked lighting. This color is converted from sRGB to linear space; alpha is ignored. White preserves the original color. Does not require rebaking.
 		</member>
 		<member name="tonal_highlights_start" type="float" setter="set_tonal_highlights_start" getter="get_tonal_highlights_start" default="0.4">
-			Luminance where highlights start contributing and midtones begin fading. Values use baked linear luminance mapped to [code]L / (1 + L)[/code], in the range [code]0.0[/code] to [code]1.0[/code]. Changing a boundary moves adjacent boundaries if necessary to keep transitions ordered and nonzero. Does not change the contrast pivot or require rebaking.
+			Luminance where highlights start contributing and midtones begin fading. Values use baked linear luminance normalized between the original texture minimum and maximum, in the range [code]0.0[/code] to [code]1.0[/code]. Changing a boundary moves adjacent boundaries if necessary to keep transitions ordered and nonzero. Does not change the contrast pivot or require rebaking.
 		</member>
 		<member name="tonal_midtones_end" type="float" setter="set_tonal_midtones_end" getter="get_tonal_midtones_end" default="0.8">
-			Luminance where midtones stop contributing and highlights reach full weight. Values use baked linear luminance mapped to [code]L / (1 + L)[/code], in the range [code]0.0[/code] to [code]1.0[/code]. Changing a boundary moves adjacent boundaries if necessary to keep transitions ordered and nonzero. Does not change the contrast pivot or require rebaking.
+			Luminance where midtones stop contributing and highlights reach full weight. Values use baked linear luminance normalized between the original texture minimum and maximum, in the range [code]0.0[/code] to [code]1.0[/code]. Changing a boundary moves adjacent boundaries if necessary to keep transitions ordered and nonzero. Does not change the contrast pivot or require rebaking.
 		</member>
 		<member name="tonal_midtones_start" type="float" setter="set_tonal_midtones_start" getter="get_tonal_midtones_start" default="0.1">
-			Luminance where midtones start contributing and shadows begin fading. Values use baked linear luminance mapped to [code]L / (1 + L)[/code], in the range [code]0.0[/code] to [code]1.0[/code]. Changing a boundary moves adjacent boundaries if necessary to keep transitions ordered and nonzero. Does not change the contrast pivot or require rebaking.
+			Luminance where midtones start contributing and shadows begin fading. Values use baked linear luminance normalized between the original texture minimum and maximum, in the range [code]0.0[/code] to [code]1.0[/code]. Changing a boundary moves adjacent boundaries if necessary to keep transitions ordered and nonzero. Does not change the contrast pivot or require rebaking.
 		</member>
 		<member name="tonal_shadows_end" type="float" setter="set_tonal_shadows_end" getter="get_tonal_shadows_end" default="0.4">
-			Luminance where shadows stop contributing and midtones reach full weight. Values use baked linear luminance mapped to [code]L / (1 + L)[/code], in the range [code]0.0[/code] to [code]1.0[/code]. Changing a boundary moves adjacent boundaries if necessary to keep transitions ordered and nonzero. Does not change the contrast pivot or require rebaking.
+			Luminance where shadows stop contributing and midtones reach full weight. Values use baked linear luminance normalized between the original texture minimum and maximum, in the range [code]0.0[/code] to [code]1.0[/code]. Changing a boundary moves adjacent boundaries if necessary to keep transitions ordered and nonzero. Does not change the contrast pivot or require rebaking.
 		</member>
 		<member name="use_denoiser" type="bool" setter="set_use_denoiser" getter="is_using_denoiser" default="true">
 			If [code]true[/code], uses a GPU-based denoising algorithm on the generated lightmap. This eliminates most noise within the generated lightmap at the cost of longer bake times. File sizes are generally not impacted significantly by the use of a denoiser, although lossless compression may do a better job at compressing a denoised image.

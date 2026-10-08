@@ -264,14 +264,6 @@ float RendererSceneRender::environment_get_tonemap_temperature(RID p_env) const 
 	return environment_storage.environment_get_tonemap_temperature(p_env);
 }
 
-void RendererSceneRender::environment_set_tonemap_curve_amount(RID p_env, float p_amount) {
-	environment_storage.environment_set_tonemap_curve_amount(p_env, p_amount);
-}
-
-float RendererSceneRender::environment_get_tonemap_curve_amount(RID p_env) const {
-	return environment_storage.environment_get_tonemap_curve_amount(p_env);
-}
-
 void RendererSceneRender::environment_set_tonemap_agx_contrast(RID p_env, float p_agx_contrast) {
 	environment_storage.environment_set_tonemap_agx_contrast(p_env, p_agx_contrast);
 }
@@ -618,8 +610,8 @@ void RendererSceneRender::environment_set_adjustment_tint(RID p_env, float p_tin
 	environment_storage.environment_set_adjustment_tint(p_env, p_tint);
 }
 
-void RendererSceneRender::environment_set_adjustment_white_balance(RID p_env, bool p_chromatic_adaptation, float p_temperature, float p_tint, float p_intensity) {
-	environment_storage.environment_set_adjustment_white_balance(p_env, p_chromatic_adaptation, p_temperature, p_tint, p_intensity);
+void RendererSceneRender::environment_set_adjustment_white_balance(RID p_env, bool p_chromatic_adaptation, float p_temperature, float p_tint) {
+	environment_storage.environment_set_adjustment_white_balance(p_env, p_chromatic_adaptation, p_temperature, p_tint);
 }
 
 void RendererSceneRender::environment_set_adjustment_tonal_softness(RID p_env, float p_shadows_softness, float p_highlights_softness) {
@@ -634,8 +626,8 @@ void RendererSceneRender::environment_set_adjustment_midtones_range(RID p_env, f
 	environment_storage.environment_set_adjustment_midtones_range(p_env, p_shadows_start, p_shadows_end, p_midtones_start, p_midtones_end, p_highlights_start, p_highlights_end);
 }
 
-void RendererSceneRender::environment_set_adjustment_advance(RID p_env, bool p_enable, float p_intensity) {
-	environment_storage.environment_set_adjustment_advance(p_env, p_enable, p_intensity);
+void RendererSceneRender::environment_set_adjustment_advance(RID p_env, bool p_enable) {
+	environment_storage.environment_set_adjustment_advance(p_env, p_enable);
 }
 
 void RendererSceneRender::environment_set_adjustment_tonal_correction_colors(RID p_env, const Color &p_master, const Color &p_shadows, const Color &p_midtones, const Color &p_highlights) {
@@ -650,8 +642,8 @@ Vector4 RendererSceneRender::environment_get_adjustment_tonal_correction(RID p_e
 	return environment_storage.environment_get_adjustment_tonal_correction(p_env, p_index);
 }
 
-void RendererSceneRender::environment_set_adjustment_curves(RID p_env, RID p_hue_vs_hue, RID p_hue_vs_saturation, RID p_saturation_vs_saturation, RID p_luminance_vs_saturation) {
-	environment_storage.environment_set_adjustment_curves(p_env, p_hue_vs_hue, p_hue_vs_saturation, p_saturation_vs_saturation, p_luminance_vs_saturation);
+void RendererSceneRender::environment_set_adjustment_curves(RID p_env, RID p_hue_vs_hue, RID p_hue_vs_saturation, RID p_saturation_vs_saturation, RID p_luminance_vs_saturation, uint32_t p_flags) {
+	environment_storage.environment_set_adjustment_curves(p_env, p_hue_vs_hue, p_hue_vs_saturation, p_saturation_vs_saturation, p_luminance_vs_saturation, p_flags);
 }
 
 void RendererSceneRender::environment_set_adjustment_color_modes(RID p_env, bool p_preserve_luminance, bool p_soft_contrast, float p_pivot) {
@@ -688,10 +680,6 @@ float RendererSceneRender::environment_get_adjustments_saturation(RID p_env) con
 
 bool RendererSceneRender::environment_get_adjustment_advance(RID p_env) const {
 	return environment_storage.environment_get_adjustment_advance(p_env);
-}
-
-float RendererSceneRender::environment_get_adjustment_color_grading_intensity(RID p_env) const {
-	return environment_storage.environment_get_adjustment_color_grading_intensity(p_env);
 }
 
 float RendererSceneRender::environment_get_adjustment_tint(RID p_env) const {
@@ -812,4 +800,19 @@ float RendererSceneRender::environment_get_adjustment_vignette_start(RID p_env) 
 
 float RendererSceneRender::environment_get_adjustment_vignette_end(RID p_env) const {
 	return environment_storage.environment_get_adjustment_vignette_end(p_env);
+}
+
+void RendererSceneRender::environment_set_adjustment_levels(RID p_env, bool p_enabled, const Color &p_black, const Color &p_white) {
+	environment_storage.environment_set_adjustment_levels(p_env, p_enabled, p_black, p_white);
+}
+Vector3 RendererSceneRender::environment_get_adjustment_white_balance_offset(RID p_env) const {
+	return environment_storage.environment_get_adjustment_white_balance_offset(p_env);
+}
+
+uint32_t RendererSceneRender::environment_get_forward_adjustment_flags(RID p_env) const {
+	return environment_storage.environment_get_forward_adjustment_flags(p_env);
+}
+
+uint32_t RendererSceneRender::environment_get_forward_curve_flags(RID p_env) const {
+	return environment_storage.environment_get_forward_curve_flags(p_env);
 }

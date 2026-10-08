@@ -49,17 +49,10 @@ layout(set = 0, binding = 6) uniform sampler2D saturation_vs_saturation_curve;
 layout(set = 0, binding = 7) uniform sampler2D luminance_vs_saturation_curve;
 
 layout(set = 0, binding = 8, std140) uniform GradingData {
-	vec4 shadows;
-	vec4 midtones;
-	vec4 highlights;
-	vec4 lift;
-	vec4 gamma;
-	vec4 gain;
 	vec4 white_balance_0;
 	vec4 white_balance_1;
 	vec4 white_balance_2;
 	vec4 tonal_correction[10];
-	vec4 tonemap_controls;
 } grading;
 
 // All uniforms must be on set 0 to prevent MSAA from crashing Mali GPUs. See GH-114785.
@@ -112,7 +105,7 @@ layout(push_constant, std430) uniform Params {
 	float white;
 
 	vec4 tonemapper_params;
-	vec4 offset;
+	vec4 padding_offset;
 	vec4 tint_midtones_range;
 	vec4 tonal_softness;
 
@@ -276,7 +269,7 @@ vec3 srgb_to_linear(vec3 color) {
 	return mix(pow((color.rgb + a) * (1.0f / (vec3(1.0f) + a)), vec3(2.4f)), color.rgb * (1.0f / 12.92f), lessThan(color.rgb, vec3(0.04045f)));
 }
 
-vec3 apply_full_tonemapping(vec3 color) { // inputs are LINEAR
+vec3 apply_tonemapping(vec3 color) { // inputs are LINEAR
 	if (tonemapper_linear) {
 		return color;
 	}
@@ -294,15 +287,6 @@ vec3 apply_full_tonemapping(vec3 color) { // inputs are LINEAR
 	} else { // tonemapper_agx
 		return tonemap_agx(color);
 	}
-}
-
-vec3 apply_tonemapping(vec3 color) {
-	float amount = grading.tonemap_controls.x;
-	if (amount == 0.0) {
-		return color;
-	}
-	vec3 mapped = apply_full_tonemapping(color);
-	return amount == 1.0 ? mapped : mix(color, mapped, amount);
 }
 
 vec3 apply_temperature_balance(vec3 color) {
@@ -819,7 +803,7 @@ void main() {
 	// Unity 6 URP applies shadows/midtones/highlights and lift/gamma/gain to
 	// scene-linear HDR color before tonemapping.
 	if (use_bcs && use_color_grading) {
-		color.rgb = apply_grading_linear(color.rgb, params.tonal_softness, grading.shadows, grading.midtones, grading.highlights, grading.lift, grading.gamma, grading.gain, params.tint_midtones_range.w, grading.tonal_correction, tonal_correction_weights);
+		tonal_correction_weights = grading_correction_weights(color.rgb, params.tonal_softness, grading.tonal_correction);
 	}
 
 	// Tonemap to lower dynamic range.
@@ -874,11 +858,7 @@ void main() {
 		} else {
 			color.rgb = mix(vec3(dot(vec3(1.0), color.rgb) * (1.0 / 3.0)), color.rgb, params.bcs.z);
 		}
-
-		vec3 color_before_grading = color.rgb;
 		if (use_color_grading) {
-			color.rgb += params.offset.rgb - vec3(1.0);
-			color.rgb *= params.offset.a;
 			float tint = grading.white_balance_0.w > 0.5 ? 0.0 : params.tint_midtones_range.x;
 			vec3 tint_balance = vec3(1.0 + tint, 1.0 - tint, 1.0 + tint);
 			color.rgb *= tint_balance;
@@ -899,7 +879,6 @@ void main() {
 			if (params.vignette > 0.001) {
 				color.rgb *= grading_vignette(uv_interp, params.src_pixel_size.y / params.src_pixel_size.x, params.vignette, params.vignette_range);
 			}
-			color.rgb = mix(color_before_grading, color.rgb, params.tint_midtones_range.w);
 		}
 
 		if (use_color_correction) {

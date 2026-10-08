@@ -2538,7 +2538,6 @@ void RasterizerSceneGLES3::render_scene(const Ref<RenderSceneBuffers> &p_render_
 	if (render_data.environment.is_valid()) {
 		tonemap_ubo.exposure = environment_get_exposure(render_data.environment);
 		tonemap_ubo.tonemapper = int32_t(environment_get_tone_mapper(render_data.environment));
-		tonemap_ubo.tone_curve_amount = environment_get_tonemap_curve_amount(render_data.environment);
 		RendererEnvironmentStorage::TonemapParameters params = environment_get_tonemap_parameters(render_data.environment, false, 1.0f);
 		tonemap_ubo.tonemapper_params[0] = params.tonemapper_params[0];
 		tonemap_ubo.tonemapper_params[1] = params.tonemapper_params[1];
@@ -2547,35 +2546,6 @@ void RasterizerSceneGLES3::render_scene(const Ref<RenderSceneBuffers> &p_render_
 		tonemap_ubo.brightness = environment_get_adjustments_brightness(render_data.environment);
 		tonemap_ubo.contrast = environment_get_adjustments_contrast(render_data.environment);
 		tonemap_ubo.saturation = environment_get_adjustments_saturation(render_data.environment);
-		Color shadows = environment_get_adjustments_shadows_color(render_data.environment);
-		Color midtones = environment_get_adjustments_midtones_color(render_data.environment);
-		Color highlights = environment_get_adjustments_highlights_color(render_data.environment);
-		Color offset = environment_get_adjustments_offset_color(render_data.environment);
-		tonemap_ubo.shadows[0] = shadows.r;
-		tonemap_ubo.shadows[1] = shadows.g;
-		tonemap_ubo.shadows[2] = shadows.b;
-		tonemap_ubo.shadows[3] = environment_get_adjustments_shadows_luminance(render_data.environment);
-		tonemap_ubo.midtones[0] = midtones.r;
-		tonemap_ubo.midtones[1] = midtones.g;
-		tonemap_ubo.midtones[2] = midtones.b;
-		tonemap_ubo.midtones[3] = environment_get_adjustments_midtones_luminance(render_data.environment);
-		tonemap_ubo.highlights[0] = highlights.r;
-		tonemap_ubo.highlights[1] = highlights.g;
-		tonemap_ubo.highlights[2] = highlights.b;
-		tonemap_ubo.highlights[3] = environment_get_adjustments_highlights_luminance(render_data.environment);
-		const Color lift = environment_get_adjustments_lift(render_data.environment);
-		const Color gamma = environment_get_adjustments_gamma(render_data.environment);
-		const Color gain = environment_get_adjustments_gain(render_data.environment);
-		tonemap_ubo.lift[0] = lift.r;
-		tonemap_ubo.lift[1] = lift.g;
-		tonemap_ubo.lift[2] = lift.b;
-		tonemap_ubo.gamma[0] = gamma.r;
-		tonemap_ubo.gamma[1] = gamma.g;
-		tonemap_ubo.gamma[2] = gamma.b;
-		tonemap_ubo.gain[0] = gain.r;
-		tonemap_ubo.gain[1] = gain.g;
-		tonemap_ubo.gain[2] = gain.b;
-		tonemap_ubo.gain[3] = !(lift.is_equal_approx(Color(0, 0, 0)) && gamma.is_equal_approx(Color(1, 1, 1)) && gain.is_equal_approx(Color(1, 1, 1)));
 		const Basis white_balance = environment_get_adjustment_white_balance_matrix(render_data.environment);
 		for (int row = 0; row < 3; row++) {
 			for (int column = 0; column < 3; column++) {
@@ -2589,14 +2559,9 @@ void RasterizerSceneGLES3::render_scene(const Ref<RenderSceneBuffers> &p_render_
 				tonemap_ubo.tonal_correction[range][parameter] = correction[parameter];
 			}
 		}
-		tonemap_ubo.offset[0] = offset.r;
-		tonemap_ubo.offset[1] = offset.g;
-		tonemap_ubo.offset[2] = offset.b;
-		tonemap_ubo.offset[3] = environment_get_adjustments_offset_luminance(render_data.environment);
 		tonemap_ubo.tint_midtones_range[0] = environment_get_adjustment_tint(render_data.environment);
 		tonemap_ubo.tint_midtones_range[1] = environment_get_adjustment_midtones_start(render_data.environment);
 		tonemap_ubo.tint_midtones_range[2] = environment_get_adjustment_midtones_end(render_data.environment);
-		tonemap_ubo.tint_midtones_range[3] = environment_get_adjustment_color_grading_intensity(render_data.environment);
 		tonemap_ubo.tonal_softness[0] = environment_get_adjustment_shadows_start(render_data.environment);
 		tonemap_ubo.tonal_softness[1] = environment_get_adjustment_shadows_end(render_data.environment);
 		tonemap_ubo.tonal_softness[2] = environment_get_adjustment_highlights_start(render_data.environment);
@@ -2607,9 +2572,8 @@ void RasterizerSceneGLES3::render_scene(const Ref<RenderSceneBuffers> &p_render_
 		tonemap_ubo.grading_effects[3] = environment_get_adjustment_vignette(render_data.environment);
 		tonemap_ubo.vignette_range[0] = environment_get_adjustment_vignette_start(render_data.environment);
 		tonemap_ubo.vignette_range[1] = environment_get_adjustment_vignette_end(render_data.environment);
-		if (environment_get_adjustments_enabled(render_data.environment) && environment_get_adjustment_advance(render_data.environment) && environment_get_adjustment_color_grading_intensity(render_data.environment) > 0.0f && !environment_get_adjustment_white_balance_enabled(render_data.environment)) {
-			const Vector3 full_temperature = EnvironmentColorGrading::temperature_balance(environment_get_tonemap_temperature(render_data.environment));
-			const Vector3 temperature = Vector3(1.0, 1.0, 1.0).lerp(full_temperature, environment_get_adjustment_color_grading_intensity(render_data.environment));
+		if (environment_get_adjustments_enabled(render_data.environment) && environment_get_adjustment_advance(render_data.environment) && !environment_get_adjustment_white_balance_enabled(render_data.environment)) {
+			const Vector3 temperature = EnvironmentColorGrading::temperature_balance(environment_get_tonemap_temperature(render_data.environment));
 			tonemap_ubo.tonemap_temperature[0] = temperature.x;
 			tonemap_ubo.tonemap_temperature[1] = temperature.y;
 			tonemap_ubo.tonemap_temperature[2] = temperature.z;
@@ -3124,7 +3088,7 @@ void RasterizerSceneGLES3::_render_post_processing(const RenderDataGLES3 *p_rend
 	uint64_t bcs_spec_constants = 0;
 	if (p_render_data->environment.is_valid()) {
 		bool use_bcs = environment_get_adjustments_enabled(p_render_data->environment);
-		bool use_advanced_adjustments = use_bcs && environment_get_adjustment_advance(p_render_data->environment) && environment_get_adjustment_color_grading_intensity(p_render_data->environment) > 0.0f;
+		bool use_advanced_adjustments = use_bcs && environment_get_adjustment_advance(p_render_data->environment);
 		RID color_correction_texture = environment_get_color_correction(p_render_data->environment);
 		if (use_bcs) {
 			bcs_spec_constants |= PostShaderGLES3::USE_BCS;
@@ -3463,15 +3427,6 @@ void RasterizerSceneGLES3::_render_list_template(RenderListParameters *p_params,
 			}
 		}
 
-		bool lightmap_debug_active = false;
-		if constexpr (p_pass_mode == PASS_MODE_COLOR) {
-			if (!shader->unshaded && inst->lightmap_instance.is_valid()) {
-				const GLES3::LightmapInstance *li = GLES3::LightStorage::get_singleton()->get_lightmap_instance(inst->lightmap_instance);
-				const GLES3::Lightmap *lm = GLES3::LightStorage::get_singleton()->get_lightmap(li->lightmap);
-				lightmap_debug_active = lm->adjustments.enabled && lm->adjustments.debug_mode != 0;
-			}
-		}
-
 		bool uses_additive_lighting = (inst->light_passes.size() + p_render_data->directional_shadow_count) > 0;
 		uses_additive_lighting = uses_additive_lighting && !shader->unshaded;
 
@@ -3482,10 +3437,6 @@ void RasterizerSceneGLES3::_render_list_template(RenderListParameters *p_params,
 		 */
 
 		for (int32_t pass = 0; pass < MAX(1, int32_t(inst->light_passes.size() + p_render_data->directional_shadow_count)); pass++) {
-			if (pass > 0 && lightmap_debug_active) {
-				// Diagnostic output replaces all lighting, including additive shadow passes.
-				break;
-			}
 			if constexpr (p_pass_mode == PASS_MODE_DEPTH || p_pass_mode == PASS_MODE_SHADOW || p_pass_mode == PASS_MODE_MOTION_VECTORS) {
 				if (pass > 0) {
 					// Don't render shadow passes when doing depth, shadow, or motion vector pass.
@@ -3980,16 +3931,6 @@ void RasterizerSceneGLES3::_render_list_template(RenderListParameters *p_params,
 							exposure_normalization = enf / MAX(1e-20f, lm->baked_exposure);
 						}
 						material_storage->shaders.scene_shader.version_set_uniform(SceneShaderGLES3::LIGHTMAP_EXPOSURE_NORMALIZATION, exposure_normalization, shader->version, instance_variant, spec_constants);
-						float tint_energy[4], grading[4], tonal[4], shadows_tint[4], midtones_tint[4], highlights_tint[4], tonal_contrast[4], tonal_ranges[4];
-						lm->adjustments.store(tint_energy, grading, tonal, shadows_tint, midtones_tint, highlights_tint, tonal_contrast, tonal_ranges);
-						material_storage->shaders.scene_shader.version_set_uniform(SceneShaderGLES3::LIGHTMAP_TINT_ENERGY, Color(tint_energy[0], tint_energy[1], tint_energy[2], tint_energy[3]), shader->version, instance_variant, spec_constants);
-						material_storage->shaders.scene_shader.version_set_uniform(SceneShaderGLES3::LIGHTMAP_GRADING, Color(grading[0], grading[1], grading[2], grading[3]), shader->version, instance_variant, spec_constants);
-						material_storage->shaders.scene_shader.version_set_uniform(SceneShaderGLES3::LIGHTMAP_TONAL, Color(tonal[0], tonal[1], tonal[2], tonal[3]), shader->version, instance_variant, spec_constants);
-						material_storage->shaders.scene_shader.version_set_uniform(SceneShaderGLES3::LIGHTMAP_SHADOWS_TINT, Color(shadows_tint[0], shadows_tint[1], shadows_tint[2], shadows_tint[3]), shader->version, instance_variant, spec_constants);
-						material_storage->shaders.scene_shader.version_set_uniform(SceneShaderGLES3::LIGHTMAP_MIDTONES_TINT, Color(midtones_tint[0], midtones_tint[1], midtones_tint[2], midtones_tint[3]), shader->version, instance_variant, spec_constants);
-						material_storage->shaders.scene_shader.version_set_uniform(SceneShaderGLES3::LIGHTMAP_HIGHLIGHTS_TINT, Color(highlights_tint[0], highlights_tint[1], highlights_tint[2], highlights_tint[3]), shader->version, instance_variant, spec_constants);
-						material_storage->shaders.scene_shader.version_set_uniform(SceneShaderGLES3::LIGHTMAP_TONAL_CONTRAST, Color(tonal_contrast[0], tonal_contrast[1], tonal_contrast[2], tonal_contrast[3]), shader->version, instance_variant, spec_constants);
-						material_storage->shaders.scene_shader.version_set_uniform(SceneShaderGLES3::LIGHTMAP_TONAL_RANGES, Color(tonal_ranges[0], tonal_ranges[1], tonal_ranges[2], tonal_ranges[3]), shader->version, instance_variant, spec_constants);
 						if (spec_constants & SceneShaderGLES3::USE_LIGHTMAP_SPECULAR) {
 							material_storage->shaders.scene_shader.version_set_uniform(SceneShaderGLES3::LIGHTMAP_SPECULAR_INTENSITY, lm->specular_intensity, shader->version, instance_variant, spec_constants);
 						}

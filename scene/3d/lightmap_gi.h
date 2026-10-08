@@ -225,8 +225,6 @@ private:
 	Ref<CameraAttributes> camera_attributes;
 	float specular_intensity = 0.0f;
 	LightmapAdjustments adjustments;
-	void _update_adjustments();
-	void _update_tonal_settings();
 	void _set_tonal_range(int p_index, float p_value);
 
 	Ref<LightmapGIData> light_data;
@@ -307,6 +305,7 @@ private:
 protected:
 	void _validate_property(PropertyInfo &p_property) const;
 	static void _bind_methods();
+	void _update_color_adjustments();
 	void _notification(int p_what);
 
 public:

@@ -264,18 +264,12 @@ private:
 
 	struct LightmapData {
 		float normal_xform_and_specular_intensity[12];
-		float tint_energy[4];
-		float grading[4];
-		float tonal[4];
-		float shadows_tint[4];
-		float midtones_tint[4];
-		float highlights_tint[4];
-		float tonal_contrast[4];
-		float tonal_ranges[4];
 		float texture_size[2];
 		float exposure_normalization;
 		uint32_t flags;
+		float color_adjustment_data[11][4] = {};
 	};
+	static_assert(sizeof(LightmapData) == 240, "LightmapData must match the Forward+ shader layout.");
 
 	struct LightmapCaptureData {
 		float sh[9 * 4];

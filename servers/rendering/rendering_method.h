@@ -191,12 +191,10 @@ public:
 
 	// Tonemap
 	virtual void environment_set_tonemap(RID p_env, RSE::EnvironmentToneMapper p_tone_mapper, float p_exposure, float p_white) = 0;
-	virtual void environment_set_tonemap_curve_amount(RID p_env, float p_amount) = 0;
 	virtual void environment_set_tonemap_agx_contrast(RID p_env, float p_agx_contrast) = 0;
 	virtual void environment_set_tonemap_temperature(RID p_env, float p_temperature) = 0;
 
 	virtual RSE::EnvironmentToneMapper environment_get_tone_mapper(RID p_env) const = 0;
-	virtual float environment_get_tonemap_curve_amount(RID p_env) const = 0;
 	virtual float environment_get_exposure(RID p_env) const = 0;
 	virtual float environment_get_white(RID p_env, bool p_limit_agx_white, float p_output_max_value) const = 0;
 	virtual float environment_get_tonemap_temperature(RID p_env) const = 0;
@@ -323,26 +321,29 @@ public:
 	virtual void environment_set_adjustment_offset(RID p_env, const Color &p_color, float p_luminance) = 0;
 	virtual void environment_set_adjustment_lift_gamma_gain(RID p_env, const Color &p_lift_color, float p_lift_intensity, const Color &p_gamma_color, float p_gamma_intensity, const Color &p_gain_color, float p_gain_intensity) = 0;
 	virtual void environment_set_adjustment_tint(RID p_env, float p_tint) = 0;
-	virtual void environment_set_adjustment_white_balance(RID p_env, bool p_chromatic_adaptation, float p_temperature, float p_tint, float p_intensity) = 0;
+	virtual void environment_set_adjustment_white_balance(RID p_env, bool p_chromatic_adaptation, float p_temperature, float p_tint) = 0;
+	virtual void environment_set_adjustment_levels(RID p_env, bool p_enabled, const Color &p_black, const Color &p_white) = 0;
 	virtual void environment_set_adjustment_tonal_softness(RID p_env, float p_shadows_softness, float p_highlights_softness) = 0;
 	virtual void environment_set_adjustment_midtones_range(RID p_env, float p_shadows_start, float p_shadows_end, float p_midtones_start, float p_midtones_end, float p_highlights_start, float p_highlights_end) = 0;
-	virtual void environment_set_adjustment_advance(RID p_env, bool p_enable, float p_intensity) = 0;
+	virtual void environment_set_adjustment_advance(RID p_env, bool p_enable) = 0;
 	virtual void environment_set_adjustment_tonal_correction_colors(RID p_env, const Color &p_master, const Color &p_shadows, const Color &p_midtones, const Color &p_highlights) = 0;
 	virtual void environment_set_adjustment_tonal_correction(RID p_env, const Vector4 &p_master, const Vector4 &p_shadows, const Vector4 &p_midtones, const Vector4 &p_highlights, const Vector4 &p_lift, const Vector4 &p_controls) = 0;
-	virtual void environment_set_adjustment_curves(RID p_env, RID p_hue_vs_hue, RID p_hue_vs_saturation, RID p_saturation_vs_saturation, RID p_luminance_vs_saturation) = 0;
+	virtual void environment_set_adjustment_curves(RID p_env, RID p_hue_vs_hue, RID p_hue_vs_saturation, RID p_saturation_vs_saturation, RID p_luminance_vs_saturation, uint32_t p_flags) = 0;
 	virtual void environment_set_adjustment_color_modes(RID p_env, bool p_preserve_luminance, bool p_soft_contrast, float p_pivot) = 0;
 	virtual void environment_set_adjustment_vibrance(RID p_env, float p_vibrance) = 0;
 	virtual void environment_set_adjustment_vignette(RID p_env, float p_vignette, float p_start, float p_end) = 0;
 
 	virtual bool environment_get_adjustments_enabled(RID p_env) const = 0;
+	virtual uint32_t environment_get_forward_adjustment_flags(RID p_env) const = 0;
+	virtual uint32_t environment_get_forward_curve_flags(RID p_env) const = 0;
 	virtual float environment_get_adjustments_brightness(RID p_env) const = 0;
 	virtual float environment_get_adjustments_contrast(RID p_env) const = 0;
 	virtual float environment_get_adjustments_saturation(RID p_env) const = 0;
 	virtual bool environment_get_adjustment_advance(RID p_env) const = 0;
-	virtual float environment_get_adjustment_color_grading_intensity(RID p_env) const = 0;
 	virtual float environment_get_adjustment_tint(RID p_env) const = 0;
 	virtual bool environment_get_adjustment_white_balance_enabled(RID p_env) const = 0;
 	virtual Basis environment_get_adjustment_white_balance_matrix(RID p_env) const = 0;
+	virtual Vector3 environment_get_adjustment_white_balance_offset(RID p_env) const = 0;
 	virtual Vector2 environment_get_adjustment_tonal_softness(RID p_env) const = 0;
 	virtual float environment_get_adjustment_midtones_start(RID p_env) const = 0;
 	virtual float environment_get_adjustment_midtones_end(RID p_env) const = 0;

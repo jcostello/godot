@@ -193,14 +193,6 @@ private:
 			uint32_t lightmap_probe_params[4];
 			float lightmap_probe_xforms[MAX_LIGHTMAP_PROBE_VOLUMES][16];
 			float lightmap_probe_exposures[MAX_LIGHTMAP_PROBE_VOLUMES][4];
-			float lightmap_probe_tint_energy[MAX_LIGHTMAP_PROBE_VOLUMES][4];
-			float lightmap_probe_grading[MAX_LIGHTMAP_PROBE_VOLUMES][4];
-			float lightmap_probe_tonal[MAX_LIGHTMAP_PROBE_VOLUMES][4];
-			float lightmap_probe_shadows_tint[MAX_LIGHTMAP_PROBE_VOLUMES][4];
-			float lightmap_probe_midtones_tint[MAX_LIGHTMAP_PROBE_VOLUMES][4];
-			float lightmap_probe_highlights_tint[MAX_LIGHTMAP_PROBE_VOLUMES][4];
-			float lightmap_probe_tonal_contrast[MAX_LIGHTMAP_PROBE_VOLUMES][4];
-			float lightmap_probe_tonal_ranges[MAX_LIGHTMAP_PROBE_VOLUMES][4];
 		};
 
 		VolumetricFogProcessShaderRD process_shader;

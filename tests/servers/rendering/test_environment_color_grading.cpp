@@ -47,31 +47,28 @@ TEST_CASE("[Rendering][Environment] Color grading neutral values") {
 	CHECK(EnvironmentColorGrading::prepare_gain(Color(1, 1, 1), 0.0f).is_equal_approx(Color(1, 1, 1)));
 }
 
-TEST_CASE("[Rendering][Environment] Chromatic white balance is neutral and intensity is continuous") {
+TEST_CASE("[Rendering][Environment] Chromatic white balance is neutral and finite") {
 	const Basis identity;
-	const Basis neutral = EnvironmentColorGrading::white_balance_matrix(6500.0f, 0.0f, 1.0f);
+	const Basis neutral = EnvironmentColorGrading::white_balance_matrix(6500.0f, 0.0f);
 	CHECK(neutral.is_equal_approx(identity));
-	CHECK(EnvironmentColorGrading::white_balance_matrix(3000.0f, 0.5f, 0.0f).is_equal_approx(identity));
 
-	const Basis full = EnvironmentColorGrading::white_balance_matrix(3000.0f, 0.5f, 1.0f);
-	const Basis half = EnvironmentColorGrading::white_balance_matrix(3000.0f, 0.5f, 0.5f);
+	const Basis full = EnvironmentColorGrading::white_balance_matrix(3000.0f, 0.5f);
 	for (int row = 0; row < 3; row++) {
 		for (int column = 0; column < 3; column++) {
 			CHECK(Math::is_finite(full[row][column]));
-			CHECK(half[row][column] == doctest::Approx(Math::lerp(row == column ? 1.0f : 0.0f, full[row][column], 0.5f)));
 		}
 	}
 }
 
 TEST_CASE("[Rendering][Environment] Chromatic white balance temperature and tint axes have expected directions") {
 	const Vector3 neutral_white(1.0f, 1.0f, 1.0f);
-	const Vector3 warm = EnvironmentColorGrading::white_balance_matrix(3000.0f, 0.0f, 1.0f).xform(neutral_white);
-	const Vector3 cool = EnvironmentColorGrading::white_balance_matrix(10000.0f, 0.0f, 1.0f).xform(neutral_white);
+	const Vector3 warm = EnvironmentColorGrading::white_balance_matrix(3000.0f, 0.0f).xform(neutral_white);
+	const Vector3 cool = EnvironmentColorGrading::white_balance_matrix(10000.0f, 0.0f).xform(neutral_white);
 	CHECK(warm.x > warm.z);
 	CHECK(cool.z > cool.x);
 
-	const Vector3 magenta = EnvironmentColorGrading::white_balance_matrix(6500.0f, 0.5f, 1.0f).xform(neutral_white);
-	const Vector3 green = EnvironmentColorGrading::white_balance_matrix(6500.0f, -0.5f, 1.0f).xform(neutral_white);
+	const Vector3 magenta = EnvironmentColorGrading::white_balance_matrix(6500.0f, 0.5f).xform(neutral_white);
+	const Vector3 green = EnvironmentColorGrading::white_balance_matrix(6500.0f, -0.5f).xform(neutral_white);
 	CHECK(magenta.x + magenta.z > 2.0f * magenta.y);
 	CHECK(green.x + green.z < 2.0f * green.y);
 }

@@ -129,7 +129,6 @@ private:
 	// Tonemap
 	ToneMapper tone_mapper = TONE_MAPPER_LINEAR;
 	float tonemap_exposure = 1.0;
-	float tonemap_curve_amount = 1.0;
 	float tonemap_white = 1.0;
 	float tonemap_agx_white = 16.29; // Default to Blender's AgX white.
 	float tonemap_agx_contrast = 1.25; // Default to approximately Blender's AgX contrast.
@@ -232,10 +231,14 @@ private:
 	float volumetric_fog_temporal_reproject_amount = 0.9;
 	void _update_volumetric_fog();
 
+	bool white_balance_enabled = false;
+	bool adjustment_color_grading_enabled = false;
+	bool adjustment_curves_enabled = false;
+	void _update_white_balance();
+
 	// Adjustment
 	bool adjustment_enabled = false;
 	bool adjustment_advance = true;
-	float adjustment_color_grading_intensity = 1.0;
 	float adjustment_brightness = 1.0;
 	float adjustment_contrast = 1.0;
 	float adjustment_saturation = 1.0;
@@ -267,7 +270,6 @@ private:
 	Color adjustment_gain_color = Color(1, 1, 1);
 	float adjustment_gain_intensity = 0.0;
 	bool adjustment_correction_enabled = false;
-	float adjustment_correction_amount = 1.0;
 	ColorCorrectionPreview adjustment_correction_preview = COLOR_CORRECTION_PREVIEW_DISABLED;
 	Vector4 adjustment_correction_parameters[4] = { Vector4(1, 1, 1, 1), Vector4(1, 1, 1, 1), Vector4(1, 1, 1, 1), Vector4(1, 1, 1, 1) };
 	Color adjustment_correction_colors[4] = { Color(1, 1, 1), Color(1, 1, 1), Color(1, 1, 1), Color(1, 1, 1) };
@@ -277,7 +279,6 @@ private:
 	void _update_tonal_correction();
 	void _update_tonal_correction_colors();
 	bool adjustment_use_rgb_curves = false;
-	float adjustment_curves_amount = 1.0;
 	Color adjustment_black_level = Color(0, 0, 0);
 	Color adjustment_white_level = Color(1, 1, 1);
 	Ref<CurveTexture> adjustment_hue_vs_luminance;
@@ -349,8 +350,6 @@ public:
 	// Tonemap
 	void set_tonemapper(ToneMapper p_tone_mapper);
 	ToneMapper get_tonemapper() const;
-	void set_tonemap_curve_amount(float p_amount);
-	float get_tonemap_curve_amount() const;
 	void set_tonemap_exposure(float p_exposure);
 	float get_tonemap_exposure() const;
 	void set_tonemap_white(float p_white);
@@ -527,8 +526,6 @@ public:
 	bool is_adjustment_advance() const;
 	void set_adjustment_advanced(bool p_enabled);
 	bool is_adjustment_advanced() const;
-	void set_adjustment_color_grading_intensity(float p_intensity);
-	float get_adjustment_color_grading_intensity() const;
 	void set_adjustment_brightness(float p_brightness);
 	float get_adjustment_brightness() const;
 	void set_adjustment_contrast(float p_contrast);
@@ -541,6 +538,12 @@ public:
 	float get_adjustment_contrast_pivot() const;
 	void set_adjustment_saturation(float p_saturation);
 	float get_adjustment_saturation() const;
+	void set_adjustment_color_grading_enabled(bool p_enabled);
+	bool is_adjustment_color_grading_enabled() const;
+	void set_white_balance_enabled(bool p_enabled);
+	bool is_white_balance_enabled() const;
+	void set_adjustment_curves_enabled(bool p_enabled);
+	bool is_adjustment_curves_enabled() const;
 	void set_adjustment_tint(float p_tint);
 	float get_adjustment_tint() const;
 	void set_adjustment_white_balance_mode(WhiteBalanceMode p_mode);
@@ -605,8 +608,6 @@ public:
 	Color get_adjustment_correction_highlights_color() const;
 	void set_adjustment_correction_enabled(bool p_enabled);
 	bool is_adjustment_correction_enabled() const;
-	void set_adjustment_correction_amount(float p_amount);
-	float get_adjustment_correction_amount() const;
 	void set_adjustment_correction_preview(ColorCorrectionPreview p_preview);
 	ColorCorrectionPreview get_adjustment_correction_preview() const;
 	void set_adjustment_correction_master_saturation(float p_value);
@@ -651,8 +652,6 @@ public:
 	float get_adjustment_correction_highlights_lift() const;
 	void set_adjustment_use_rgb_curves(bool p_enabled);
 	bool get_adjustment_use_rgb_curves() const;
-	void set_adjustment_curves_amount(float p_amount);
-	float get_adjustment_curves_amount() const;
 	void set_adjustment_black_level(const Color &p_color);
 	Color get_adjustment_black_level() const;
 	void set_adjustment_white_level(const Color &p_color);

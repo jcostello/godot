@@ -189,6 +189,7 @@ private:
 		RID proxy_to;
 		Vector<RID> proxies;
 
+		uint64_t lightmap_content_version = 1;
 		HashSet<RID> lightmap_users;
 
 		RenderingServerTypes::TextureDetectCallback detect_3d_callback = nullptr;

@@ -33,10 +33,6 @@ vec3 grading_tonal_weights(float luminance, vec4 limits) {
 	return vec3(shadows, 1.0 - shadows - highlights, highlights);
 }
 
-vec3 apply_grading_tonal_wheels(vec3 color, vec3 weights, vec4 shadows, vec4 midtones, vec4 highlights) {
-	return color * (shadows.rgb * weights.x + midtones.rgb * weights.y + highlights.rgb * weights.z);
-}
-
 vec3 apply_grading_lift_gamma_gain(vec3 color, vec3 lift, vec3 inverse_gamma, vec3 gain) {
 	vec3 lifted = color * gain + lift;
 	// Match Unity's sign(x) * pow(abs(x), gamma) and only cap values that cannot
@@ -79,36 +75,19 @@ bool grading_correction_needs_weights(vec4 correction[10]) {
 	if (correction[5].z > 1.5) {
 		return true;
 	}
-	return correction[5].x > 0.0 && (any(notEqual(correction[1], vec4(1.0))) || any(notEqual(correction[2], vec4(1.0))) || any(notEqual(correction[3], vec4(1.0))) || any(notEqual(correction[4].yzw, vec3(0.0))) || any(notEqual(correction[7].rgb, vec3(1.0))) || any(notEqual(correction[8].rgb, vec3(1.0))) || any(notEqual(correction[9].rgb, vec3(1.0))));
+	return (any(notEqual(correction[1], vec4(1.0))) || any(notEqual(correction[2], vec4(1.0))) || any(notEqual(correction[3], vec4(1.0))) || any(notEqual(correction[4].yzw, vec3(0.0))) || any(notEqual(correction[7].rgb, vec3(1.0))) || any(notEqual(correction[8].rgb, vec3(1.0))) || any(notEqual(correction[9].rgb, vec3(1.0))));
 }
 
-vec3 apply_grading_linear(vec3 color, vec4 limits, vec4 shadows, vec4 midtones, vec4 highlights, vec4 lift, vec4 gamma, vec4 gain, float amount, vec4 correction[10], out vec3 correction_weights) {
-	correction_weights = vec3(0.0, 1.0, 0.0);
-	bool use_wheels = any(notEqual(shadows.rgb, vec3(1.0))) || any(notEqual(midtones.rgb, vec3(1.0))) || any(notEqual(highlights.rgb, vec3(1.0)));
-	bool use_correction_weights = grading_correction_needs_weights(correction);
-	vec3 weights = vec3(0.0, 1.0, 0.0);
-	if (use_wheels || use_correction_weights) {
-		weights = grading_tonal_weights(dot(color, vec3(0.2126729, 0.7151522, 0.0721750)), limits);
-		if (use_correction_weights) {
-			correction_weights = grading_normalized_tonal_weights(weights);
-		}
+vec3 grading_correction_weights(vec3 color, vec4 limits, vec4 correction[10]) {
+	if (!grading_correction_needs_weights(correction)) {
+		return vec3(0.0, 1.0, 0.0);
 	}
-	if (!use_wheels && gain.a <= 0.5) {
-		return color;
-	}
-	vec3 original = color;
-	if (use_wheels) {
-		color = apply_grading_tonal_wheels(color, weights, shadows, midtones, highlights);
-	}
-	if (gain.a > 0.5) {
-		color = apply_grading_lift_gamma_gain(color, lift.rgb, gamma.rgb, gain.rgb);
-	}
-	return amount == 1.0 ? color : mix(original, color, amount);
+	return grading_normalized_tonal_weights(grading_tonal_weights(dot(color, vec3(0.2126729, 0.7151522, 0.0721750)), limits));
 }
 
 vec3 apply_grading_tonal_correction(vec3 color, vec3 weights, vec4 correction[10]) {
 	vec4 controls = correction[5];
-	if (controls.y < 0.5 || controls.x == 0.0) {
+	if (controls.y < 0.5) {
 		return color;
 	}
 	// Blend parameters using the same pre-tonemap masks as the tonal wheels.
@@ -132,7 +111,7 @@ vec3 apply_grading_tonal_correction(vec3 color, vec3 weights, vec4 correction[10
 	if (parameters.z != 1.0 || parameters.w != 1.0 || combined_lift != 0.0) {
 		corrected = apply_grading_lift_gamma_gain(corrected, vec3(combined_lift), vec3(1.0 / max(parameters.z, 0.0025)), vec3(parameters.w));
 	}
-	return controls.x == 1.0 ? corrected : mix(color, corrected, controls.x);
+	return corrected;
 }
 
 #ifdef COLOR_GRADING_CURVES
@@ -194,7 +173,7 @@ vec3 apply_grading_rgb_curves(vec3 color) {
 			curved[channel] = sample_grading_atlas(leveled[channel], 2)[channel];
 		}
 	}
-	return mix(color, curved, white.a);
+	return curved;
 }
 
 vec3 apply_grading_hue_luminance(vec3 color, float hue, float saturation) {

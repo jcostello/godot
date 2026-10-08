@@ -922,7 +922,6 @@ layout(location = 13) in highp vec4 prev_screen_position;
 #endif
 
 #ifdef USE_LIGHTMAP
-#include "../../../shaders/lightmap_adjustments_inc.glsl"
 #include "../bicubic_filter_inc.glsl"
 #endif //USE_LIGHTMAP
 
@@ -1105,8 +1104,6 @@ void main() {
 	}
 #endif
 
-	bool lightmap_debug_active = false;
-	vec3 lightmap_debug_value = vec3(0.0);
 	//lay out everything, whatever is unused is optimized away anyway
 	vec3 vertex = vertex_interp;
 #ifdef USE_MULTIVIEW
@@ -1739,7 +1736,6 @@ void main() {
 		ambient_light += c[4] * hvec3(lightmap_captures.data[index].sh[8].rgb) * (wnormal.x * wnormal.x - wnormal.y * wnormal.y) * norm;
 
 	} else if (bool(instances.data[draw_call.instance_index].flags & INSTANCE_FLAGS_USE_LIGHTMAP)) { // has actual lightmap
-		vec3 lightmap_debug_raw = vec3(0.0);
 		bool uses_sh = bool(instances.data[draw_call.instance_index].flags & INSTANCE_FLAGS_USE_SH_LIGHTMAP);
 		uint ofs = instances.data[draw_call.instance_index].gi_offset & 0xFFFF;
 		uint slice = instances.data[draw_call.instance_index].gi_offset >> 16;
@@ -1766,12 +1762,6 @@ void main() {
 				lm_light_l1p1 = hvec3((textureLod(sampler2DArray(lightmap_textures[ofs], SAMPLER_LINEAR_CLAMP), uvw + vec3(0.0, 0.0, 3.0), 0.0).rgb - vec3(0.5)) * 2.0);
 			}
 
-			if (lightmaps.data[ofs].grading.w != 0.0 && lightmaps.data[ofs].grading.z != 1.0) {
-				lm_light_l1n1 *= half(lightmaps.data[ofs].grading.z);
-				lm_light_l1_0 *= half(lightmaps.data[ofs].grading.z);
-				lm_light_l1p1 *= half(lightmaps.data[ofs].grading.z);
-			}
-
 			mat3 normal_xform = mat3(lightmaps.data[ofs].normal_xform_and_specular_intensity);
 #if defined(DO_SIDE_CHECK) || defined(UBERSHADER)
 			bool compensate_reflection_probe_cull = bool(scene_data.flags & SCENE_DATA_FLAGS_REFLECTION_PROBE_PASS);
@@ -1789,11 +1779,10 @@ void main() {
 			sh_light += lm_light_l1n1 * n.y * lm_light_l0 * half(4.0);
 			sh_light += lm_light_l1_0 * n.z * lm_light_l0 * half(4.0);
 			sh_light += lm_light_l1p1 * n.x * lm_light_l0 * half(4.0);
-			lightmap_debug_raw = vec3(sh_light);
-			sh_light = hvec3(lightmap_apply_adjustments(vec3(sh_light), lightmaps.data[ofs].tint_energy, lightmaps.data[ofs].grading, lightmaps.data[ofs].tonal, lightmaps.data[ofs].shadows_tint, lightmaps.data[ofs].midtones_tint, lightmaps.data[ofs].highlights_tint, lightmaps.data[ofs].tonal_contrast, lightmaps.data[ofs].tonal_ranges)) * exposure_normalization;
+			sh_light *= exposure_normalization;
 			ambient_light += sh_light;
 
-			if (sc_use_lightmap_specular() && lightmaps.data[ofs].tonal.w == 0.0) {
+			if (sc_use_lightmap_specular()) {
 				// Fake specular light to create some direct light specular lobes for directional lightmaps.
 				// https://media.contentapi.ea.com/content/dam/eacom/frostbite/files/gdc2018-precomputedgiobalilluminationinfrostbite.pdf (slides 66-71)
 				const vec3 luminance_weights = vec3(0.2126, 0.7152, 0.0722);
@@ -1815,7 +1804,7 @@ void main() {
 						specular_irradiance += vec3(lm_light_l0 * lm_light_l1n1) * specular_lightmap_normal.y * 4.0;
 						specular_irradiance += vec3(lm_light_l0 * lm_light_l1_0) * specular_lightmap_normal.z * 4.0;
 						specular_irradiance += vec3(lm_light_l0 * lm_light_l1p1) * specular_lightmap_normal.x * 4.0;
-						specular_irradiance = lightmap_apply_adjustments(specular_irradiance, lightmaps.data[ofs].tint_energy, lightmaps.data[ofs].grading, lightmaps.data[ofs].tonal, lightmaps.data[ofs].shadows_tint, lightmaps.data[ofs].midtones_tint, lightmaps.data[ofs].highlights_tint, lightmaps.data[ofs].tonal_contrast, lightmaps.data[ofs].tonal_ranges) * lightmaps.data[ofs].exposure_normalization;
+						specular_irradiance *= lightmaps.data[ofs].exposure_normalization;
 						hvec3 specular_light_color = hvec3(max(specular_irradiance, vec3(0.0)) / max(NdotL, 0.1));
 
 						hvec3 f0 = F0(metallic, specular, albedo);
@@ -1846,16 +1835,10 @@ void main() {
 
 		} else {
 			if (sc_use_lightmap_bicubic_filter()) {
-				lightmap_debug_raw = texture_array_bicubic(lightmap_textures[ofs], uvw, lightmaps.data[ofs].light_texture_size).rgb;
-				ambient_light += hvec3(lightmap_apply_adjustments(lightmap_debug_raw, lightmaps.data[ofs].tint_energy, lightmaps.data[ofs].grading, lightmaps.data[ofs].tonal, lightmaps.data[ofs].shadows_tint, lightmaps.data[ofs].midtones_tint, lightmaps.data[ofs].highlights_tint, lightmaps.data[ofs].tonal_contrast, lightmaps.data[ofs].tonal_ranges) * lightmaps.data[ofs].exposure_normalization);
+				ambient_light += hvec3(texture_array_bicubic(lightmap_textures[ofs], uvw, lightmaps.data[ofs].light_texture_size).rgb * lightmaps.data[ofs].exposure_normalization);
 			} else {
-				lightmap_debug_raw = textureLod(sampler2DArray(lightmap_textures[ofs], SAMPLER_LINEAR_CLAMP), uvw, 0.0).rgb;
-				ambient_light += hvec3(lightmap_apply_adjustments(lightmap_debug_raw, lightmaps.data[ofs].tint_energy, lightmaps.data[ofs].grading, lightmaps.data[ofs].tonal, lightmaps.data[ofs].shadows_tint, lightmaps.data[ofs].midtones_tint, lightmaps.data[ofs].highlights_tint, lightmaps.data[ofs].tonal_contrast, lightmaps.data[ofs].tonal_ranges) * lightmaps.data[ofs].exposure_normalization);
+				ambient_light += hvec3(textureLod(sampler2DArray(lightmap_textures[ofs], SAMPLER_LINEAR_CLAMP), uvw, 0.0).rgb * lightmaps.data[ofs].exposure_normalization);
 			}
-		}
-		lightmap_debug_active = lightmaps.data[ofs].tonal.w != 0.0;
-		if (lightmap_debug_active) {
-			lightmap_debug_value = lightmap_debug_color(lightmap_debug_raw, lightmaps.data[ofs].grading, lightmaps.data[ofs].tonal_ranges, lightmaps.data[ofs].tonal.w, lightmaps.data[ofs].exposure_normalization);
 		}
 	}
 
@@ -2439,13 +2422,6 @@ void main() {
 	specular_buffer.rgb = mix(specular_buffer.rgb, vec3(0.0), fog.a);
 #endif // !FOG_DISABLED
 
-#if defined(USE_LIGHTMAP) && !defined(MODE_UNSHADED)
-	if (lightmap_debug_active) {
-		diffuse_buffer = vec4(lightmap_debug_value, 0.0);
-		specular_buffer = vec4(0.0);
-	}
-#endif
-
 	if (bool(instances.data[draw_call.instance_index].layer_mask & scene_data.editor_gizmo_layer_mask)) {
 		diffuse_buffer.rgb *= scene_data.editor_gizmo_exposure;
 		specular_buffer.rgb *= scene_data.editor_gizmo_exposure;
@@ -2463,12 +2439,6 @@ void main() {
 	// Draw "fixed" fog before volumetric fog to ensure volumetric fog can appear in front of the sky.
 	out_color.rgb = mix(out_color.rgb, fog.rgb, fog.a);
 #endif // !FOG_DISABLED
-
-#if defined(USE_LIGHTMAP) && !defined(MODE_UNSHADED)
-	if (lightmap_debug_active) {
-		out_color.rgb = hvec3(lightmap_debug_value);
-	}
-#endif
 
 	// On mobile we use a UNORM buffer with 10bpp which results in a range from 0.0 - 1.0 resulting in HDR breaking
 	// We divide by sc_luminance_multiplier to support a range from 0.0 - 2.0 both increasing precision on bright and darker images

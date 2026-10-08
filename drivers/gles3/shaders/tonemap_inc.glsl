@@ -2,22 +2,15 @@ layout(std140) uniform TonemapData { //ubo:0
 	float exposure;
 	int tonemapper;
 	int pad;
-	float tone_curve_amount;
+	float pad2;
 	vec4 tonemapper_params;
 	float brightness;
 	float contrast;
 	float saturation;
 	int pad3;
-	vec4 shadows;
-	vec4 midtones;
-	vec4 highlights;
-	vec4 lift;
-	vec4 gamma;
-	vec4 gain;
 	vec4 white_balance_0;
 	vec4 white_balance_1;
 	vec4 white_balance_2;
-	vec4 offset;
 	vec4 tint_midtones_range;
 	vec4 tonemap_temperature;
 	vec4 tonal_softness;
@@ -191,7 +184,7 @@ vec3 tonemap_agx(vec3 color) {
 #define TONEMAPPER_ACES 3
 #define TONEMAPPER_AGX 4
 
-vec3 apply_full_tonemapping(vec3 color) { // inputs are LINEAR
+vec3 apply_tonemapping(vec3 color) { // inputs are LINEAR
 	if (tonemapper == TONEMAPPER_LINEAR) {
 		return color;
 	}
@@ -209,15 +202,6 @@ vec3 apply_full_tonemapping(vec3 color) { // inputs are LINEAR
 	} else { // TONEMAPPER_AGX
 		return tonemap_agx(color);
 	}
-}
-
-vec3 apply_tonemapping(vec3 color) {
-	float amount = tone_curve_amount;
-	if (amount == 0.0) {
-		return color;
-	}
-	vec3 mapped = apply_full_tonemapping(color);
-	return amount == 1.0 ? mapped : mix(color, mapped, amount);
 }
 
 #endif // APPLY_TONEMAPPING

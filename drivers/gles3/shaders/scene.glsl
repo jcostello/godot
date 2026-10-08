@@ -1038,7 +1038,6 @@ void main() {
 
 #ifndef MODE_RENDER_DEPTH
 #include "tonemap_inc.glsl"
-#include "../../../servers/rendering/shaders/lightmap_adjustments_inc.glsl"
 #endif
 #include "../../../servers/rendering/shaders/spot_light_inc.glsl"
 
@@ -1514,14 +1513,6 @@ uniform lowp sampler2DArray shadowmask_textures; //texunit:-5
 uniform lowp uint lightmap_slice;
 uniform highp vec4 lightmap_uv_scale;
 uniform float lightmap_exposure_normalization;
-uniform vec4 lightmap_tint_energy;
-uniform vec4 lightmap_grading;
-uniform vec4 lightmap_tonal;
-uniform vec4 lightmap_shadows_tint;
-uniform vec4 lightmap_midtones_tint;
-uniform vec4 lightmap_highlights_tint;
-uniform vec4 lightmap_tonal_contrast;
-uniform vec4 lightmap_tonal_ranges;
 uniform uint lightmap_shadowmask_mode;
 
 #ifdef USE_LIGHTMAP_SPECULAR
@@ -2282,7 +2273,6 @@ void main() {
 	float transmittance_boost = 0.0;
 	float metallic = 0.0;
 	float specular = 0.5;
-	vec3 lightmap_debug_raw = vec3(0.0);
 	vec3 emission = vec3(0.0);
 	float roughness = 1.0;
 	float rim = 0.0;
@@ -2705,12 +2695,6 @@ void main() {
 		vec3 lm_light_l1p1 = (textureLod(lightmap_textures, uvw + vec3(0.0, 0.0, 3.0), 0.0).rgb - vec3(0.5)) * 2.0;
 #endif
 
-		if (lightmap_grading.w != 0.0 && lightmap_grading.z != 1.0) {
-			lm_light_l1n1 *= lightmap_grading.z;
-			lm_light_l1_0 *= lightmap_grading.z;
-			lm_light_l1p1 *= lightmap_grading.z;
-		}
-
 		mat3 directional_lightmap_normal_xform = lightmap_normal_xform;
 #ifdef DO_SIDE_CHECK
 		if (scene_data_block.data.reflection_probe_pass) {
@@ -2723,70 +2707,65 @@ void main() {
 		sh_light += lm_light_l0 * lm_light_l1n1 * n.y * 4.0;
 		sh_light += lm_light_l0 * lm_light_l1_0 * n.z * 4.0;
 		sh_light += lm_light_l0 * lm_light_l1p1 * n.x * 4.0;
-		lightmap_debug_raw = sh_light;
-		sh_light = lightmap_apply_adjustments(sh_light, lightmap_tint_energy, lightmap_grading, lightmap_tonal, lightmap_shadows_tint, lightmap_midtones_tint, lightmap_highlights_tint, lightmap_tonal_contrast, lightmap_tonal_ranges) * lightmap_exposure_normalization;
+		sh_light *= lightmap_exposure_normalization;
 
 		ambient_light += sh_light;
 
 #ifdef USE_LIGHTMAP_SPECULAR
-		if (lightmap_tonal.w == 0.0) {
-			// Fake specular light to create some direct light specular lobes for directional lightmaps.
-			// https://media.contentapi.ea.com/content/dam/eacom/frostbite/files/gdc2018-precomputedgiobalilluminationinfrostbite.pdf (slides 66-71)
-			const vec3 luminance_weights = vec3(0.2126, 0.7152, 0.0722);
-			vec3 l1 = vec3(
-					dot(lm_light_l0 * lm_light_l1p1, luminance_weights),
-					dot(lm_light_l0 * lm_light_l1n1, luminance_weights),
-					dot(lm_light_l0 * lm_light_l1_0, luminance_weights));
-			float l1_len = length(l1);
-			float l0_luminance = dot(lm_light_l0, luminance_weights);
+		// Fake specular light to create some direct light specular lobes for directional lightmaps.
+		// https://media.contentapi.ea.com/content/dam/eacom/frostbite/files/gdc2018-precomputedgiobalilluminationinfrostbite.pdf (slides 66-71)
+		const vec3 luminance_weights = vec3(0.2126, 0.7152, 0.0722);
+		vec3 l1 = vec3(
+				dot(lm_light_l0 * lm_light_l1p1, luminance_weights),
+				dot(lm_light_l0 * lm_light_l1n1, luminance_weights),
+				dot(lm_light_l0 * lm_light_l1_0, luminance_weights));
+		float l1_len = length(l1);
+		float l0_luminance = dot(lm_light_l0, luminance_weights);
 
-			if (l1_len > 1e-5 && l0_luminance > 1e-5) {
-				vec3 lightmap_direction = l1 / l1_len;
-				vec3 L_view = normalize(lightmap_direction * directional_lightmap_normal_xform);
-				float NdotL = max(dot(normal, L_view), 0.0);
+		if (l1_len > 1e-5 && l0_luminance > 1e-5) {
+			vec3 lightmap_direction = l1 / l1_len;
+			vec3 L_view = normalize(lightmap_direction * directional_lightmap_normal_xform);
+			float NdotL = max(dot(normal, L_view), 0.0);
 
-				if (NdotL > 1e-4) {
-					vec3 specular_lightmap_normal = normalize(directional_lightmap_normal_xform * normal);
-					vec3 specular_irradiance = lm_light_l0;
-					specular_irradiance += lm_light_l0 * lm_light_l1n1 * specular_lightmap_normal.y * 4.0;
-					specular_irradiance += lm_light_l0 * lm_light_l1_0 * specular_lightmap_normal.z * 4.0;
-					specular_irradiance += lm_light_l0 * lm_light_l1p1 * specular_lightmap_normal.x * 4.0;
-					specular_irradiance = lightmap_apply_adjustments(specular_irradiance, lightmap_tint_energy, lightmap_grading, lightmap_tonal, lightmap_shadows_tint, lightmap_midtones_tint, lightmap_highlights_tint, lightmap_tonal_contrast, lightmap_tonal_ranges) * lightmap_exposure_normalization;
-					vec3 specular_light_color = max(specular_irradiance, vec3(0.0)) / max(NdotL, 0.1);
+			if (NdotL > 1e-4) {
+				vec3 specular_lightmap_normal = normalize(directional_lightmap_normal_xform * normal);
+				vec3 specular_irradiance = lm_light_l0;
+				specular_irradiance += lm_light_l0 * lm_light_l1n1 * specular_lightmap_normal.y * 4.0;
+				specular_irradiance += lm_light_l0 * lm_light_l1_0 * specular_lightmap_normal.z * 4.0;
+				specular_irradiance += lm_light_l0 * lm_light_l1p1 * specular_lightmap_normal.x * 4.0;
+				specular_irradiance *= lightmap_exposure_normalization;
+				vec3 specular_light_color = max(specular_irradiance, vec3(0.0)) / max(NdotL, 0.1);
 
-					vec3 f0 = F0(metallic, specular, albedo);
+				vec3 f0 = F0(metallic, specular, albedo);
 
-					vec3 diffuse_light_discarded = diffuse_light;
-					float directionality = clamp(l1_len / l0_luminance, 0.0, 1.0);
-					float specular_intensity = directionality * lightmap_specular_intensity * 2.0;
+				vec3 diffuse_light_discarded = diffuse_light;
+				float directionality = clamp(l1_len / l0_luminance, 0.0, 1.0);
+				float specular_intensity = directionality * lightmap_specular_intensity * 2.0;
 
-					light_compute(normal, L_view, view, 0.0, specular_light_color, true, 1.0, f0, roughness, metallic, specular_intensity, albedo, alpha, screen_uv,
+				light_compute(normal, L_view, view, 0.0, specular_light_color, true, 1.0, f0, roughness, metallic, specular_intensity, albedo, alpha, screen_uv,
 #ifdef LIGHT_BACKLIGHT_USED
-							backlight,
+						backlight,
 #endif
 #ifdef LIGHT_RIM_USED
-							rim, rim_tint,
+						rim, rim_tint,
 #endif
 #ifdef LIGHT_CLEARCOAT_USED
-							clearcoat, clearcoat_roughness, normalize(normal_interp),
+						clearcoat, clearcoat_roughness, normalize(normal_interp),
 #endif
 #ifdef LIGHT_ANISOTROPY_USED
-							binormal, tangent, anisotropy,
+						binormal, tangent, anisotropy,
 #endif
-							diffuse_light_discarded,
-							lightmap_specular_light);
-				}
+						diffuse_light_discarded,
+						lightmap_specular_light);
 			}
 		}
 #endif // USE_LIGHTMAP_SPECULAR
 
 #else
 #ifdef LIGHTMAP_BICUBIC_FILTER
-		lightmap_debug_raw = textureArray_bicubic(lightmap_textures, uvw, lightmap_texture_size).rgb;
-		ambient_light += lightmap_apply_adjustments(lightmap_debug_raw, lightmap_tint_energy, lightmap_grading, lightmap_tonal, lightmap_shadows_tint, lightmap_midtones_tint, lightmap_highlights_tint, lightmap_tonal_contrast, lightmap_tonal_ranges) * lightmap_exposure_normalization;
+		ambient_light += textureArray_bicubic(lightmap_textures, uvw, lightmap_texture_size).rgb * lightmap_exposure_normalization;
 #else
-		lightmap_debug_raw = textureLod(lightmap_textures, uvw, 0.0).rgb;
-		ambient_light += lightmap_apply_adjustments(lightmap_debug_raw, lightmap_tint_energy, lightmap_grading, lightmap_tonal, lightmap_shadows_tint, lightmap_midtones_tint, lightmap_highlights_tint, lightmap_tonal_contrast, lightmap_tonal_ranges) * lightmap_exposure_normalization;
+		ambient_light += textureLod(lightmap_textures, uvw, 0.0).rgb * lightmap_exposure_normalization;
 #endif
 #endif
 	}
@@ -3316,17 +3295,6 @@ void main() {
 
 	frag_color.rgb += additive_light_color;
 #endif // USE_ADDITIVE_LIGHTING
-#if defined(BASE_PASS) && defined(USE_LIGHTMAP) && !defined(DISABLE_LIGHTMAP) && !defined(MODE_UNSHADED)
-	if (lightmap_tonal.w != 0.0) {
-		vec3 debug_color = lightmap_debug_color(lightmap_debug_raw, lightmap_grading, lightmap_tonal_ranges, lightmap_tonal.w, lightmap_exposure_normalization);
-		debug_color *= exposure;
-#ifdef APPLY_TONEMAPPING
-		debug_color = apply_tonemapping(debug_color);
-#endif
-		frag_color.rgb = linear_to_srgb(debug_color);
-	}
-#endif
-
 	frag_color.rgb *= scene_data_block.data.luminance_multiplier;
 
 #endif // !RENDER_MATERIAL

@@ -171,8 +171,8 @@ inline Vector3 temperature_balance(float p_temperature) {
 			current.b / MAX(neutral.b, 1e-5f));
 }
 
-inline Basis white_balance_matrix(float p_temperature, float p_tint, float p_intensity) {
-	if (p_intensity <= 0.0f || (p_temperature == 6500.0f && p_tint == 0.0f)) {
+inline Basis white_balance_matrix(float p_temperature, float p_tint) {
+	if ((p_temperature == 6500.0f && p_tint == 0.0f)) {
 		return Basis();
 	}
 	const auto white_xyz = [](float p_temperature_value, float p_tint_value) {
@@ -205,15 +205,7 @@ inline Basis white_balance_matrix(float p_temperature, float p_tint, float p_int
 			target_lms.x / MAX(source_lms.x, 1e-5f), 0.0f, 0.0f,
 			0.0f, target_lms.y / MAX(source_lms.y, 1e-5f), 0.0f,
 			0.0f, 0.0f, target_lms.z / MAX(source_lms.z, 1e-5f));
-	const Basis adapted = xyz_to_rgb * inverse_bradford * scale * bradford * rgb_to_xyz;
-	const float intensity = CLAMP(p_intensity, 0.0f, 1.0f);
-	Basis result;
-	for (int row = 0; row < 3; row++) {
-		for (int column = 0; column < 3; column++) {
-			result[row][column] = Math::lerp(row == column ? 1.0f : 0.0f, adapted[row][column], intensity);
-		}
-	}
-	return result;
+	return xyz_to_rgb * inverse_bradford * scale * bradford * rgb_to_xyz;
 }
 
 } // namespace EnvironmentColorGrading
