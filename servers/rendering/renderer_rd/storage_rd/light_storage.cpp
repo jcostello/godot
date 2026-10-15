@@ -2993,7 +2993,7 @@ void LightStorage::_update_lightmap_color_adjustments(Lightmap *p_lightmap) {
 	}
 	const Color tint = a.tint.srgb_to_linear();
 	const Color colors[] = { a.shadows_tint.srgb_to_linear(), a.midtones_tint.srgb_to_linear(), a.highlights_tint.srgb_to_linear() };
-	const bool tonal = a.shadows != 0.0f || a.midtones != 0.0f || a.highlights != 0.0f || a.tonal_saturation != Vector3(1, 1, 1) || a.tonal_contrast != Vector3(1, 1, 1) || colors[0].r != 1.0f || colors[0].g != 1.0f || colors[0].b != 1.0f || colors[1].r != 1.0f || colors[1].g != 1.0f || colors[1].b != 1.0f || colors[2].r != 1.0f || colors[2].g != 1.0f || colors[2].b != 1.0f;
+	const bool tonal = a.tonal_black_point != Vector3() || a.tonal_white_point != Vector3(1, 1, 1) || a.tonal_gamma != Vector3(1, 1, 1) || a.shadows != 0.0f || a.midtones != 0.0f || a.highlights != 0.0f || a.tonal_saturation != Vector3(1, 1, 1) || a.tonal_contrast != Vector3(1, 1, 1) || colors[0].r != 1.0f || colors[0].g != 1.0f || colors[0].b != 1.0f || colors[1].r != 1.0f || colors[1].g != 1.0f || colors[1].b != 1.0f || colors[2].r != 1.0f || colors[2].g != 1.0f || colors[2].b != 1.0f;
 	const bool basic = a.energy != 1.0f || a.tint.r != 1.0f || a.tint.g != 1.0f || a.tint.b != 1.0f || a.saturation != 1.0f;
 	if (!basic && !tonal && a.contrast == 1.0f && a.debug_mode == 0) {
 		return;
@@ -3011,6 +3011,9 @@ void LightStorage::_update_lightmap_color_adjustments(Lightmap *p_lightmap) {
 		data[3][row] = multiplier;
 		data[6][row] = row == 0 ? a.shadows : (row == 1 ? a.midtones : a.highlights);
 		data[10][row] = a.tonal_contrast[row];
+		data[11][row] = a.tonal_black_point[row];
+		data[12][row] = a.tonal_white_point[row];
+		data[13][row] = a.tonal_gamma[row];
 		for (int channel = 0; channel < 3; channel++) {
 			data[7 + row][channel] = colors[row][channel];
 		}
@@ -3045,6 +3048,21 @@ void LightStorage::lightmap_set_adjustments(RID p_lightmap, float p_energy, cons
 	a.shadows = CLAMP(p_shadows, -4.0f, 4.0f);
 	a.midtones = CLAMP(p_midtones, -4.0f, 4.0f);
 	a.highlights = CLAMP(p_highlights, -4.0f, 4.0f);
+	_update_lightmap_color_adjustments(lm);
+}
+
+void LightStorage::lightmap_set_tonal_levels(RID p_lightmap, const Vector3 &p_black, const Vector3 &p_white, const Vector3 &p_gamma) {
+	Lightmap *lm = lightmap_owner.get_or_null(p_lightmap);
+	ERR_FAIL_NULL(lm);
+	for (int i = 0; i < 3; i++) {
+		ERR_FAIL_COND(!Math::is_finite(p_black[i]) || !Math::is_finite(p_white[i]) || !Math::is_finite(p_gamma[i]));
+	}
+	for (int i = 0; i < 3; i++) {
+		const float black = CLAMP(p_black[i], 0.0f, 0.999f);
+		lm->color_adjustments.tonal_black_point[i] = black;
+		lm->color_adjustments.tonal_white_point[i] = CLAMP(p_white[i], black + 0.001f, 1.0f);
+		lm->color_adjustments.tonal_gamma[i] = CLAMP(p_gamma[i], 0.05f, 4.0f);
+	}
 	_update_lightmap_color_adjustments(lm);
 }
 
@@ -3121,6 +3139,7 @@ uint32_t LightStorage::lightmap_prepare_color_texture(RID p_lightmap) {
 		_update_lightmap_tonal_luminance_range(lm);
 		lm->color_adjustment_data[3][3] = lm->tonal_luminance_min;
 		lm->color_adjustment_data[10][3] = lm->tonal_luminance_scale;
+		lm->color_adjustment_data[11][3] = MAX(lm->tonal_luminance_min + (lm->tonal_luminance_scale > 0.0f ? 1.0f / lm->tonal_luminance_scale : 0.0f), 0.00001f);
 	}
 	if (Engine::get_singleton()->is_editor_hint()) {
 		return lm->color_adjustment_flags;

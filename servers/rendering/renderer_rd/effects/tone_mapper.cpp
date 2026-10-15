@@ -46,7 +46,7 @@ RID ToneMapper::_upload_mobile_grading_buffer(const TonemapSettings &p_settings)
 		}
 	}
 	data.white_balance[0][3] = p_settings.use_chromatic_adaptation;
-	for (int range = 0; range < 10; range++) {
+	for (int range = 0; range < 12; range++) {
 		for (int parameter = 0; parameter < 4; parameter++) {
 			data.tonal_correction[range][parameter] = p_settings.tonal_correction[range][parameter];
 		}
@@ -84,25 +84,25 @@ RID ToneMapper::_get_forward_grading_buffer(const TonemapSettings &p_settings) {
 	data.rows[0][1] = p_settings.shadows_end;
 	data.rows[0][2] = p_settings.highlights_start;
 	data.rows[0][3] = p_settings.highlights_end;
-	for (int range = 0; range < 10; range++) {
+	for (int range = 0; range < 12; range++) {
 		for (int channel = 0; channel < 4; channel++) {
 			data.rows[1 + range][channel] = p_settings.tonal_correction[range][channel];
 		}
 	}
-	data.rows[11][0] = p_settings.vibrance;
-	data.rows[11][1] = p_settings.vignette;
-	data.rows[11][2] = p_settings.vignette_start;
-	data.rows[11][3] = p_settings.vignette_end;
-	data.rows[12][0] = p_settings.forward_curve_flags;
-	data.rows[12][1] = p_settings.forward_adjustment_flags;
-	data.rows[12][2] = p_settings.use_1d_color_correction;
+	data.rows[13][0] = p_settings.vibrance;
+	data.rows[13][1] = p_settings.vignette;
+	data.rows[13][2] = p_settings.vignette_start;
+	data.rows[13][3] = p_settings.vignette_end;
+	data.rows[14][0] = p_settings.forward_curve_flags;
+	data.rows[14][1] = p_settings.forward_adjustment_flags;
+	data.rows[14][2] = p_settings.use_1d_color_correction;
 	if ((p_settings.forward_adjustment_flags & 512) != 0) {
 		const float pivot = p_settings.tonal_correction[5].w;
 		if (cached_correction_pivot != pivot) {
 			cached_correction_pivot = pivot;
 			cached_correction_logit = Math::log(pivot / (1.0f - pivot));
 		}
-		data.rows[12][3] = cached_correction_logit;
+		data.rows[14][3] = cached_correction_logit;
 	}
 
 	if (forward_grading_buffer.is_valid() && memcmp(&data, &uploaded_forward_grading, sizeof(data)) == 0) {

@@ -448,6 +448,7 @@ public:
 	virtual float lightmap_get_specular_intensity(RID p_lightmap) = 0;
 	virtual void lightmap_set_adjustments_enabled(RID p_lightmap, bool p_enabled) = 0;
 	virtual void lightmap_set_tonal_settings(RID p_lightmap, const Color &p_ranges, const Color &p_shadows_tint, const Color &p_midtones_tint, const Color &p_highlights_tint, const Vector3 &p_saturation, const Vector3 &p_contrast, int p_debug_mode) = 0;
+	virtual void lightmap_set_tonal_levels(RID p_lightmap, const Vector3 &p_black, const Vector3 &p_white, const Vector3 &p_gamma) = 0;
 	virtual void lightmap_set_adjustments(RID p_lightmap, float p_energy, const Color &p_tint, float p_saturation, float p_contrast, float p_shadows, float p_midtones, float p_highlights, float p_directionality_strength) = 0;
 	virtual void lightmap_set_specular_intensity(RID p_lightmap, float p_intensity) = 0;
 
@@ -694,6 +695,7 @@ public:
 	virtual void environment_set_adjustment_midtones_range(RID p_env, float p_shadows_start, float p_shadows_end, float p_midtones_start, float p_midtones_end, float p_highlights_start, float p_highlights_end) = 0;
 	virtual void environment_set_adjustment_advance(RID p_env, bool p_enable) = 0;
 	virtual void environment_set_adjustment_tonal_correction_colors(RID p_env, const Color &p_master, const Color &p_shadows, const Color &p_midtones, const Color &p_highlights) = 0;
+	virtual void environment_set_adjustment_tonal_levels(RID p_env, const Vector4 &p_black, const Vector4 &p_white) = 0;
 	virtual void environment_set_adjustment_tonal_correction(RID p_env, const Vector4 &p_master, const Vector4 &p_shadows, const Vector4 &p_midtones, const Vector4 &p_highlights, const Vector4 &p_lift, const Vector4 &p_controls) = 0;
 	virtual void environment_set_adjustment_curves(RID p_env, RID p_hue_vs_hue, RID p_hue_vs_saturation, RID p_saturation_vs_saturation, RID p_luminance_vs_saturation, uint32_t p_flags) = 0;
 	virtual void environment_set_adjustment_color_modes(RID p_env, bool p_preserve_luminance, bool p_soft_contrast, float p_pivot) = 0;

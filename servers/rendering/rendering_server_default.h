@@ -556,6 +556,7 @@ public:
 	FUNC1R(float, lightmap_get_specular_intensity, RID)
 	FUNC2(lightmap_set_adjustments_enabled, RID, bool)
 	FUNC8(lightmap_set_tonal_settings, RID, const Color &, const Color &, const Color &, const Color &, const Vector3 &, const Vector3 &, int)
+	FUNC4(lightmap_set_tonal_levels, RID, const Vector3 &, const Vector3 &, const Vector3 &)
 	FUNC9(lightmap_set_adjustments, RID, float, const Color &, float, float, float, float, float, float)
 	FUNC2(lightmap_set_specular_intensity, RID, float)
 
@@ -898,6 +899,7 @@ public:
 	FUNC7(environment_set_adjustment_midtones_range, RID, float, float, float, float, float, float)
 	FUNC2(environment_set_adjustment_advance, RID, bool)
 	FUNC5(environment_set_adjustment_tonal_correction_colors, RID, const Color &, const Color &, const Color &, const Color &)
+	FUNC3(environment_set_adjustment_tonal_levels, RID, const Vector4 &, const Vector4 &)
 	FUNC7(environment_set_adjustment_tonal_correction, RID, const Vector4 &, const Vector4 &, const Vector4 &, const Vector4 &, const Vector4 &, const Vector4 &)
 	FUNC6(environment_set_adjustment_curves, RID, RID, RID, RID, RID, uint32_t)
 	FUNC4(environment_set_adjustment_color_modes, RID, bool, bool, float)

@@ -71,6 +71,27 @@ Size2 EditorSpinSlider::get_minimum_size() const {
 	return ms;
 }
 
+void EditorSpinSlider::set_slider_power(double p_power, bool p_reversed) {
+	ERR_FAIL_COND(!Math::is_finite(p_power) || p_power <= 0.0);
+	slider_power = p_power;
+	slider_power_reversed = p_reversed;
+	queue_redraw();
+}
+
+double EditorSpinSlider::_get_slider_ratio(double p_value) const {
+	if (slider_power == 1.0 || get_max() <= get_min()) {
+		return get_as_ratio();
+	}
+	double ratio = CLAMP((p_value - get_min()) / (get_max() - get_min()), 0.0, 1.0);
+	return slider_power_reversed ? 1.0 - Math::pow(1.0 - ratio, 1.0 / slider_power) : Math::pow(ratio, 1.0 / slider_power);
+}
+
+double EditorSpinSlider::_get_slider_value(double p_ratio) const {
+	const double ratio = CLAMP(p_ratio, 0.0, 1.0);
+	const double curved = slider_power_reversed ? 1.0 - Math::pow(1.0 - ratio, slider_power) : Math::pow(ratio, slider_power);
+	return get_min() + (get_max() - get_min()) * curved;
+}
+
 String EditorSpinSlider::get_text_value() const {
 	return TranslationServer::get_singleton()->format_number(editing_integer ? itos(get_value()) : String::num(get_value(), Math::range_step_decimals(get_step())), _get_locale());
 }
@@ -143,7 +164,11 @@ void EditorSpinSlider::gui_input(const Ref<InputEvent> &p_event) {
 				// Prevent dragging properties with very precise steps from being agonizingly slow.
 				const double default_float_step = EDITOR_GET("interface/inspector/default_float_step");
 				const double drag_step = MAX(get_step(), default_float_step);
-				const double new_value = pre_grab_value + drag_step * grabbing_spinner_dist_cache;
+				double new_value = pre_grab_value + drag_step * grabbing_spinner_dist_cache;
+				if (slider_power != 1.0 && get_max() > get_min() && pre_grab_value >= get_min() && pre_grab_value <= get_max()) {
+					// Move through the same curve as the slider, keeping fine control near its neutral end.
+					new_value = _get_slider_value(_get_slider_ratio(pre_grab_value) + grabbing_spinner_dist_cache * 0.005);
+				}
 
 				double val = (mm->is_command_or_control_pressed() && !editing_integer) ? Math::round(new_value) : new_value;
 				if (deferred_drag_mode) {
@@ -233,7 +258,7 @@ void EditorSpinSlider::_grabber_gui_input(const Ref<InputEvent> &p_event) {
 			grabbing_grabber = true;
 			pre_grab_value = get_value();
 			if (!mousewheel_over_grabber) {
-				grabbing_ratio = get_as_ratio();
+				grabbing_ratio = _get_slider_ratio(get_value());
 				grabbing_from = grabber->get_transform().xform(mb->get_position()).x;
 			}
 			grab_focus(true);
@@ -266,7 +291,11 @@ void EditorSpinSlider::_grabber_gui_input(const Ref<InputEvent> &p_event) {
 		float scale_x = get_global_transform_with_canvas().get_scale().x;
 		ERR_FAIL_COND(Math::is_zero_approx(scale_x));
 		float grabbing_ofs = (grabber->get_transform().xform(mm->get_position()).x - grabbing_from) / float(grabber_range) / scale_x;
-		set_as_ratio(grabbing_ratio + grabbing_ofs);
+		if (slider_power == 1.0) {
+			set_as_ratio(grabbing_ratio + grabbing_ofs);
+		} else {
+			set_value(_get_slider_value(grabbing_ratio + grabbing_ofs));
+		}
 		queue_redraw();
 	}
 }
@@ -438,7 +467,7 @@ void EditorSpinSlider::_draw_spin_slider() {
 			draw_rect(Rect2(ofs, svofs + 1, width, 2 * EDSCALE), c);
 
 			// Draw the horizontal slider's filled part on the left.
-			const int gofs = get_as_ratio() * width;
+			const int gofs = _get_slider_ratio(get_value()) * width;
 			c.a = 0.45;
 			draw_rect(Rect2(ofs, svofs + 1, gofs, 2 * EDSCALE), c);
 

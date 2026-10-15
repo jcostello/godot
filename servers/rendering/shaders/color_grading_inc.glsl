@@ -67,25 +67,42 @@ float grading_tonal_correction_mask(vec3 weights, int preview) {
 	return weights[clamp(preview - 2, 0, 2)];
 }
 
+vec3 grading_luminance_levels(vec3 color, float black, float white) {
+	if (black == 0.0 && white == 1.0) {
+		return color;
+	}
+	float luminance = dot(max(color, vec3(0.0)), vec3(0.2126, 0.7152, 0.0722));
+	if (luminance <= 0.0) {
+		return vec3(0.0);
+	}
+	float target = max((luminance - black) / max(white - black, 0.001), 0.0);
+	return min((max(color, vec3(0.0)) / luminance) * min(target, 65504.0), vec3(65504.0));
+}
+
+vec3 grading_tonal_levels(vec3 color, vec3 weights, vec4 correction[12]) {
+	color = grading_luminance_levels(color, correction[10].x, correction[11].x);
+	return grading_luminance_levels(color, dot(correction[10].yzw, weights), dot(correction[11].yzw, weights));
+}
+
 // Uniform checks avoid masks for disabled correction and Master-only changes.
-bool grading_correction_needs_weights(vec4 correction[10]) {
+bool grading_correction_needs_weights(vec4 correction[12]) {
 	if (correction[5].y < 0.5) {
 		return false;
 	}
 	if (correction[5].z > 1.5) {
 		return true;
 	}
-	return (any(notEqual(correction[1], vec4(1.0))) || any(notEqual(correction[2], vec4(1.0))) || any(notEqual(correction[3], vec4(1.0))) || any(notEqual(correction[4].yzw, vec3(0.0))) || any(notEqual(correction[7].rgb, vec3(1.0))) || any(notEqual(correction[8].rgb, vec3(1.0))) || any(notEqual(correction[9].rgb, vec3(1.0))));
+	return (any(notEqual(correction[10].yzw, vec3(0.0))) || any(notEqual(correction[11].yzw, vec3(1.0))) || any(notEqual(correction[1], vec4(1.0))) || any(notEqual(correction[2], vec4(1.0))) || any(notEqual(correction[3], vec4(1.0))) || any(notEqual(correction[4].yzw, vec3(0.0))) || any(notEqual(correction[7].rgb, vec3(1.0))) || any(notEqual(correction[8].rgb, vec3(1.0))) || any(notEqual(correction[9].rgb, vec3(1.0))));
 }
 
-vec3 grading_correction_weights(vec3 color, vec4 limits, vec4 correction[10]) {
+vec3 grading_correction_weights(vec3 color, vec4 limits, vec4 correction[12]) {
 	if (!grading_correction_needs_weights(correction)) {
 		return vec3(0.0, 1.0, 0.0);
 	}
 	return grading_normalized_tonal_weights(grading_tonal_weights(dot(color, vec3(0.2126729, 0.7151522, 0.0721750)), limits));
 }
 
-vec3 apply_grading_tonal_correction(vec3 color, vec3 weights, vec4 correction[10]) {
+vec3 apply_grading_tonal_correction(vec3 color, vec3 weights, vec4 correction[12]) {
 	vec4 controls = correction[5];
 	if (controls.y < 0.5) {
 		return color;
@@ -95,7 +112,7 @@ vec3 apply_grading_tonal_correction(vec3 color, vec3 weights, vec4 correction[10
 	vec4 parameters = correction[0] * (vec4(1.0) + (correction[1] - vec4(1.0)) * weights.x + (correction[2] - vec4(1.0)) * weights.y + (correction[3] - vec4(1.0)) * weights.z);
 	float combined_lift = correction[4].x + dot(correction[4].yzw, weights);
 	vec3 modulation = correction[6].rgb * clamp(vec3(1.0) + (correction[7].rgb - vec3(1.0)) * weights.x + (correction[8].rgb - vec3(1.0)) * weights.y + (correction[9].rgb - vec3(1.0)) * weights.z, vec3(0.0), vec3(1.0));
-	if (all(equal(parameters, vec4(1.0))) && combined_lift == 0.0 && all(equal(modulation, vec3(1.0)))) {
+	if (all(equal(parameters, vec4(1.0))) && combined_lift == 0.0 && all(equal(modulation, vec3(1.0))) && all(equal(correction[10], vec4(0.0))) && all(equal(correction[11], vec4(1.0)))) {
 		return color;
 	}
 	vec3 corrected = color;
@@ -108,6 +125,7 @@ vec3 apply_grading_tonal_correction(vec3 color, vec3 weights, vec4 correction[10
 	if (parameters.y != 1.0) {
 		corrected = adjustment_soft_contrast(corrected, parameters.y, controls.w);
 	}
+	corrected = grading_tonal_levels(corrected, weights, correction);
 	if (parameters.z != 1.0 || parameters.w != 1.0 || combined_lift != 0.0) {
 		corrected = apply_grading_lift_gamma_gain(corrected, vec3(combined_lift), vec3(1.0 / max(parameters.z, 0.0025)), vec3(parameters.w));
 	}

@@ -1775,6 +1775,10 @@ void EditorPropertyFloat::update_property() {
 	spin->set_value_no_signal(val);
 }
 
+void EditorPropertyFloat::set_slider_power(double p_power, bool p_reversed) {
+	spin->set_slider_power(p_power, p_reversed);
+}
+
 void EditorPropertyFloat::setup(const EditorPropertyRangeHint &p_range_hint) {
 	radians_as_degrees = p_range_hint.radians_as_degrees;
 	spin->set_min(p_range_hint.min);

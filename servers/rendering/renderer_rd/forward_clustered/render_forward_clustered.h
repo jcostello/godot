@@ -267,9 +267,9 @@ private:
 		float texture_size[2];
 		float exposure_normalization;
 		uint32_t flags;
-		float color_adjustment_data[11][4] = {};
+		float color_adjustment_data[14][4] = {};
 	};
-	static_assert(sizeof(LightmapData) == 240, "LightmapData must match the Forward+ shader layout.");
+	static_assert(sizeof(LightmapData) == 288, "LightmapData must match the Forward+ shader layout.");
 
 	struct LightmapCaptureData {
 		float sh[9 * 4];

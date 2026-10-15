@@ -2553,7 +2553,7 @@ void RasterizerSceneGLES3::render_scene(const Ref<RenderSceneBuffers> &p_render_
 			}
 		}
 		tonemap_ubo.white_balance[3] = environment_get_adjustment_white_balance_enabled(render_data.environment);
-		for (int range = 0; range < 10; range++) {
+		for (int range = 0; range < 12; range++) {
 			const Vector4 correction = environment_get_adjustment_tonal_correction(render_data.environment, range);
 			for (int parameter = 0; parameter < 4; parameter++) {
 				tonemap_ubo.tonal_correction[range][parameter] = correction[parameter];

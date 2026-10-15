@@ -1037,6 +1037,22 @@ void RendererEnvironmentStorage::environment_set_adjustment_advance(RID p_env, b
 	}
 }
 
+void RendererEnvironmentStorage::environment_set_adjustment_tonal_levels(RID p_env, const Vector4 &p_black, const Vector4 &p_white) {
+	Environment *env = environment_owner.get_or_null(p_env);
+	ERR_FAIL_NULL(env);
+	for (int i = 0; i < 4; i++) {
+		ERR_FAIL_COND(!Math::is_finite(p_black[i]) || !Math::is_finite(p_white[i]));
+	}
+	for (int i = 0; i < 4; i++) {
+		const float black = CLAMP(p_black[i], 0.0f, 0.999f);
+		env->adjustments_tonal_correction[10][i] = black;
+		env->adjustments_tonal_correction[11][i] = CLAMP(p_white[i], black + 0.001f, 1.0f);
+	}
+	if (OS::get_singleton()->get_current_rendering_method() == "forward_plus") {
+		_update_forward_adjustment_flags(env);
+	}
+}
+
 void RendererEnvironmentStorage::environment_set_adjustment_tonal_correction_colors(RID p_env, const Color &p_master, const Color &p_shadows, const Color &p_midtones, const Color &p_highlights) {
 	Environment *env = environment_owner.get_or_null(p_env);
 	ERR_FAIL_NULL(env);
@@ -1068,7 +1084,7 @@ void RendererEnvironmentStorage::environment_set_adjustment_tonal_correction(RID
 Vector4 RendererEnvironmentStorage::environment_get_adjustment_tonal_correction(RID p_env, int p_index) const {
 	Environment *env = environment_owner.get_or_null(p_env);
 	ERR_FAIL_NULL_V(env, Vector4());
-	ERR_FAIL_INDEX_V(p_index, 10, Vector4());
+	ERR_FAIL_INDEX_V(p_index, 12, Vector4());
 	return env->adjustments_tonal_correction[p_index];
 }
 
@@ -1405,7 +1421,7 @@ void RendererEnvironmentStorage::_update_forward_adjustment_flags(Environment *p
 		bool post = false;
 		for (int range = 0; range < 4; range++) {
 			const Vector4 &v = correction[range];
-			pre = pre || v.y != 1.0f || v.z != 1.0f || v.w != 1.0f || correction[4][range] != 0.0f || correction[6 + range] != Vector4(1, 1, 1, 0);
+			pre = pre || correction[10][range] != 0.0f || correction[11][range] != 1.0f || v.y != 1.0f || v.z != 1.0f || v.w != 1.0f || correction[4][range] != 0.0f || correction[6 + range] != Vector4(1, 1, 1, 0);
 			post = post || v.x != 1.0f;
 			if (v.y != 1.0f) {
 				p_env->forward_adjustment_flags |= 512;
@@ -1425,7 +1441,7 @@ void RendererEnvironmentStorage::_update_forward_adjustment_flags(Environment *p
 		}
 		bool needs_weights = correction[5].z > 1.5f;
 		for (int range = 1; range < 4; range++) {
-			needs_weights = needs_weights || correction[range] != Vector4(1, 1, 1, 1) || correction[4][range] != 0.0f || correction[6 + range] != Vector4(1, 1, 1, 0);
+			needs_weights = needs_weights || correction[10][range] != 0.0f || correction[11][range] != 1.0f || correction[range] != Vector4(1, 1, 1, 1) || correction[4][range] != 0.0f || correction[6 + range] != Vector4(1, 1, 1, 0);
 		}
 		if ((pre || post) && needs_weights) {
 			p_env->forward_adjustment_flags |= 256;

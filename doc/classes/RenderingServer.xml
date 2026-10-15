@@ -1334,6 +1334,15 @@
 				Sets sRGB tonal modulation colors; white is neutral and alpha is ignored. RGB is clamped to 0–1 and converted to linear light. Uses the masks and enabled state set by [method environment_set_adjustment_tonal_correction]. See [member Environment.adjustment_correction_master_color].
 			</description>
 		</method>
+		<method name="environment_set_adjustment_tonal_levels">
+			<return type="void" />
+			<param index="0" name="env" type="RID" />
+			<param index="1" name="black" type="Vector4" />
+			<param index="2" name="white" type="Vector4" />
+			<description>
+				Sets luminance black and white input points for Master, Shadows, Midtones, and Highlights (vector components x, y, z, w). Defaults are black 0 and white 1. Each white point is kept at least 0.001 above black. Gamma is supplied by the existing tonal correction parameters. RGB proportions and HDR headroom are preserved.
+			</description>
+		</method>
 		<method name="environment_set_adjustment_tonal_softness">
 			<return type="void" />
 			<param index="0" name="env" type="RID" />
@@ -2410,6 +2419,16 @@
 			<param index="1" name="interior" type="bool" />
 			<description>
 				Sets whether the lightmap instance should be considered as interior (when [param interior] is [code]true[/code]). If the lightmap is marked as interior, environment lighting is ignored when baking lightmaps.
+			</description>
+		</method>
+		<method name="lightmap_set_tonal_levels">
+			<return type="void" />
+			<param index="0" name="lightmap" type="RID" />
+			<param index="1" name="black" type="Vector3" />
+			<param index="2" name="white" type="Vector3" />
+			<param index="3" name="gamma" type="Vector3" />
+			<description>
+				Sets luminance Levels for Shadows, Midtones, and Highlights (vector components x, y, z). Defaults are black 0, white 1, and gamma 1. White refers to the original texture maximum luminance. Each white point is kept at least 0.001 above black; gamma is clamped to 0.05 through 4. RGB proportions and HDR headroom are preserved.
 			</description>
 		</method>
 		<method name="lightmap_set_tonal_settings">

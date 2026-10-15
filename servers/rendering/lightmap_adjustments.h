@@ -50,5 +50,8 @@ struct LightmapAdjustments {
 	Color highlights_tint = Color(1, 1, 1);
 	Vector3 tonal_saturation = Vector3(1, 1, 1);
 	Vector3 tonal_contrast = Vector3(1, 1, 1);
+	Vector3 tonal_black_point;
+	Vector3 tonal_white_point = Vector3(1, 1, 1);
+	Vector3 tonal_gamma = Vector3(1, 1, 1);
 	int debug_mode = 0;
 };

@@ -210,6 +210,7 @@ public:
 	virtual float lightmap_get_specular_intensity(RID p_lightmap) override { return 0.0f; }
 	virtual void lightmap_set_adjustments_enabled(RID p_lightmap, bool p_enabled) override {}
 	virtual void lightmap_set_tonal_settings(RID p_lightmap, const Color &p_ranges, const Color &p_shadows_tint, const Color &p_midtones_tint, const Color &p_highlights_tint, const Vector3 &p_saturation, const Vector3 &p_contrast, int p_debug_mode) override {}
+	void lightmap_set_tonal_levels(RID p_lightmap, const Vector3 &p_black, const Vector3 &p_white, const Vector3 &p_gamma) override {}
 	virtual void lightmap_set_adjustments(RID p_lightmap, float p_energy, const Color &p_tint, float p_saturation, float p_contrast, float p_shadows, float p_midtones, float p_highlights, float p_directionality_strength) override {}
 	virtual void lightmap_set_specular_intensity(RID p_lightmap, float p_intensity) override {}
 

@@ -842,7 +842,7 @@ void RendererSceneRenderRD::_render_buffers_post_process_and_tonemap(const Rende
 				tonemap.shadows_end = environment_get_adjustment_shadows_end(env);
 				tonemap.highlights_start = environment_get_adjustment_highlights_start(env);
 				tonemap.highlights_end = environment_get_adjustment_highlights_end(env);
-				for (int i = 0; i < 10; i++) {
+				for (int i = 0; i < 12; i++) {
 					tonemap.tonal_correction[i] = environment_get_adjustment_tonal_correction(env, i);
 				}
 				tonemap.vibrance = environment_get_adjustment_vibrance(env);
@@ -906,7 +906,7 @@ void RendererSceneRenderRD::_render_buffers_post_process_and_tonemap(const Rende
 				tonemap.highlights_end = environment_get_adjustment_highlights_end(p_render_data->environment);
 				tonemap.use_chromatic_adaptation = environment_get_adjustment_white_balance_enabled(p_render_data->environment);
 				tonemap.white_balance_matrix = environment_get_adjustment_white_balance_matrix(p_render_data->environment);
-				for (int i = 0; i < 10; i++) {
+				for (int i = 0; i < 12; i++) {
 					tonemap.tonal_correction[i] = environment_get_adjustment_tonal_correction(p_render_data->environment, i);
 				}
 				RID hue_vs_hue = environment_get_adjustments_hue_vs_hue(p_render_data->environment);
@@ -1174,7 +1174,7 @@ void RendererSceneRenderRD::_post_process_subpass(RID p_source_texture, RID p_fr
 		tonemap.highlights_end = environment_get_adjustment_highlights_end(p_render_data->environment);
 		tonemap.use_chromatic_adaptation = environment_get_adjustment_white_balance_enabled(p_render_data->environment);
 		tonemap.white_balance_matrix = environment_get_adjustment_white_balance_matrix(p_render_data->environment);
-		for (int i = 0; i < 10; i++) {
+		for (int i = 0; i < 12; i++) {
 			tonemap.tonal_correction[i] = environment_get_adjustment_tonal_correction(p_render_data->environment, i);
 		}
 		RID hue_vs_hue = environment_get_adjustments_hue_vs_hue(p_render_data->environment);

@@ -1,5 +1,5 @@
 // Shared by the texture cache and per-pixel editor preview.
-vec3 lightmap_grade_color(vec3 light, vec4 data[11]) {
+vec3 lightmap_grade_color(vec3 light, vec4 data[14]) {
 	vec4 basic = data[4];
 	if (basic.y == 1.0 && basic.z == 0.0 && basic.w == 0.0) {
 		return vec3(dot(data[0].xyz, light), dot(data[1].xyz, light), dot(data[2].xyz, light));
@@ -43,6 +43,20 @@ vec3 lightmap_grade_color(vec3 light, vec4 data[11]) {
 	}
 	if (contrast != 1.0 && luminance > 0.00001) {
 		light *= 0.18 * pow(luminance / 0.18, contrast) / luminance;
+	}
+	if (basic.z != 0.0) {
+		float black = dot(data[11].xyz, weights);
+		float white = dot(data[12].xyz, weights);
+		float gamma = dot(data[13].xyz, weights);
+		if (black != 0.0 || white != 1.0 || gamma != 1.0) {
+			float current_luminance = dot(light, luminance_weights);
+			if (current_luminance > 0.0) {
+				float reference = max(data[11].w, 0.00001);
+				float leveled = max((current_luminance / reference - black) / max(white - black, 0.001), 0.0);
+				float target = min(reference * pow(leveled, 1.0 / max(gamma, 0.05)), 64512.0);
+				light = min((light / current_luminance) * target, vec3(64512.0));
+			}
+		}
 	}
 	return light * data[3].xyz;
 }

@@ -266,6 +266,7 @@ public:
 	void environment_set_adjustment_midtones_range(RID p_env, float p_shadows_start, float p_shadows_end, float p_midtones_start, float p_midtones_end, float p_highlights_start, float p_highlights_end);
 	void environment_set_adjustment_advance(RID p_env, bool p_enable);
 	void environment_set_adjustment_tonal_correction_colors(RID p_env, const Color &p_master, const Color &p_shadows, const Color &p_midtones, const Color &p_highlights);
+	void environment_set_adjustment_tonal_levels(RID p_env, const Vector4 &p_black, const Vector4 &p_white);
 	void environment_set_adjustment_tonal_correction(RID p_env, const Vector4 &p_master, const Vector4 &p_shadows, const Vector4 &p_midtones, const Vector4 &p_highlights, const Vector4 &p_lift, const Vector4 &p_controls);
 	Vector4 environment_get_adjustment_tonal_correction(RID p_env, int p_index) const;
 	void environment_set_adjustment_curves(RID p_env, RID p_hue_vs_hue, RID p_hue_vs_saturation, RID p_saturation_vs_saturation, RID p_luminance_vs_saturation, uint32_t p_flags);

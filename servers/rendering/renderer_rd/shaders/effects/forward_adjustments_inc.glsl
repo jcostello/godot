@@ -3,7 +3,7 @@
 #ifdef USE_FORWARD_GRADING
 layout(set = 4, binding = 0, std140) uniform ForwardGradingData {
 	vec4 limits;
-	vec4 correction[10];
+	vec4 correction[12];
 	vec4 extra; // Vibrance, vignette strength, vignette start/end.
 	vec4 controls; // Curve flags, active module flags, LUT dimension, correction pivot logit.
 } forward_grading;
@@ -79,6 +79,7 @@ vec3 forward_adjustments_pre(vec3 color, vec2 uv, out vec3 correction_weights) {
 		if (use_forward_correction_contrast && parameters.y != 1.0) {
 			color = vec3(forward_correction_contrast_channel(color.r, parameters.y), forward_correction_contrast_channel(color.g, parameters.y), forward_correction_contrast_channel(color.b, parameters.y));
 		}
+		color = grading_tonal_levels(color, correction_weights, forward_grading.correction);
 		if (use_forward_correction_lgg) {
 			float lift = forward_grading.correction[4].x;
 			if (use_forward_correction_weights) {

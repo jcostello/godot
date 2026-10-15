@@ -1381,6 +1381,7 @@ public:
 	PASS7(environment_set_adjustment_midtones_range, RID, float, float, float, float, float, float)
 	PASS2(environment_set_adjustment_advance, RID, bool)
 	PASS5(environment_set_adjustment_tonal_correction_colors, RID, const Color &, const Color &, const Color &, const Color &)
+	PASS3(environment_set_adjustment_tonal_levels, RID, const Vector4 &, const Vector4 &)
 	PASS7(environment_set_adjustment_tonal_correction, RID, const Vector4 &, const Vector4 &, const Vector4 &, const Vector4 &, const Vector4 &, const Vector4 &)
 	PASS2RC(Vector4, environment_get_adjustment_tonal_correction, RID, int)
 	PASS6(environment_set_adjustment_curves, RID, RID, RID, RID, RID, uint32_t)

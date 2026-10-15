@@ -462,6 +462,7 @@ public:
 	virtual void set_deferred_drag_mode_enabled(bool p_enabled = true) override;
 	virtual void update_property() override;
 	void setup(const EditorPropertyRangeHint &p_range_hint);
+	void set_slider_power(double p_power, bool p_reversed = false);
 	EditorPropertyFloat();
 };
 

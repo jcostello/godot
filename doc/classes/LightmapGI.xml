@@ -92,17 +92,26 @@
 		<member name="highlights" type="float" setter="set_highlights" getter="get_highlights" default="0.0">
 			Runtime exposure adjustment for bright baked lighting, in stops, from [code]-4.0[/code] to [code]4.0[/code]. Positive values brighten and negative values darken. The highlight weight increases smoothly between [member tonal_highlights_start] and [member tonal_midtones_end], using luminance normalized between the original texture minimum and maximum. Preserves HDR values. Does not require rebaking.
 		</member>
+		<member name="highlights_black_point" type="float" setter="set_highlights_black_point" getter="get_highlights_black_point" default="0.0">
+			Input luminance mapped to black in this tonal range. Raising it deepens shadows. The value is kept at least 0.001 below the white point. A value of 0 is neutral. Levels use the maximum luminance of the original lightmap texture as white (1), preserve RGB proportions, and use the original tonal masks. No rebake is required.
+		</member>
 		<member name="highlights_contrast" type="float" setter="set_highlights_contrast" getter="get_highlights_contrast" default="1.0">
 			Runtime contrast multiplier for the highlights range, from [code]0.0[/code] to [code]4.0[/code]. [code]1.0[/code] is neutral. The three range controls blend smoothly, then multiply global [member contrast], with the combined exponent capped at [code]4.0[/code]. The pivot is fixed at linear luminance [code]0.18[/code]. Does not require rebaking.
 		</member>
 		<member name="highlights_exposure" type="float" setter="set_highlights" getter="get_highlights" default="0.0">
 			Inspector alias for [member highlights], expressed in exposure stops. Both properties modify the same value; scenes serialize [member highlights] for compatibility.
 		</member>
+		<member name="highlights_gamma" type="float" setter="set_highlights_gamma" getter="get_highlights_gamma" default="1.0">
+			Adjusts intermediate luminance after the black and white points using a power of 1 / Gamma. Values above 1 brighten the range; values below 1 darken it. A value of 1 is neutral. Levels use the maximum luminance of the original lightmap texture as white (1), preserve RGB proportions, and use the original tonal masks. No rebake is required.
+		</member>
 		<member name="highlights_saturation" type="float" setter="set_highlights_saturation" getter="get_highlights_saturation" default="1.0">
 			Runtime saturation multiplier for the highlights range, from [code]0.0[/code] (grayscale) to [code]4.0[/code]. [code]1.0[/code] is neutral. The three range controls blend smoothly; ranges are selected from the texture color after global saturation and before per-range adjustments. Does not require rebaking.
 		</member>
 		<member name="highlights_tint" type="Color" setter="set_highlights_tint" getter="get_highlights_tint" default="Color(1, 1, 1, 1)">
 			Runtime color multiplier for the highlights range of baked lighting. Converted from sRGB to linear space; alpha is ignored. White is neutral. The three range tints blend smoothly using the luminance ranges defined by the four tonal range boundaries. Applies after per-range saturation and contrast and before global [member tint] and [member energy]. Does not require rebaking.
+		</member>
+		<member name="highlights_white_point" type="float" setter="set_highlights_white_point" getter="get_highlights_white_point" default="1.0">
+			Input luminance mapped to white in this tonal range. Lowering it brightens the range. The value is kept at least 0.001 above the black point. A value of 1 is neutral. Values above white retain HDR headroom. Levels use the maximum luminance of the original lightmap texture as white (1), preserve RGB proportions, and use the original tonal masks. No rebake is required.
 		</member>
 		<member name="interior" type="bool" setter="set_interior" getter="is_interior" default="false">
 			If [code]true[/code], ignore environment lighting when baking lightmaps.
@@ -116,17 +125,26 @@
 		<member name="midtones" type="float" setter="set_midtones" getter="get_midtones" default="0.0">
 			Runtime exposure adjustment for medium luminance baked lighting, in stops, from [code]-4.0[/code] to [code]4.0[/code]. Positive values brighten and negative values darken. Its weight is the remainder after the smoothly blended [member shadows] and [member highlights] weights. Does not require rebaking.
 		</member>
+		<member name="midtones_black_point" type="float" setter="set_midtones_black_point" getter="get_midtones_black_point" default="0.0">
+			Input luminance mapped to black in this tonal range. Raising it deepens shadows. The value is kept at least 0.001 below the white point. A value of 0 is neutral. Levels use the maximum luminance of the original lightmap texture as white (1), preserve RGB proportions, and use the original tonal masks. No rebake is required.
+		</member>
 		<member name="midtones_contrast" type="float" setter="set_midtones_contrast" getter="get_midtones_contrast" default="1.0">
 			Runtime contrast multiplier for the midtones range, from [code]0.0[/code] to [code]4.0[/code]. [code]1.0[/code] is neutral. The three range controls blend smoothly, then multiply global [member contrast], with the combined exponent capped at [code]4.0[/code]. The pivot is fixed at linear luminance [code]0.18[/code]. Does not require rebaking.
 		</member>
 		<member name="midtones_exposure" type="float" setter="set_midtones" getter="get_midtones" default="0.0">
 			Inspector alias for [member midtones], expressed in exposure stops. Both properties modify the same value; scenes serialize [member midtones] for compatibility.
 		</member>
+		<member name="midtones_gamma" type="float" setter="set_midtones_gamma" getter="get_midtones_gamma" default="1.0">
+			Adjusts intermediate luminance after the black and white points using a power of 1 / Gamma. Values above 1 brighten the range; values below 1 darken it. A value of 1 is neutral. Levels use the maximum luminance of the original lightmap texture as white (1), preserve RGB proportions, and use the original tonal masks. No rebake is required.
+		</member>
 		<member name="midtones_saturation" type="float" setter="set_midtones_saturation" getter="get_midtones_saturation" default="1.0">
 			Runtime saturation multiplier for the midtones range, from [code]0.0[/code] (grayscale) to [code]4.0[/code]. [code]1.0[/code] is neutral. The three range controls blend smoothly; ranges are selected from the texture color after global saturation and before per-range adjustments. Does not require rebaking.
 		</member>
 		<member name="midtones_tint" type="Color" setter="set_midtones_tint" getter="get_midtones_tint" default="Color(1, 1, 1, 1)">
 			Runtime color multiplier for the midtones range of baked lighting. Converted from sRGB to linear space; alpha is ignored. White is neutral. The three range tints blend smoothly using the luminance ranges defined by the four tonal range boundaries. Applies after per-range saturation and contrast and before global [member tint] and [member energy]. Does not require rebaking.
+		</member>
+		<member name="midtones_white_point" type="float" setter="set_midtones_white_point" getter="get_midtones_white_point" default="1.0">
+			Input luminance mapped to white in this tonal range. Lowering it brightens the range. The value is kept at least 0.001 above the black point. A value of 1 is neutral. Values above white retain HDR headroom. Levels use the maximum luminance of the original lightmap texture as white (1), preserve RGB proportions, and use the original tonal masks. No rebake is required.
 		</member>
 		<member name="quality" type="int" setter="set_bake_quality" getter="get_bake_quality" enum="LightmapGI.BakeQuality" default="1">
 			The quality preset to use when baking lightmaps. This affects bake times, but output file sizes remain mostly identical across quality levels.
@@ -144,17 +162,26 @@
 		<member name="shadows" type="float" setter="set_shadows" getter="get_shadows" default="0.0">
 			Runtime exposure adjustment for dark baked lighting, in stops, from [code]-4.0[/code] to [code]4.0[/code]. Positive values brighten and negative values darken. The shadow weight fades out smoothly between [member tonal_midtones_start] and [member tonal_shadows_end], using luminance normalized between the original texture minimum and maximum. Does not create illumination in completely black areas or require rebaking.
 		</member>
+		<member name="shadows_black_point" type="float" setter="set_shadows_black_point" getter="get_shadows_black_point" default="0.0">
+			Input luminance mapped to black in this tonal range. Raising it deepens shadows. The value is kept at least 0.001 below the white point. A value of 0 is neutral. Levels use the maximum luminance of the original lightmap texture as white (1), preserve RGB proportions, and use the original tonal masks. No rebake is required.
+		</member>
 		<member name="shadows_contrast" type="float" setter="set_shadows_contrast" getter="get_shadows_contrast" default="1.0">
 			Runtime contrast multiplier for the shadows range, from [code]0.0[/code] to [code]4.0[/code]. [code]1.0[/code] is neutral. The three range controls blend smoothly, then multiply global [member contrast], with the combined exponent capped at [code]4.0[/code]. The pivot is fixed at linear luminance [code]0.18[/code]. Does not require rebaking.
 		</member>
 		<member name="shadows_exposure" type="float" setter="set_shadows" getter="get_shadows" default="0.0">
 			Inspector alias for [member shadows], expressed in exposure stops. Both properties modify the same value; scenes serialize [member shadows] for compatibility.
 		</member>
+		<member name="shadows_gamma" type="float" setter="set_shadows_gamma" getter="get_shadows_gamma" default="1.0">
+			Adjusts intermediate luminance after the black and white points using a power of 1 / Gamma. Values above 1 brighten the range; values below 1 darken it. A value of 1 is neutral. Levels use the maximum luminance of the original lightmap texture as white (1), preserve RGB proportions, and use the original tonal masks. No rebake is required.
+		</member>
 		<member name="shadows_saturation" type="float" setter="set_shadows_saturation" getter="get_shadows_saturation" default="1.0">
 			Runtime saturation multiplier for the shadows range, from [code]0.0[/code] (grayscale) to [code]4.0[/code]. [code]1.0[/code] is neutral. The three range controls blend smoothly; ranges are selected from the texture color after global saturation and before per-range adjustments. Does not require rebaking.
 		</member>
 		<member name="shadows_tint" type="Color" setter="set_shadows_tint" getter="get_shadows_tint" default="Color(1, 1, 1, 1)">
 			Runtime color multiplier for the shadows range of baked lighting. Converted from sRGB to linear space; alpha is ignored. White is neutral. The three range tints blend smoothly using the luminance ranges defined by the four tonal range boundaries. Applies after per-range saturation and contrast and before global [member tint] and [member energy]. Does not require rebaking.
+		</member>
+		<member name="shadows_white_point" type="float" setter="set_shadows_white_point" getter="get_shadows_white_point" default="1.0">
+			Input luminance mapped to white in this tonal range. Lowering it brightens the range. The value is kept at least 0.001 above the black point. A value of 1 is neutral. Values above white retain HDR headroom. Levels use the maximum luminance of the original lightmap texture as white (1), preserve RGB proportions, and use the original tonal masks. No rebake is required.
 		</member>
 		<member name="specular_intensity" type="float" setter="set_specular_intensity" getter="get_specular_intensity" default="0.0">
 			The strength of the lightmap's approximated specular lobe. This helps make lightmapped scenes look closer to real-time lighting, which is particularly noticeable for lights that use the [constant Light3D.BAKE_STATIC] bake mode. Only effective if [member directional] is [code]true[/code].

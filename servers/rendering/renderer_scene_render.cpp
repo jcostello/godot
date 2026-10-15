@@ -630,6 +630,10 @@ void RendererSceneRender::environment_set_adjustment_advance(RID p_env, bool p_e
 	environment_storage.environment_set_adjustment_advance(p_env, p_enable);
 }
 
+void RendererSceneRender::environment_set_adjustment_tonal_levels(RID p_env, const Vector4 &p_black, const Vector4 &p_white) {
+	environment_storage.environment_set_adjustment_tonal_levels(p_env, p_black, p_white);
+}
+
 void RendererSceneRender::environment_set_adjustment_tonal_correction_colors(RID p_env, const Color &p_master, const Color &p_shadows, const Color &p_midtones, const Color &p_highlights) {
 	environment_storage.environment_set_adjustment_tonal_correction_colors(p_env, p_master, p_shadows, p_midtones, p_highlights);
 }

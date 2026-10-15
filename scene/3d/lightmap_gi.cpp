@@ -2174,6 +2174,36 @@ Ref<CameraAttributes> LightmapGI::get_camera_attributes() const {
 	return camera_attributes;
 }
 
+void LightmapGI::set_shadows_black_point(float p_value) {
+	ERR_FAIL_COND(!Math::is_finite(p_value));
+	adjustments.tonal_black_point[0] = CLAMP(p_value, 0.0f, adjustments.tonal_white_point[0] - 0.001f);
+	_update_color_adjustments();
+}
+
+float LightmapGI::get_shadows_black_point() const {
+	return adjustments.tonal_black_point[0];
+}
+
+void LightmapGI::set_shadows_white_point(float p_value) {
+	ERR_FAIL_COND(!Math::is_finite(p_value));
+	adjustments.tonal_white_point[0] = CLAMP(p_value, adjustments.tonal_black_point[0] + 0.001f, 1.0f);
+	_update_color_adjustments();
+}
+
+float LightmapGI::get_shadows_white_point() const {
+	return adjustments.tonal_white_point[0];
+}
+
+void LightmapGI::set_shadows_gamma(float p_value) {
+	ERR_FAIL_COND(!Math::is_finite(p_value));
+	adjustments.tonal_gamma[0] = CLAMP(p_value, 0.05f, 4.0f);
+	_update_color_adjustments();
+}
+
+float LightmapGI::get_shadows_gamma() const {
+	return adjustments.tonal_gamma[0];
+}
+
 void LightmapGI::set_shadows_saturation(float p_value) {
 	ERR_FAIL_COND(!Math::is_finite(p_value) || p_value < 0.0f || p_value > 4.0f);
 	if (adjustments.tonal_saturation[0] == p_value) {
@@ -2200,6 +2230,36 @@ float LightmapGI::get_shadows_contrast() const {
 	return adjustments.tonal_contrast[0];
 }
 
+void LightmapGI::set_midtones_black_point(float p_value) {
+	ERR_FAIL_COND(!Math::is_finite(p_value));
+	adjustments.tonal_black_point[1] = CLAMP(p_value, 0.0f, adjustments.tonal_white_point[1] - 0.001f);
+	_update_color_adjustments();
+}
+
+float LightmapGI::get_midtones_black_point() const {
+	return adjustments.tonal_black_point[1];
+}
+
+void LightmapGI::set_midtones_white_point(float p_value) {
+	ERR_FAIL_COND(!Math::is_finite(p_value));
+	adjustments.tonal_white_point[1] = CLAMP(p_value, adjustments.tonal_black_point[1] + 0.001f, 1.0f);
+	_update_color_adjustments();
+}
+
+float LightmapGI::get_midtones_white_point() const {
+	return adjustments.tonal_white_point[1];
+}
+
+void LightmapGI::set_midtones_gamma(float p_value) {
+	ERR_FAIL_COND(!Math::is_finite(p_value));
+	adjustments.tonal_gamma[1] = CLAMP(p_value, 0.05f, 4.0f);
+	_update_color_adjustments();
+}
+
+float LightmapGI::get_midtones_gamma() const {
+	return adjustments.tonal_gamma[1];
+}
+
 void LightmapGI::set_midtones_saturation(float p_value) {
 	ERR_FAIL_COND(!Math::is_finite(p_value) || p_value < 0.0f || p_value > 4.0f);
 	if (adjustments.tonal_saturation[1] == p_value) {
@@ -2224,6 +2284,36 @@ void LightmapGI::set_midtones_contrast(float p_value) {
 
 float LightmapGI::get_midtones_contrast() const {
 	return adjustments.tonal_contrast[1];
+}
+
+void LightmapGI::set_highlights_black_point(float p_value) {
+	ERR_FAIL_COND(!Math::is_finite(p_value));
+	adjustments.tonal_black_point[2] = CLAMP(p_value, 0.0f, adjustments.tonal_white_point[2] - 0.001f);
+	_update_color_adjustments();
+}
+
+float LightmapGI::get_highlights_black_point() const {
+	return adjustments.tonal_black_point[2];
+}
+
+void LightmapGI::set_highlights_white_point(float p_value) {
+	ERR_FAIL_COND(!Math::is_finite(p_value));
+	adjustments.tonal_white_point[2] = CLAMP(p_value, adjustments.tonal_black_point[2] + 0.001f, 1.0f);
+	_update_color_adjustments();
+}
+
+float LightmapGI::get_highlights_white_point() const {
+	return adjustments.tonal_white_point[2];
+}
+
+void LightmapGI::set_highlights_gamma(float p_value) {
+	ERR_FAIL_COND(!Math::is_finite(p_value));
+	adjustments.tonal_gamma[2] = CLAMP(p_value, 0.05f, 4.0f);
+	_update_color_adjustments();
+}
+
+float LightmapGI::get_highlights_gamma() const {
+	return adjustments.tonal_gamma[2];
 }
 
 void LightmapGI::set_highlights_saturation(float p_value) {
@@ -2364,6 +2454,7 @@ void LightmapGI::_update_color_adjustments() {
 	const RID lightmap = light_data->get_rid();
 	RS::get_singleton()->lightmap_set_adjustments(lightmap, adjustments.energy, adjustments.tint, adjustments.saturation, adjustments.contrast, adjustments.shadows, adjustments.midtones, adjustments.highlights, 1.0f);
 	RS::get_singleton()->lightmap_set_tonal_settings(lightmap, adjustments.tonal_ranges, adjustments.shadows_tint, adjustments.midtones_tint, adjustments.highlights_tint, adjustments.tonal_saturation, adjustments.tonal_contrast, adjustments.debug_mode);
+	RS::get_singleton()->lightmap_set_tonal_levels(lightmap, adjustments.tonal_black_point, adjustments.tonal_white_point, adjustments.tonal_gamma);
 	RS::get_singleton()->lightmap_set_adjustments_enabled(lightmap, adjustments.enabled);
 }
 
@@ -2676,14 +2767,32 @@ void LightmapGI::_bind_methods() {
 	BIND_ENUM_CONSTANT(DEBUG_HIGHLIGHTS);
 
 	ClassDB::bind_method(D_METHOD("set_shadows_saturation", "value"), &LightmapGI::set_shadows_saturation);
+	ClassDB::bind_method(D_METHOD("set_shadows_gamma", "value"), &LightmapGI::set_shadows_gamma);
+	ClassDB::bind_method(D_METHOD("get_shadows_gamma"), &LightmapGI::get_shadows_gamma);
+	ClassDB::bind_method(D_METHOD("set_shadows_white_point", "value"), &LightmapGI::set_shadows_white_point);
+	ClassDB::bind_method(D_METHOD("get_shadows_white_point"), &LightmapGI::get_shadows_white_point);
+	ClassDB::bind_method(D_METHOD("set_shadows_black_point", "value"), &LightmapGI::set_shadows_black_point);
+	ClassDB::bind_method(D_METHOD("get_shadows_black_point"), &LightmapGI::get_shadows_black_point);
 	ClassDB::bind_method(D_METHOD("get_shadows_saturation"), &LightmapGI::get_shadows_saturation);
 	ClassDB::bind_method(D_METHOD("set_shadows_contrast", "value"), &LightmapGI::set_shadows_contrast);
 	ClassDB::bind_method(D_METHOD("get_shadows_contrast"), &LightmapGI::get_shadows_contrast);
 	ClassDB::bind_method(D_METHOD("set_midtones_saturation", "value"), &LightmapGI::set_midtones_saturation);
+	ClassDB::bind_method(D_METHOD("set_midtones_gamma", "value"), &LightmapGI::set_midtones_gamma);
+	ClassDB::bind_method(D_METHOD("get_midtones_gamma"), &LightmapGI::get_midtones_gamma);
+	ClassDB::bind_method(D_METHOD("set_midtones_white_point", "value"), &LightmapGI::set_midtones_white_point);
+	ClassDB::bind_method(D_METHOD("get_midtones_white_point"), &LightmapGI::get_midtones_white_point);
+	ClassDB::bind_method(D_METHOD("set_midtones_black_point", "value"), &LightmapGI::set_midtones_black_point);
+	ClassDB::bind_method(D_METHOD("get_midtones_black_point"), &LightmapGI::get_midtones_black_point);
 	ClassDB::bind_method(D_METHOD("get_midtones_saturation"), &LightmapGI::get_midtones_saturation);
 	ClassDB::bind_method(D_METHOD("set_midtones_contrast", "value"), &LightmapGI::set_midtones_contrast);
 	ClassDB::bind_method(D_METHOD("get_midtones_contrast"), &LightmapGI::get_midtones_contrast);
 	ClassDB::bind_method(D_METHOD("set_highlights_saturation", "value"), &LightmapGI::set_highlights_saturation);
+	ClassDB::bind_method(D_METHOD("set_highlights_gamma", "value"), &LightmapGI::set_highlights_gamma);
+	ClassDB::bind_method(D_METHOD("get_highlights_gamma"), &LightmapGI::get_highlights_gamma);
+	ClassDB::bind_method(D_METHOD("set_highlights_white_point", "value"), &LightmapGI::set_highlights_white_point);
+	ClassDB::bind_method(D_METHOD("get_highlights_white_point"), &LightmapGI::get_highlights_white_point);
+	ClassDB::bind_method(D_METHOD("set_highlights_black_point", "value"), &LightmapGI::set_highlights_black_point);
+	ClassDB::bind_method(D_METHOD("get_highlights_black_point"), &LightmapGI::get_highlights_black_point);
 	ClassDB::bind_method(D_METHOD("get_highlights_saturation"), &LightmapGI::get_highlights_saturation);
 	ClassDB::bind_method(D_METHOD("set_highlights_contrast", "value"), &LightmapGI::set_highlights_contrast);
 	ClassDB::bind_method(D_METHOD("get_highlights_contrast"), &LightmapGI::get_highlights_contrast);
@@ -2723,16 +2832,25 @@ void LightmapGI::_bind_methods() {
 	ADD_PROPERTY(PropertyInfo(Variant::COLOR, "shadows_tint", PROPERTY_HINT_COLOR_NO_ALPHA), "set_shadows_tint", "get_shadows_tint");
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "shadows_saturation", PROPERTY_HINT_RANGE, "0,4,0.01"), "set_shadows_saturation", "get_shadows_saturation");
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "shadows_contrast", PROPERTY_HINT_RANGE, "0,4,0.01"), "set_shadows_contrast", "get_shadows_contrast");
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "shadows_black_point", PROPERTY_HINT_RANGE, "0,0.1,0.0001,or_greater"), "set_shadows_black_point", "get_shadows_black_point");
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "shadows_white_point", PROPERTY_HINT_RANGE, "0,1,0.001"), "set_shadows_white_point", "get_shadows_white_point");
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "shadows_gamma", PROPERTY_HINT_RANGE, "0.05,4,0.01"), "set_shadows_gamma", "get_shadows_gamma");
 	ADD_SUBGROUP("Midtones", "midtones_");
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "midtones_exposure", PROPERTY_HINT_RANGE, "-4,4,0.01,suffix:EV", PROPERTY_USAGE_EDITOR), "set_midtones", "get_midtones");
 	ADD_PROPERTY(PropertyInfo(Variant::COLOR, "midtones_tint", PROPERTY_HINT_COLOR_NO_ALPHA), "set_midtones_tint", "get_midtones_tint");
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "midtones_saturation", PROPERTY_HINT_RANGE, "0,4,0.01"), "set_midtones_saturation", "get_midtones_saturation");
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "midtones_contrast", PROPERTY_HINT_RANGE, "0,4,0.01"), "set_midtones_contrast", "get_midtones_contrast");
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "midtones_black_point", PROPERTY_HINT_RANGE, "0,0.1,0.0001,or_greater"), "set_midtones_black_point", "get_midtones_black_point");
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "midtones_white_point", PROPERTY_HINT_RANGE, "0,1,0.001"), "set_midtones_white_point", "get_midtones_white_point");
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "midtones_gamma", PROPERTY_HINT_RANGE, "0.05,4,0.01"), "set_midtones_gamma", "get_midtones_gamma");
 	ADD_SUBGROUP("Highlights", "highlights_");
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "highlights_exposure", PROPERTY_HINT_RANGE, "-4,4,0.01,suffix:EV", PROPERTY_USAGE_EDITOR), "set_highlights", "get_highlights");
 	ADD_PROPERTY(PropertyInfo(Variant::COLOR, "highlights_tint", PROPERTY_HINT_COLOR_NO_ALPHA), "set_highlights_tint", "get_highlights_tint");
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "highlights_saturation", PROPERTY_HINT_RANGE, "0,4,0.01"), "set_highlights_saturation", "get_highlights_saturation");
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "highlights_contrast", PROPERTY_HINT_RANGE, "0,4,0.01"), "set_highlights_contrast", "get_highlights_contrast");
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "highlights_black_point", PROPERTY_HINT_RANGE, "0,0.1,0.0001,or_greater"), "set_highlights_black_point", "get_highlights_black_point");
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "highlights_white_point", PROPERTY_HINT_RANGE, "0,1,0.001"), "set_highlights_white_point", "get_highlights_white_point");
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "highlights_gamma", PROPERTY_HINT_RANGE, "0.05,4,0.01"), "set_highlights_gamma", "get_highlights_gamma");
 
 	ADD_GROUP("Tweaks", "");
 	ADD_PROPERTY(PropertyInfo(Variant::INT, "quality", PROPERTY_HINT_ENUM, "Low,Medium,High,Ultra"), "set_bake_quality", "get_bake_quality");

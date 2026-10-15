@@ -42,6 +42,10 @@ class Environment : public Resource {
 	GDCLASS(Environment, Resource);
 
 public:
+	enum WhiteBalanceMethod {
+		WHITE_BALANCE_METHOD_LEVELS,
+		WHITE_BALANCE_METHOD_NEUTRAL_COLOR,
+	};
 	enum WhiteBalanceMode {
 		WHITE_BALANCE_LEGACY,
 		WHITE_BALANCE_CHROMATIC_ADAPTATION,
@@ -231,6 +235,8 @@ private:
 	float volumetric_fog_temporal_reproject_amount = 0.9;
 	void _update_volumetric_fog();
 
+	WhiteBalanceMethod adjustment_white_balance_method = WHITE_BALANCE_METHOD_LEVELS;
+	Color adjustment_neutral_color = Color(1, 1, 1);
 	bool white_balance_enabled = false;
 	bool adjustment_color_grading_enabled = false;
 	bool adjustment_curves_enabled = false;
@@ -274,6 +280,8 @@ private:
 	Vector4 adjustment_correction_parameters[4] = { Vector4(1, 1, 1, 1), Vector4(1, 1, 1, 1), Vector4(1, 1, 1, 1), Vector4(1, 1, 1, 1) };
 	Color adjustment_correction_colors[4] = { Color(1, 1, 1), Color(1, 1, 1), Color(1, 1, 1), Color(1, 1, 1) };
 	Vector4 adjustment_correction_lift;
+	Vector4 adjustment_correction_black_point;
+	Vector4 adjustment_correction_white_point = Vector4(1, 1, 1, 1);
 	void _set_tonal_correction_parameter(int p_range, int p_parameter, float p_value);
 	float _get_tonal_correction_parameter(int p_range, int p_parameter) const;
 	void _update_tonal_correction();
@@ -540,6 +548,11 @@ public:
 	float get_adjustment_saturation() const;
 	void set_adjustment_color_grading_enabled(bool p_enabled);
 	bool is_adjustment_color_grading_enabled() const;
+	void set_adjustment_white_balance_method(WhiteBalanceMethod p_method);
+	WhiteBalanceMethod get_adjustment_white_balance_method() const;
+	void set_adjustment_neutral_color(const Color &p_color);
+	Color get_adjustment_neutral_color() const;
+
 	void set_white_balance_enabled(bool p_enabled);
 	bool is_white_balance_enabled() const;
 	void set_adjustment_curves_enabled(bool p_enabled);
@@ -610,6 +623,10 @@ public:
 	bool is_adjustment_correction_enabled() const;
 	void set_adjustment_correction_preview(ColorCorrectionPreview p_preview);
 	ColorCorrectionPreview get_adjustment_correction_preview() const;
+	void set_adjustment_correction_master_black_point(float p_value);
+	float get_adjustment_correction_master_black_point() const;
+	void set_adjustment_correction_master_white_point(float p_value);
+	float get_adjustment_correction_master_white_point() const;
 	void set_adjustment_correction_master_saturation(float p_value);
 	float get_adjustment_correction_master_saturation() const;
 	void set_adjustment_correction_master_contrast(float p_value);
@@ -620,6 +637,10 @@ public:
 	float get_adjustment_correction_master_gain() const;
 	void set_adjustment_correction_master_lift(float p_value);
 	float get_adjustment_correction_master_lift() const;
+	void set_adjustment_correction_shadows_black_point(float p_value);
+	float get_adjustment_correction_shadows_black_point() const;
+	void set_adjustment_correction_shadows_white_point(float p_value);
+	float get_adjustment_correction_shadows_white_point() const;
 	void set_adjustment_correction_shadows_saturation(float p_value);
 	float get_adjustment_correction_shadows_saturation() const;
 	void set_adjustment_correction_shadows_contrast(float p_value);
@@ -630,6 +651,10 @@ public:
 	float get_adjustment_correction_shadows_gain() const;
 	void set_adjustment_correction_shadows_lift(float p_value);
 	float get_adjustment_correction_shadows_lift() const;
+	void set_adjustment_correction_midtones_black_point(float p_value);
+	float get_adjustment_correction_midtones_black_point() const;
+	void set_adjustment_correction_midtones_white_point(float p_value);
+	float get_adjustment_correction_midtones_white_point() const;
 	void set_adjustment_correction_midtones_saturation(float p_value);
 	float get_adjustment_correction_midtones_saturation() const;
 	void set_adjustment_correction_midtones_contrast(float p_value);
@@ -640,6 +665,10 @@ public:
 	float get_adjustment_correction_midtones_gain() const;
 	void set_adjustment_correction_midtones_lift(float p_value);
 	float get_adjustment_correction_midtones_lift() const;
+	void set_adjustment_correction_highlights_black_point(float p_value);
+	float get_adjustment_correction_highlights_black_point() const;
+	void set_adjustment_correction_highlights_white_point(float p_value);
+	float get_adjustment_correction_highlights_white_point() const;
 	void set_adjustment_correction_highlights_saturation(float p_value);
 	float get_adjustment_correction_highlights_saturation() const;
 	void set_adjustment_correction_highlights_contrast(float p_value);
@@ -690,6 +719,7 @@ public:
 };
 
 VARIANT_ENUM_CAST(Environment::ColorCorrectionPreview)
+VARIANT_ENUM_CAST(Environment::WhiteBalanceMethod);
 VARIANT_ENUM_CAST(Environment::WhiteBalanceMode);
 
 VARIANT_ENUM_CAST(Environment::BGMode)

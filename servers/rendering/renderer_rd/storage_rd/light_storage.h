@@ -358,7 +358,7 @@ private:
 		static constexpr int PROBE_VOLUME_MIN_SIZE = 4;
 
 		LightmapAdjustments color_adjustments;
-		float color_adjustment_data[11][4] = {};
+		float color_adjustment_data[14][4] = {};
 		uint32_t color_adjustment_flags = 0;
 		bool color_texture_dirty = true;
 		RID color_texture;
@@ -1054,6 +1054,7 @@ public:
 	void lightmap_set_adjustments_enabled(RID p_lightmap, bool p_enabled) override;
 	void lightmap_set_adjustments(RID p_lightmap, float p_energy, const Color &p_tint, float p_saturation, float p_contrast, float p_shadows, float p_midtones, float p_highlights, float p_directionality_strength) override;
 	void lightmap_set_tonal_settings(RID p_lightmap, const Color &p_ranges, const Color &p_shadows_tint, const Color &p_midtones_tint, const Color &p_highlights_tint, const Vector3 &p_saturation, const Vector3 &p_contrast, int p_debug_mode) override;
+	void lightmap_set_tonal_levels(RID p_lightmap, const Vector3 &p_black, const Vector3 &p_white, const Vector3 &p_gamma) override;
 	uint32_t lightmap_prepare_color_texture(RID p_lightmap);
 	RID lightmap_get_color_texture(RID p_lightmap) const;
 	uint32_t lightmap_get_editor_color_adjustments(RID p_lightmap, float *r_data) const;

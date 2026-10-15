@@ -79,6 +79,10 @@ private:
 	ControlState control_state = CONTROL_STATE_DEFAULT;
 	bool flat = false;
 	bool editing_integer = false;
+	double slider_power = 1.0;
+	bool slider_power_reversed = false;
+	double _get_slider_ratio(double p_value) const;
+	double _get_slider_value(double p_ratio) const;
 
 	void _grab_start();
 	void _grab_end();
@@ -153,6 +157,7 @@ public:
 	void set_read_only(bool p_enable);
 	bool is_read_only() const;
 
+	void set_slider_power(double p_power, bool p_reversed = false);
 	void set_flat(bool p_enable);
 	bool is_flat() const;
 

@@ -52,7 +52,7 @@ layout(set = 0, binding = 8, std140) uniform GradingData {
 	vec4 white_balance_0;
 	vec4 white_balance_1;
 	vec4 white_balance_2;
-	vec4 tonal_correction[10];
+	vec4 tonal_correction[12];
 } grading;
 
 // All uniforms must be on set 0 to prevent MSAA from crashing Mali GPUs. See GH-114785.

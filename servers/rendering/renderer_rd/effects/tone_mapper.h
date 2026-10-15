@@ -158,19 +158,19 @@ public:
 	struct TonemapSettings;
 	struct MobileGradingData {
 		float white_balance[3][4]; // Three rows; first row alpha enables chromatic adaptation.
-		float tonal_correction[10][4]; // Four ranges, lift, controls and four linear RGB colors.
+		float tonal_correction[12][4]; // Four ranges, lift, controls, four linear RGB colors, and black/white points.
 	};
 
 private:
-	static_assert(sizeof(MobileGradingData) == 208, "MobileGradingData must match the shader layout.");
+	static_assert(sizeof(MobileGradingData) == 240, "MobileGradingData must match the shader layout.");
 	static_assert(sizeof(TonemapPushConstant) == 128, "TonemapPushConstant must match the shader layout.");
 	static_assert(sizeof(TonemapPushConstantMobile) == 152, "TonemapPushConstantMobile must match the shader layout.");
 	// Mobile and Forward+ use separate grading buffers.
 	MultiUmaBuffer<1, 8> mobile_grading_buffers = MultiUmaBuffer<1, 8>("ToneMapper::mobile_grading_buffers");
 	struct ForwardGradingData {
-		float rows[13][4] = {};
+		float rows[15][4] = {};
 	};
-	static_assert(sizeof(ForwardGradingData) == 208, "Forward grading UBO must match the shader layout.");
+	static_assert(sizeof(ForwardGradingData) == 240, "Forward grading UBO must match the shader layout.");
 	float cached_correction_pivot = -1.0f;
 	float cached_correction_logit = 0.0f;
 	float cached_soft_contrast = -1.0f;
@@ -250,7 +250,7 @@ public:
 		Vector3 forward_white_balance_offset;
 		bool use_chromatic_adaptation = false;
 		Basis white_balance_matrix;
-		Vector4 tonal_correction[10] = { Vector4(1, 1, 1, 1), Vector4(1, 1, 1, 1), Vector4(1, 1, 1, 1), Vector4(1, 1, 1, 1), Vector4(), Vector4(0, 0, 0, 0.5), Vector4(1, 1, 1, 0), Vector4(1, 1, 1, 0), Vector4(1, 1, 1, 0), Vector4(1, 1, 1, 0) };
+		Vector4 tonal_correction[12] = { Vector4(1, 1, 1, 1), Vector4(1, 1, 1, 1), Vector4(1, 1, 1, 1), Vector4(1, 1, 1, 1), Vector4(), Vector4(0, 0, 0, 0.5), Vector4(1, 1, 1, 0), Vector4(1, 1, 1, 0), Vector4(1, 1, 1, 0), Vector4(1, 1, 1, 0), Vector4(), Vector4(1, 1, 1, 1) };
 		bool use_color_grading_curves = false;
 		RID hue_vs_hue_texture;
 		RID hue_vs_saturation_texture;
