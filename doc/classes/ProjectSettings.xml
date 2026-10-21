@@ -3114,8 +3114,16 @@
 			[b]Note:[/b] This property is only read when the project starts. To control VoxelGI quality at runtime, call [method RenderingServer.voxel_gi_set_quality] instead.
 		</member>
 		<member name="rendering/lightmapping/bake_performance/acceleration_grid_size" type="int" setter="" getter="" default="128">
-			The number of cells along each axis of the acceleration grid used when baking lightmaps with [LightmapGI]. Larger grids can reduce triangle intersection tests in dense scenes, but increase memory usage, grid construction time, and the number of cells traversed by rays. Increase this value only if it improves bake times for your scene.
+			The number of cells along each axis of the software acceleration grid used when baking lightmaps with [LightmapGI]. The grid is only built when hardware ray tracing is disabled, unsupported, or its setup fails. Larger grids can reduce triangle intersection tests in dense scenes, but increase memory usage, grid construction time, and the number of cells traversed by rays. Increase this value only if it improves bake times for your scene.
 			The grid texture alone uses 2 MiB at [code]64[/code], 16 MiB at [code]128[/code], and 128 MiB at [code]256[/code], in addition to triangle and cluster buffers. The value is clamped to the range from 64 to 256 and rounded up to a power of 2.
+		</member>
+		<member name="rendering/lightmapping/bake_performance/max_passes_per_submit" type="int" setter="" getter="" default="2">
+			The maximum number of lighting dispatches submitted together when baking [LightmapGI] with hardware ray tracing. Grouping dispatches reduces CPU/GPU synchronization overhead without changing sample counts or the work in each dispatch. Values are clamped between 1 and 8. Software tracing always synchronizes after each dispatch.
+			Progress and cancellation are checked after each completed batch. Set this to [code]1[/code] to restore synchronization after every dispatch; larger batches increase the amount of GPU work between cancellation checks.
+		</member>
+		<member name="rendering/lightmapping/bake_performance/max_ray_passes_per_dispatch" type="int" setter="" getter="" default="4">
+			The number of indirect-light ray passes combined into one dispatch when baking [LightmapGI] with hardware ray tracing. Values are clamped between 1 and 8. Each logical pass retains the sample count from [member rendering/lightmapping/bake_performance/max_rays_per_pass], its random seed and its accumulation boundary. Texel geometry preparation is shared across the combined passes. Software tracing always uses one pass per dispatch.
+			Set this to [code]1[/code] to disable dispatch fusion. Larger values reduce dispatch and synchronization overhead but increase the duration of each dispatch and the work between cancellation checks. The total number of samples and bounces is unchanged.
 		</member>
 		<member name="rendering/lightmapping/bake_performance/max_rays_per_pass" type="int" setter="" getter="" default="4">
 			The maximum number of rays that can be thrown per pass when baking lightmaps with [LightmapGI]. Depending on the scene, adjusting this value may result in higher GPU utilization when baking lightmaps, leading to faster bake times.
@@ -3132,6 +3140,10 @@
 		<member name="rendering/lightmapping/bake_performance/region_size" type="int" setter="" getter="" default="512">
 			The region size to use when baking lightmaps with [LightmapGI]. The specified value is rounded up to the nearest power of 2.
 			[b]Note:[/b] Using a value that is too high for your system can cause crashes due to the GPU being unresponsive for long periods of time, and the graphics driver being reset by the OS.
+		</member>
+		<member name="rendering/lightmapping/bake_performance/use_hardware_raytracing" type="bool" setter="" getter="" default="true">
+			If [code]true[/code], [LightmapGI] baking uses hardware ray queries when supported by the baking device. Otherwise, or if acceleration structure or shader setup fails, baking automatically uses the existing compute tracer. Disable this setting to compare the two tracing methods.
+			This accelerates intersection queries for direct and indirect lighting, probes, ambient occlusion and unocclusion. Lightmap formats and runtime rendering requirements are unchanged. Results may differ slightly due to floating-point intersection precision. Support currently depends on the Vulkan driver and compatible GPU hardware; devices without ray queries continue to bake normally.
 		</member>
 		<member name="rendering/lightmapping/bake_quality/high_quality_probe_ray_count" type="int" setter="" getter="" default="512">
 			The number of rays to use for baking dynamic object lighting in [LightmapProbe]s when [member LightmapGI.quality] is [constant LightmapGI.BAKE_QUALITY_HIGH].

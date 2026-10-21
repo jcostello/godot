@@ -171,6 +171,8 @@ public:
 	struct MeshData {
 		//triangle data
 		Vector<Vector3> points;
+		Vector<Vector3> rt_points; // Model-space triangles for reusable BLAS.
+		Transform3D rt_transform;
 		Vector<Vector2> uv2;
 		Vector<Vector3> normal;
 		Vector<RID> material;

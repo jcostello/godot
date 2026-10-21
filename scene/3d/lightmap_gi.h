@@ -264,6 +264,28 @@ private:
 	struct BSPSimplex {
 		int vertices[4] = {};
 		int planes[4] = {};
+		int faces[4] = {};
+		Plane face_planes[4]; // Original vertex order, preserving plane precision.
+	};
+
+	struct BSPFace {
+		int simplices[2] = { -1, -1 };
+		bool manifold = true;
+	};
+
+	struct BSPPointCache {
+		LocalVector<uint32_t> versions;
+		LocalVector<int8_t> sides;
+		uint32_t version = 0;
+
+		void begin_plane() {
+			if (++version == 0) {
+				for (uint32_t &stamp : versions) {
+					stamp = 0;
+				}
+				version = 1;
+			}
+		}
 	};
 
 	struct BSPNode {
@@ -273,8 +295,8 @@ private:
 		int32_t under = EMPTY_LEAF;
 	};
 
-	int _bsp_get_simplex_side(const LocalVector<Vector3> &p_points, const LocalVector<BSPSimplex> &p_simplices, const Plane &p_plane, uint32_t p_simplex) const;
-	int32_t _compute_bsp_tree(const LocalVector<Vector3> &p_points, const LocalVector<Plane> &p_planes, LocalVector<int32_t> &planes_tested, const LocalVector<BSPSimplex> &p_simplices, const LocalVector<int32_t> &p_simplex_indices, LocalVector<BSPNode> &bsp_nodes);
+	int _bsp_get_simplex_side(const LocalVector<Vector3> &p_points, const LocalVector<BSPSimplex> &p_simplices, const Plane &p_plane, uint32_t p_simplex, BSPPointCache &r_point_cache) const;
+	int32_t _compute_bsp_tree(const LocalVector<Vector3> &p_points, LocalVector<int32_t> &planes_tested, const LocalVector<BSPSimplex> &p_simplices, const LocalVector<int32_t> &p_simplex_indices, LocalVector<BSPNode> &bsp_nodes, const LocalVector<BSPFace> &p_faces, BSPPointCache &r_point_cache);
 
 	struct BakeStepUD {
 		Lightmapper::BakeStepFunc func;

@@ -513,8 +513,9 @@ Error RenderingDevice::blas_build(RID p_blas) {
 	return OK;
 }
 
-Error RenderingDevice::tlas_build(RID p_tlas, Span<AccelerationStructureInstance> p_instances) {
+Error RenderingDevice::tlas_build(RID p_tlas, Span<AccelerationStructureInstance> p_instances, bool p_ray_queries_only) {
 	ERR_RENDER_THREAD_GUARD_V(ERR_UNAVAILABLE);
+	ERR_FAIL_COND_V_MSG(p_ray_queries_only && !has_feature(SUPPORTS_RAY_QUERY), ERR_UNAVAILABLE, "The current rendering device does not support ray queries.");
 
 	ERR_FAIL_COND_V_MSG(draw_list.active, ERR_INVALID_PARAMETER, "Building TLAS is forbidden during creation of a draw list.");
 	ERR_FAIL_COND_V_MSG(compute_list.active, ERR_INVALID_PARAMETER, "Building TLAS is forbidden during creation of a compute list.");
@@ -586,11 +587,11 @@ Error RenderingDevice::tlas_build(RID p_tlas, Span<AccelerationStructureInstance
 		rdd_instance.transform = rd_instance.transform;
 		rdd_instance.id = rd_instance.id;
 		rdd_instance.mask = rd_instance.mask;
-		rdd_instance.hit_sbt_offset = _decode_hit_sbt_range_offset(rd_instance.hit_sbt_range);
+		rdd_instance.hit_sbt_offset = p_ray_queries_only ? 0 : _decode_hit_sbt_range_offset(rd_instance.hit_sbt_range);
 		rdd_instance.flags = rd_instance.flags;
 
 		if (rd_instance.blas.is_valid()) {
-			ERR_FAIL_COND_V_MSG(!rd_instance.hit_sbt_range, ERR_INVALID_PARAMETER, "Instance " + itos(i) + " has an invalid hit shader binding table range.");
+			ERR_FAIL_COND_V_MSG(!p_ray_queries_only && !rd_instance.hit_sbt_range, ERR_INVALID_PARAMETER, "Instance " + itos(i) + " has an invalid hit shader binding table range.");
 
 			AccelerationStructure *blas = acceleration_structure_owner.get_or_null(rd_instance.blas);
 			ERR_FAIL_NULL_V(blas, ERR_INVALID_PARAMETER);
@@ -8145,6 +8146,69 @@ void RenderingDevice::sync() {
 
 	_begin_frame(true);
 	local_device_processing = false;
+}
+
+void RenderingDevice::_acceleration_structure_release_scratch(RID p_structure) {
+	ERR_RENDER_THREAD_GUARD();
+	AccelerationStructure *structure = acceleration_structure_owner.get_or_null(p_structure);
+	ERR_FAIL_NULL(structure);
+	// Caller must have awaited the last build submission.
+	if (structure->scratch_buffer) {
+		buffer_memory.sub(driver->buffer_get_allocation_size(structure->scratch_buffer));
+		driver->buffer_free(structure->scratch_buffer);
+		structure->scratch_buffer = RDD::BufferID();
+	}
+}
+
+Error RenderingDevice::local_device_clear_transient_resources(const Vector<RID> &p_keep) {
+	ERR_RENDER_THREAD_GUARD_V(ERR_UNAVAILABLE);
+	ERR_FAIL_COND_V(is_main_instance || draw_list.active || compute_list.active || raytracing_list.active, ERR_UNAVAILABLE);
+	if (local_device_processing) {
+		sync();
+	}
+	_flush_and_stall_for_all_frames(false);
+	HashSet<RID> keep;
+	for (RID rid : p_keep) {
+		keep.insert(rid);
+	}
+	auto clear_owner = [&](auto &p_owner) {
+		LocalVector<RID> owned = p_owner.get_owned_list();
+		for (RID rid : owned) {
+			if (p_owner.owns(rid) && !keep.has(rid)) {
+				free_rid(rid);
+			}
+		}
+	};
+	clear_owner(render_pipeline_owner);
+	clear_owner(compute_pipeline_owner);
+	clear_owner(raytracing_pipeline_owner);
+	clear_owner(acceleration_structure_owner);
+	clear_owner(hit_sbt_owner);
+	clear_owner(uniform_set_owner);
+	clear_owner(texture_buffer_owner);
+	clear_owner(storage_buffer_owner);
+	clear_owner(uniform_buffer_owner);
+	clear_owner(shader_owner);
+	clear_owner(index_array_owner);
+	clear_owner(index_buffer_owner);
+	clear_owner(vertex_array_owner);
+	clear_owner(vertex_buffer_owner);
+	clear_owner(framebuffer_owner);
+	clear_owner(sampler_owner);
+	clear_owner(texture_owner);
+	for (RID rid : p_keep) {
+		if (acceleration_structure_owner.owns(rid)) {
+			_acceleration_structure_release_scratch(rid);
+		}
+	}
+	// All GPU work is complete. Reclaim transient allocations now rather than
+	// retaining their deferred-disposal lists until another bake.
+	for (uint32_t i = 0; i < frames.size(); i++) {
+		_free_pending_resources(i);
+	}
+	frames_pending_resources_for_processing = 0;
+	_begin_frame();
+	return OK;
 }
 
 void RenderingDevice::_free_pending_resources(int p_frame) {

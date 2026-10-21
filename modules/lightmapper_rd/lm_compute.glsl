@@ -17,9 +17,17 @@ ambient_occlusion = "#define MODE_AMBIENT_OCCLUSION";
 
 #VERSION_DEFINES
 
+#if defined(MODE_DIRECT_LIGHT) || defined(MODE_BOUNCE_LIGHT) || defined(MODE_LIGHT_PROBES) || defined(MODE_UNOCCLUDE) || defined(MODE_AMBIENT_OCCLUSION)
+#define LM_RAY_TRACING_PASS
+#endif
+
 #define M_PI 3.14159265359
 
 #extension GL_EXT_samplerless_texture_functions : enable
+
+#ifdef USE_HARDWARE_RAYTRACING
+#extension GL_EXT_ray_query : require
+#endif
 
 // One 2D local group focusing in one layer at a time, though all
 // in parallel (no barriers) makes more sense than a 3D local group
@@ -136,10 +144,11 @@ layout(push_constant, std430) uniform Params {
 	uint denoiser_range;
 	uint material_slice;
 	uint output_slice;
-	uint pad;
+	uint ray_pass_size;
 }
 params;
 
+#ifdef LM_RAY_TRACING_PASS
 //check it, but also return distance and barycentric coords (for uv lookup)
 bool ray_hits_triangle(vec3 from, vec3 dir, float max_dist, vec3 p0, vec3 p1, vec3 p2, out float r_distance, out vec3 r_barycentric) {
 	const float EPSILON = 0.00001;
@@ -204,6 +213,10 @@ vec4 apply_triangle_alpha_scissor(uint p_triangle, vec4 p_albedo_alpha) {
 bool alpha_scissor_rejects(uint p_triangle, vec3 p_barycentric) {
 	return apply_triangle_alpha_scissor(p_triangle, sample_triangle_albedo_alpha(p_triangle, p_barycentric)).a == 0.0;
 }
+
+#ifdef USE_HARDWARE_RAYTRACING
+#include "lm_ray_query_inc.glsl"
+#else
 
 uint trace_ray(vec3 p_from, vec3 p_to, bool p_any_hit, bool p_sample_albedo, out float r_distance, out vec3 r_normal, out uint r_triangle, out vec3 r_barycentric, out vec4 r_albedo_alpha) {
 	// Negative alpha marks an opaque/transparent material that has not been sampled yet.
@@ -396,6 +409,8 @@ uint trace_ray(vec3 p_from, vec3 p_to, bool p_any_hit, bool p_sample_albedo, out
 
 	return RAY_MISS;
 }
+
+#endif // USE_HARDWARE_RAYTRACING
 
 uint trace_ray_closest_hit_triangle(vec3 p_from, vec3 p_to, out uint r_triangle, out vec3 r_barycentric, out vec4 r_albedo_alpha) {
 	float distance;
@@ -615,10 +630,7 @@ void trace_direct_light(vec3 p_position, vec3 p_normal, vec3 p_geometry_normal, 
 			if (light_data.type == LIGHT_TYPE_SPOT) {
 				float projector_depth = dot(light_to_point, light_data.direction);
 				float tan_spot_angle = sqrt(max(0.0, 1.0 - light_data.cos_spot_angle * light_data.cos_spot_angle)) / light_data.cos_spot_angle;
-				projector_uv = vec2(0.5) + vec2(
-						dot(light_to_point, light_data.projector_x.xyz),
-						-dot(light_to_point, light_data.projector_y.xyz)) /
-								(2.0 * projector_depth * tan_spot_angle);
+				projector_uv = vec2(0.5) + vec2(dot(light_to_point, light_data.projector_x.xyz), -dot(light_to_point, light_data.projector_y.xyz)) / (2.0 * projector_depth * tan_spot_angle);
 				projector_uv = light_data.projector_rect.xy + projector_uv * light_data.projector_rect.zw;
 			} else {
 				vec3 local_v = normalize(vec3(
@@ -1005,6 +1017,8 @@ vec3 trace_indirect_light(vec3 p_position, vec3 p_ray_dir, inout uint r_noise, f
 
 #endif
 
+#endif // LM_RAY_TRACING_PASS
+
 void main() {
 	// Check if invocation is out of bounds.
 #ifdef MODE_LIGHT_PROBES
@@ -1184,15 +1198,21 @@ void main() {
 			if (dot(ray_end - ray_origin, ray_dir) <= bake_params.bias) {
 				break;
 			}
-			vec4 hit_albedo;
+			float opacity;
 			vec3 hit_position;
+#ifdef USE_HARDWARE_RAYTRACING
+			uint hit = trace_ray_ao(ray_origin, ray_end, opacity, hit_position);
+#else
+			vec4 hit_albedo;
 			uint hit = trace_ray_closest_hit_triangle_albedo_alpha(ray_origin, ray_end, hit_albedo, hit_position);
+			opacity = hit_albedo.a;
+#endif
 			if (hit == RAY_MISS) {
 				break;
 			}
 			// Match direct lighting: don't count the exit of a closed transparent mesh twice.
 			if (hit == RAY_FRONT || !did_hit) {
-				float opacity = clamp(hit_albedo.a, 0.0, 1.0);
+				opacity = clamp(opacity, 0.0, 1.0);
 				float falloff = 1.0 - smoothstep(0.0, bake_params.ao_distance, distance(position, hit_position));
 				occluded += transmission * opacity * falloff;
 				transmission *= 1.0 - opacity;
@@ -1224,16 +1244,6 @@ void main() {
 
 #ifdef MODE_BOUNCE_LIGHT
 
-#ifdef USE_SH_LIGHTMAPS
-	vec4 sh_accum[4] = vec4[](
-			vec4(0.0, 0.0, 0.0, 1.0),
-			vec4(0.0, 0.0, 0.0, 1.0),
-			vec4(0.0, 0.0, 0.0, 1.0),
-			vec4(0.0, 0.0, 0.0, 1.0));
-#else
-	vec3 light_accum = vec3(0.0);
-#endif
-
 	// Retrieve starting normal and position.
 	vec3 normal = texelFetch(sampler2DArray(source_normal, linear_sampler), ivec3(atlas_pos, params.geometry_slice), 0).xyz;
 	if (length(normal) < 0.5) {
@@ -1258,53 +1268,79 @@ void main() {
 	if (texel_size_world_space == 1e20) {
 		texel_size_world_space = bake_params.bias * 10.0;
 	}
-	uint noise = random_seed(ivec3(params.ray_from, atlas_pos));
-	uint near_backface_count = 0u;
-	for (uint i = params.ray_from; i < params.ray_to; i++) {
-		vec3 ray_dir = generate_ray_dir_from_normal(normal, noise);
-		if (dot(geometry_normal, ray_dir) <= 0.0) {
-			continue;
-		}
-		bool near_backface;
-		vec3 light = trace_indirect_light(position, ray_dir, noise, texel_size_world_space, near_backface);
-		near_backface_count += near_backface ? 1u : 0u;
+	// Preserve each original pass's RNG stream and accumulation boundary while
+	// sharing texel geometry preparation across several passes on hardware RT.
+#ifdef USE_HARDWARE_RAYTRACING
+	uint pass_size = max(params.ray_pass_size, 1u);
+#else
+	uint pass_size = max(params.ray_to - params.ray_from, 1u);
+#endif
+	for (uint pass_from = params.ray_from; pass_from < params.ray_to; pass_from += pass_size) {
+#ifdef USE_SH_LIGHTMAPS
+		vec4 sh_accum[4] = vec4[](
+				vec4(0.0, 0.0, 0.0, 1.0),
+				vec4(0.0, 0.0, 0.0, 1.0),
+				vec4(0.0, 0.0, 0.0, 1.0),
+				vec4(0.0, 0.0, 0.0, 1.0));
+#else
+		vec3 light_accum = vec3(0.0);
+#endif
+
+		uint noise = random_seed(ivec3(pass_from, atlas_pos));
+		uint near_backface_count = 0u;
+		for (uint i = pass_from; i < min(pass_from + pass_size, params.ray_to); i++) {
+			vec3 ray_dir = generate_ray_dir_from_normal(normal, noise);
+			if (dot(geometry_normal, ray_dir) <= 0.0) {
+				continue;
+			}
+			bool near_backface;
+			vec3 light = trace_indirect_light(position, ray_dir, noise, texel_size_world_space, near_backface);
+			near_backface_count += near_backface ? 1u : 0u;
 
 #ifdef USE_SH_LIGHTMAPS
-		// These coefficients include the factored out SH evaluation, diffuse convolution, and final application, as well as the BRDF 1/PI and the spherical monte carlo factor.
-		// LO: 1/(2*sqrtPI) * 1/(2*sqrtPI) * PI * PI * 1/PI = 0.25
-		// L1: sqrt(3/(4*pi)) * sqrt(3/(4*pi)) * (PI*2/3) * (2 * PI) * 1/PI = 1.0
-		// Note: This only works because we aren't scaling, rotating, or combing harmonics, we are just directing applying them in the shader.
+			// These coefficients include the factored out SH evaluation, diffuse convolution, and final application, as well as the BRDF 1/PI and the spherical monte carlo factor.
+			// LO: 1/(2*sqrtPI) * 1/(2*sqrtPI) * PI * PI * 1/PI = 0.25
+			// L1: sqrt(3/(4*pi)) * sqrt(3/(4*pi)) * (PI*2/3) * (2 * PI) * 1/PI = 1.0
+			// Note: This only works because we aren't scaling, rotating, or combing harmonics, we are just directing applying them in the shader.
 
-		float c[4] = float[](
-				0.25, //l0
-				ray_dir.y, //l1n1
-				ray_dir.z, //l1n0
-				ray_dir.x //l1p1
-		);
+			float c[4] = float[](
+					0.25, //l0
+					ray_dir.y, //l1n1
+					ray_dir.z, //l1n0
+					ray_dir.x //l1p1
+			);
 
-		for (uint j = 0; j < 4; j++) {
-			sh_accum[j].rgb += light * c[j];
+			for (uint j = 0; j < 4; j++) {
+				sh_accum[j].rgb += light * c[j];
+			}
+#else
+			light_accum += light;
+#endif
+		}
+		if (near_backface_count > 0u) {
+			imageAtomicAdd(invalid_samples, ivec3(atlas_pos, params.atlas_slice), near_backface_count);
+		}
+
+		// Add the averaged result to the accumulated light texture.
+#ifdef USE_SH_LIGHTMAPS
+		for (int i = 0; i < 4; i++) {
+			vec4 accum = imageLoad(accum_light, ivec3(atlas_pos, params.output_slice * 4 + i));
+			accum.rgb += sh_accum[i].rgb / float(params.ray_count);
+			imageStore(accum_light, ivec3(atlas_pos, params.output_slice * 4 + i), accum);
 		}
 #else
-		light_accum += light;
+		vec4 accum = imageLoad(accum_light, ivec3(atlas_pos, params.output_slice));
+		accum.rgb += light_accum / float(params.ray_count);
+		imageStore(accum_light, ivec3(atlas_pos, params.output_slice), accum);
 #endif
-	}
-	if (near_backface_count > 0u) {
-		imageAtomicAdd(invalid_samples, ivec3(atlas_pos, params.atlas_slice), near_backface_count);
-	}
 
-	// Add the averaged result to the accumulated light texture.
-#ifdef USE_SH_LIGHTMAPS
-	for (int i = 0; i < 4; i++) {
-		vec4 accum = imageLoad(accum_light, ivec3(atlas_pos, params.output_slice * 4 + i));
-		accum.rgb += sh_accum[i].rgb / float(params.ray_count);
-		imageStore(accum_light, ivec3(atlas_pos, params.output_slice * 4 + i), accum);
+		if (pass_from + pass_size < params.ray_to) {
+			// The next logical pass reads this invocation's rgba16f result, retaining
+			// the same quantization as separate dispatches. No workgroup barrier:
+			// uncovered texels may already have returned above.
+			memoryBarrierImage();
+		}
 	}
-#else
-	vec4 accum = imageLoad(accum_light, ivec3(atlas_pos, params.output_slice));
-	accum.rgb += light_accum / float(params.ray_count);
-	imageStore(accum_light, ivec3(atlas_pos, params.output_slice), accum);
-#endif
 
 #endif
 

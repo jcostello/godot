@@ -264,18 +264,25 @@ public:
 		AHashMap<Triangle, uint32_t, TriangleHasher> triangles_inserted;
 		LocalVector<Triangle> triangles;
 
-		for (uint32_t i = 0; i < point_count; i++) {
-			bool unique = true;
-			for (uint32_t j = i + 1; j < point_count; j++) {
-				if (points[i] == points[j]) {
-					unique = false;
-					break;
+		// Keep the last occurrence of each quantized point, exactly as the former
+		// forward duplicate scan did. Input/output indices and insertion order stay
+		// unchanged. Drop the hash table before constructing the tetrahedra.
+		LocalVector<uint32_t> unique_point_indices;
+		{
+			AHashMap<Vector3, uint32_t> last_point_indices;
+			last_point_indices.reserve(point_count);
+			for (uint32_t i = 0; i < point_count; i++) {
+				last_point_indices[points[i]] = i;
+			}
+			unique_point_indices.reserve(last_point_indices.size());
+			for (uint32_t i = 0; i < point_count; i++) {
+				if (*last_point_indices.getptr(points[i]) == i) {
+					unique_point_indices.push_back(i);
 				}
 			}
-			if (!unique) {
-				continue;
-			}
+		}
 
+		for (const uint32_t i : unique_point_indices) {
 			Vector3i grid_pos = Vector3i(points[i] * proportions * ACCEL_GRID_SIZE);
 			grid_pos = grid_pos.clampi(0, ACCEL_GRID_SIZE - 1);
 

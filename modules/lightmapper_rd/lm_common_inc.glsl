@@ -51,8 +51,8 @@ struct Triangle {
 	vec3 max_bounds;
 	uint mesh;
 	float alpha_scissor_threshold;
+	uint source_triangle;
 	uint pad0;
-	uint pad1;
 	uint pad2;
 };
 
@@ -68,10 +68,12 @@ layout(set = 0, binding = 2, std430) restrict readonly buffer Triangles {
 }
 triangles;
 
+#if defined(USE_SOFTWARE_TRACING) && defined(LM_RAY_TRACING_PASS)
 layout(set = 0, binding = 3, std430) restrict readonly buffer TriangleIndices {
 	uint data[];
 }
 triangle_indices;
+#endif
 
 #define LIGHT_TYPE_DIRECTIONAL 0
 #define LIGHT_TYPE_OMNI 1
@@ -111,10 +113,12 @@ struct Light {
 	vec4 projector_rect;
 };
 
+#if defined(LM_RAY_TRACING_PASS)
 layout(set = 0, binding = 4, std430) restrict readonly buffer Lights {
 	Light data[];
 }
 lights;
+#endif
 
 struct Seam {
 	vec4 src_uv;
@@ -134,12 +138,16 @@ layout(set = 0, binding = 5, std430) restrict readonly buffer Seams {
 }
 seams;
 
+#if defined(LM_RAY_TRACING_PASS)
 layout(set = 0, binding = 6, std430) restrict readonly buffer Probes {
 	vec4 data[];
 }
 probe_positions;
+#endif
 
+#if defined(USE_SOFTWARE_TRACING) && defined(LM_RAY_TRACING_PASS)
 layout(set = 0, binding = 7) uniform utexture3D grid;
+#endif
 
 layout(set = 0, binding = 8) uniform texture2DArray albedo_tex;
 layout(set = 0, binding = 9) uniform texture2DArray emission_tex;
@@ -147,15 +155,20 @@ layout(set = 0, binding = 9) uniform texture2DArray emission_tex;
 layout(set = 0, binding = 10) uniform sampler linear_sampler;
 layout(set = 0, binding = 11) uniform sampler area_light_atlas_sampler;
 
+#if defined(USE_SOFTWARE_TRACING) && defined(LM_RAY_TRACING_PASS)
 layout(set = 0, binding = 12, std430) restrict readonly buffer ClusterIndices {
 	uint data[];
 }
 cluster_indices;
+#endif
 
+#if defined(USE_SOFTWARE_TRACING) && defined(LM_RAY_TRACING_PASS)
 layout(set = 0, binding = 13, std430) restrict readonly buffer ClusterAABBs {
 	ClusterAABB data[];
 }
 cluster_aabbs;
+#endif
+
 
 // Fragment action constants
 const uint FA_NONE = 0;

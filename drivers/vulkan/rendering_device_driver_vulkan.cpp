@@ -37,6 +37,7 @@
 #include "drivers/vulkan/vulkan_hooks.h"
 
 #include <thirdparty/misc/smolv.h>
+#include <thirdparty/spirv-headers/include/spirv/unified1/spirv.h>
 
 #if defined(SWAPPY_FRAME_PACING_ENABLED)
 #include "platform/android/java_godot_wrapper.h"
@@ -4300,6 +4301,29 @@ static VkShaderStageFlagBits RD_STAGE_TO_VK_SHADER_STAGE_BITS[RDD::SHADER_STAGE_
 	VK_SHADER_STAGE_INTERSECTION_BIT_KHR,
 };
 
+// re-spirv does not support ray-query or acceleration-structure types yet.
+// Inspect the decoded module instead of its stage: ray queries can appear in
+// compute/graphics shaders, and unused RT types may survive in other variants.
+static bool spirv_supports_respv(Span<uint8_t> p_spirv) {
+	if (p_spirv.size() < 5 * sizeof(uint32_t) || p_spirv.size() % sizeof(uint32_t) != 0) {
+		return false;
+	}
+	Span<uint32_t> words = p_spirv.reinterpret<uint32_t>();
+	for (uint64_t offset = 5; offset < words.size();) {
+		const uint32_t instruction = words[offset];
+		const uint32_t word_count = instruction >> 16;
+		if (word_count == 0 || word_count > words.size() - offset) {
+			return false;
+		}
+		const SpvOp opcode = SpvOp(instruction & 0xFFFFu);
+		if (opcode == SpvOpTypeRayQueryKHR || opcode == SpvOpTypeAccelerationStructureKHR) {
+			return false;
+		}
+		offset += word_count;
+	}
+	return true;
+}
+
 RDD::ShaderID RenderingDeviceDriverVulkan::shader_create_from_container(const Ref<RenderingShaderContainer> &p_shader_container, const Vector<ImmutableSampler> &p_immutable_samplers) {
 	ShaderReflection shader_refl = p_shader_container->get_shader_reflection();
 	ShaderInfo shader_info;
@@ -4442,7 +4466,7 @@ RDD::ShaderID RenderingDeviceDriverVulkan::shader_create_from_container(const Re
 
 		shader_info.original_stage_size.push_back(decoded_spirv.size());
 
-		if (use_respv) {
+		if (use_respv && spirv_supports_respv(decoded_spirv)) {
 			const bool inline_data = store_respv || (RESPV_ONLY_INLINE_SHADERS_WITH_SPEC_CONSTANTS == 0);
 			respv::Shader respv_shader(decoded_spirv.ptr(), decoded_spirv.size(), inline_data);
 			if (respv_shader.empty()) {
@@ -4468,6 +4492,10 @@ RDD::ShaderID RenderingDeviceDriverVulkan::shader_create_from_container(const Re
 #endif
 				}
 			}
+		} else if (store_respv) {
+			// Preserve stage indexing for mixed modules. Empty entries keep
+			// Vulkan specialization constants rather than invoking re-spirv.
+			shader_info.respv_stage_shaders.push_back(respv::Shader());
 		}
 
 #if RECORD_PIPELINE_STATISTICS
