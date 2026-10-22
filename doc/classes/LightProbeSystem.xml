@@ -1,0 +1,64 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<class name="LightProbeSystem" inherits="VisualInstance3D" api_type="core" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="../class.xsd">
+	<brief_description>
+		Collects probe placements from multiple grid volumes.
+	</brief_description>
+	<description>
+		Groups enabled [LightProbeVolume] descendants into one connected probe set. Each volume belongs to its nearest ancestor system; volume boundaries do not split interpolation. Each system belongs to its nearest ancestor [LightmapGI], with intermediary grouping nodes allowed and no manual source assignment. Run all bake modes from that LightmapGI: lightmaps and probes, lightmaps only, or probes only. Bake quality, probe ray count and exposure are configured there. A system without a LightmapGI ancestor shows a configuration warning and does not submit a lighting capture.
+		Each system owns a separate [LightProbeData] resource, topology cache and capture. Systems baked together share scene preparation and tracing but do not connect their tetrahedra. Overlapping captures can still blend in the renderer. Static geometry validation excludes invalid positions from the bake while leaving them editable. Connectivity does not test geometry between probes. Small placement edits attempt incremental topology updates at the next bake, falling back to full reconstruction.
+		Probes are visible only when their volume or system is selected. The toolbar provides Wireframe, Baked Lighting and Clear Probe Cache; bake controls belong to LightmapGI. A lightmap-only bake retains existing probe lighting and marks it stale, with a warning in the scene tree and no modal dialog.
+	</description>
+	<tutorials>
+	</tutorials>
+	<methods>
+		<method name="clear_probe_cache">
+			<return type="void" />
+			<description>Invalidates the cache in [member light_data] for the next successful probe bake, without discarding current lighting. Other systems sharing that resource share its cache.</description>
+		</method>
+		<method name="get_bake_state" qualifiers="const">
+			<return type="Dictionary" />
+			<description>Internal serialization snapshot of the capture transform and placement signature.</description>
+		</method>
+		<method name="set_bake_state">
+			<return type="void" />
+			<param index="0" name="state" type="Dictionary" />
+			<description>Internal serialization setter. Bake state is managed automatically.</description>
+		</method>
+		<method name="get_bake_source" qualifiers="const">
+			<return type="LightmapGI" />
+			<description>Returns the nearest ancestor LightmapGI, or null when this system has no bake owner.</description>
+		</method>
+		<method name="get_volumes" qualifiers="const">
+			<return type="NodePath[]" />
+			<description>
+				Returns paths to enabled descendant volumes, relative to this system, sorted by path. Requires the system to be in the scene tree.
+			</description>
+		</method>
+		<method name="get_probe_layout" qualifiers="const">
+			<return type="Dictionary" />
+			<description>
+				Returns parallel positions, ids, and volume_indices arrays, plus a volumes array of unique volume paths and a revision. Positions are transformed into system-local coordinates. Each source is identified by volumes[volume_indices[i]] and ids[i]. Coincident positions from different volumes are preserved in this placement snapshot. Requires an invertible system and volume transforms and the system to be in the scene tree.
+			</description>
+		</method>
+		<method name="get_revision" qualifiers="const">
+			<return type="int" />
+			<description>
+				Returns the system placement revision. Editing, enabling, reparenting, or transforming linked volumes invalidates the snapshot. The revision is local to the running instance.
+			</description>
+		</method>
+	</methods>
+	<members>
+		<member name="light_data" type="LightProbeData" setter="set_light_data" getter="get_light_data">Baked probe lighting, exposure and topology, separate from texture lightmaps. Assigned automatically after baking or migrating existing captures. A LightmapGI ancestor is required for baking and capture submission.</member>
+		<member name="surface_clearance" type="float" setter="set_surface_clearance" getter="get_surface_clearance" default="0.05">Minimum distance from static opaque surfaces, in world units. Closed, consistently oriented mesh components also reject interior positions. Open components only enforce surface distance. Transparent and alpha-cutout BaseMaterial3D surfaces are skipped; ShaderMaterial surfaces are treated as opaque. A minimum tolerance of 0.0002 world units is always applied. Changing this setting marks validation results as stale without hiding the last invalid-probe colors.</member>
+	</members>
+	<signals>
+		<signal name="bake_updated">
+			<description>Emitted when baked lighting or capture state changes.</description>
+		</signal>
+		<signal name="placement_changed">
+			<description>
+				Emitted after one or more placement changes. Changes within the same deferred update are coalesced. Consumers should compare revisions before accepting asynchronous results.
+			</description>
+		</signal>
+	</signals>
+</class>

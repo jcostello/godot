@@ -31,6 +31,7 @@
 #pragma once
 
 #include "core/math/aabb.h"
+#include "core/math/dynamic_bvh.h"
 #include "core/math/projection.h"
 #include "core/math/vector3.h"
 #include "core/math/vector3i.h"
@@ -41,16 +42,25 @@
 
 #include <thirdparty/misc/r128.h>
 
+#include <limits>
+
 class Delaunay3D {
+	friend class Delaunay3DIncremental;
+
+public:
+	struct Statistics {
+		uint64_t sphere_tests = 0;
+		uint64_t precise_sphere_tests = 0;
+		uint64_t simplices_created = 0;
+		uint64_t index_entries = 0;
+		uint64_t peak_index_entries = 0;
+	};
+
+private:
 	struct Simplex;
 
 	enum {
-		ACCEL_GRID_SIZE = 16,
 		QUANTIZATION_MAX = 1 << 16 // A power of two smaller than the 23 bit significand of a float.
-	};
-	struct GridPos {
-		Vector3i pos;
-		List<Simplex *>::Element *E = nullptr;
 	};
 
 	struct Simplex {
@@ -59,7 +69,13 @@ class Delaunay3D {
 		R128 circum_center_y;
 		R128 circum_center_z;
 		R128 circum_r2;
-		LocalVector<GridPos> grid_positions;
+		// Conservative double filter of the existing fixed-point predicate.
+		double filter_center[3];
+		double filter_r2 = 0;
+		double filter_error = 0;
+		bool filter_safe = false;
+		DynamicBVH::ID spatial_id;
+		uint64_t insertion_order = 0;
 		List<Simplex *>::Element *SE = nullptr;
 
 		_FORCE_INLINE_ Simplex() {}
@@ -70,6 +86,31 @@ class Delaunay3D {
 			points[3] = p_d;
 		}
 	};
+
+	struct SimplexInsertionOrder {
+		_FORCE_INLINE_ bool operator()(const Simplex *p_a, const Simplex *p_b) const {
+			return p_a->insertion_order < p_b->insertion_order;
+		}
+	};
+
+	static AABB simplex_bounds(const Simplex &p_simplex) {
+		// Only normalized input points are queried. Clip large spheres to the
+		// unit cube so root/boundary simplices do not dominate BVH bounds.
+		// Unsafe fixed-point spheres keep full coverage and use R128 queries.
+		if (!p_simplex.filter_safe) {
+			return AABB(Vector3(), Vector3(1, 1, 1));
+		}
+		const double radius = Math::sqrt(p_simplex.filter_r2 + p_simplex.filter_error);
+		Vector3 lower;
+		Vector3 upper;
+		for (int axis = 0; axis < 3; axis++) {
+			// Pad before converting to real_t, covering cancellation and float
+			// rounding of both the stored position and its reconstructed end.
+			lower[axis] = CLAMP(p_simplex.filter_center[axis] - radius - 0.000001, 0.0, 1.0);
+			upper[axis] = CLAMP(p_simplex.filter_center[axis] + radius + 0.000001, 0.0, 1.0);
+		}
+		return AABB(lower, upper - lower);
+	}
 
 	struct Triangle {
 		uint32_t triangle[3];
@@ -160,9 +201,39 @@ class Delaunay3D {
 		p_simplex->circum_center_y = center_y;
 		p_simplex->circum_center_z = center_z;
 		p_simplex->circum_r2 = radius1;
+
+		p_simplex->filter_center[0] = double(center_x);
+		p_simplex->filter_center[1] = double(center_y);
+		p_simplex->filter_center[2] = double(center_z);
+		p_simplex->filter_r2 = double(radius1 - R128(0.0000000001));
+		double center_squared = 0;
+		for (double coordinate : p_simplex->filter_center) {
+			center_squared += coordinate * coordinate;
+		}
+		// Queries are quantized points in [0, 1]^3. This deliberately loose
+		// bound covers conversion/subtraction/product/sum rounding and the
+		// sub-2^-64 rounding of each original R128 squared distance.
+		p_simplex->filter_error = 128 * std::numeric_limits<double>::epsilon() * (center_squared + Math::abs(p_simplex->filter_r2) + 4);
+		// Keep the original path for extreme spheres, including cases where
+		// the fixed-point squared distance could overflow its integer part.
+		p_simplex->filter_safe = center_squared < 1e16 && p_simplex->filter_r2 >= 0 && p_simplex->filter_r2 < 1e18;
 	}
 
-	_FORCE_INLINE_ static bool simplex_contains(const Vector3 *p_points, const Simplex &p_simplex, uint32_t p_vertex) {
+	_FORCE_INLINE_ static bool simplex_contains(const Vector3 *p_points, const Simplex &p_simplex, uint32_t p_vertex, Statistics &r_statistics) {
+		r_statistics.sphere_tests++;
+		if (p_simplex.filter_safe) {
+			const double dx = p_simplex.filter_center[0] - double(p_points[p_vertex].x);
+			const double dy = p_simplex.filter_center[1] - double(p_points[p_vertex].y);
+			const double dz = p_simplex.filter_center[2] - double(p_points[p_vertex].z);
+			const double difference = dx * dx + dy * dy + dz * dz - p_simplex.filter_r2;
+			if (difference > p_simplex.filter_error) {
+				return false;
+			}
+			if (difference < -p_simplex.filter_error) {
+				return true;
+			}
+		}
+		r_statistics.precise_sphere_tests++;
 		R128 v_x = p_points[p_vertex].x;
 		R128 v_y = p_points[p_vertex].y;
 		R128 v_z = p_points[p_vertex].z;
@@ -199,11 +270,17 @@ public:
 		uint32_t points[4];
 	};
 
-	static Vector<OutputSimplex> tetrahedralize(const Vector<Vector3> &p_points) {
+	static Vector<OutputSimplex> tetrahedralize(const Vector<Vector3> &p_points, Statistics *r_statistics = nullptr) {
+		Statistics statistics;
+		if (r_statistics) {
+			*r_statistics = statistics;
+		}
+		if (p_points.size() < 4) {
+			return Vector<OutputSimplex>();
+		}
 		uint32_t point_count = p_points.size();
 		Vector3 *points = (Vector3 *)memalloc(sizeof(Vector3) * (point_count + 4));
 		const Vector3 *src_points = p_points.ptr();
-		Vector3 proportions;
 
 		{
 			AABB rect;
@@ -216,8 +293,13 @@ public:
 				}
 			}
 
+			// Axis-aligned planar sets cannot produce a volume. Avoid dividing
+			// by zero when normalizing points.
+			if (rect.size.x == 0 || rect.size.y == 0 || rect.size.z == 0) {
+				memfree(points);
+				return Vector<OutputSimplex>();
+			}
 			real_t longest_axis = rect.size[rect.get_longest_axis_index()];
-			proportions = Vector3(longest_axis, longest_axis, longest_axis) / rect.size;
 
 			for (uint32_t i = 0; i < point_count; i++) {
 				// Scale points to the unit cube to better utilize R128 precision
@@ -239,27 +321,18 @@ public:
 			points[point_count + 3] = center + Vector3(-1, -1, -1) * delta_max;
 		}
 
-		List<Simplex *> acceleration_grid[ACCEL_GRID_SIZE][ACCEL_GRID_SIZE][ACCEL_GRID_SIZE];
-
+		DynamicBVH spatial_index;
 		List<Simplex *> simplex_list;
 		{
-			//create root simplex
 			Simplex *root = memnew(Simplex(point_count + 0, point_count + 1, point_count + 2, point_count + 3));
 			root->SE = simplex_list.push_back(root);
-
-			for (uint32_t i = 0; i < ACCEL_GRID_SIZE; i++) {
-				for (uint32_t j = 0; j < ACCEL_GRID_SIZE; j++) {
-					for (uint32_t k = 0; k < ACCEL_GRID_SIZE; k++) {
-						GridPos gp;
-						gp.E = acceleration_grid[i][j][k].push_back(root);
-						gp.pos = Vector3i(i, j, k);
-						root->grid_positions.push_back(gp);
-					}
-				}
-			}
-
+			root->insertion_order = statistics.simplices_created++;
 			circum_sphere_compute(points, root);
+			root->spatial_id = spatial_index.insert(simplex_bounds(*root), root);
+			statistics.index_entries++;
+			statistics.peak_index_entries = 1;
 		}
+		LocalVector<Simplex *> cavity;
 
 		AHashMap<Triangle, uint32_t, TriangleHasher> triangles_inserted;
 		LocalVector<Triangle> triangles;
@@ -283,45 +356,45 @@ public:
 		}
 
 		for (const uint32_t i : unique_point_indices) {
-			Vector3i grid_pos = Vector3i(points[i] * proportions * ACCEL_GRID_SIZE);
-			grid_pos = grid_pos.clampi(0, ACCEL_GRID_SIZE - 1);
-
-			for (List<Simplex *>::Element *E = acceleration_grid[grid_pos.x][grid_pos.y][grid_pos.z].front(); E;) {
-				List<Simplex *>::Element *N = E->next(); //may be deleted
-
-				Simplex *simplex = E->get();
-
-				if (simplex_contains(points, *simplex, i)) {
-					static const uint32_t triangle_order[4][3] = {
-						{ 0, 1, 2 },
-						{ 0, 1, 3 },
-						{ 0, 2, 3 },
-						{ 1, 2, 3 },
-					};
-
-					for (uint32_t k = 0; k < 4; k++) {
-						Triangle t = Triangle(simplex->points[triangle_order[k][0]], simplex->points[triangle_order[k][1]], simplex->points[triangle_order[k][2]]);
-						uint32_t *p = triangles_inserted.getptr(t);
-						if (p) {
-							// This Delaunay implementation uses the Bowyer-Watson algorithm.
-							// The rule is that you don't reuse any triangles that were
-							// shared by any of the retriangulated simplices.
-							triangles[*p].bad = true;
-						} else {
-							triangles_inserted.insert(t, triangles.size());
-							triangles.push_back(t);
-						}
-					}
-
-					simplex_list.erase(simplex->SE);
-
-					for (const GridPos &gp : simplex->grid_positions) {
-						Vector3i p = gp.pos;
-						acceleration_grid[p.x][p.y][p.z].erase(gp.E);
-					}
-					memdelete(simplex);
+			cavity.clear();
+			auto collect = [&](void *p_data) {
+				Simplex *simplex = static_cast<Simplex *>(p_data);
+				if (simplex_contains(points, *simplex, i, statistics)) {
+					cavity.push_back(simplex);
 				}
-				E = N;
+				return false;
+			};
+			spatial_index.aabb_query(AABB(points[i], Vector3()), collect);
+			// BVH traversal order is arbitrary. Preserve the former list order
+			// for boundary-face creation, especially for cospherical grid points.
+			cavity.sort_custom<SimplexInsertionOrder>();
+			// Finish querying before deleting any BVH nodes or simplex data.
+			for (Simplex *simplex : cavity) {
+				static const uint32_t triangle_order[4][3] = {
+					{ 0, 1, 2 },
+					{ 0, 1, 3 },
+					{ 0, 2, 3 },
+					{ 1, 2, 3 },
+				};
+
+				for (uint32_t k = 0; k < 4; k++) {
+					Triangle t = Triangle(simplex->points[triangle_order[k][0]], simplex->points[triangle_order[k][1]], simplex->points[triangle_order[k][2]]);
+					uint32_t *p = triangles_inserted.getptr(t);
+					if (p) {
+						// This Delaunay implementation uses the Bowyer-Watson algorithm.
+						// The rule is that you don't reuse any triangles that were
+						// shared by any of the retriangulated simplices.
+						triangles[*p].bad = true;
+					} else {
+						triangles_inserted.insert(t, triangles.size());
+						triangles.push_back(t);
+					}
+				}
+
+				simplex_list.erase(simplex->SE);
+
+				spatial_index.remove(simplex->spatial_id);
+				memdelete(simplex);
 			}
 
 			for (const Triangle &triangle : triangles) {
@@ -330,38 +403,19 @@ public:
 				}
 				Simplex *new_simplex = memnew(Simplex(triangle.triangle[0], triangle.triangle[1], triangle.triangle[2], i));
 				circum_sphere_compute(points, new_simplex);
+				new_simplex->insertion_order = statistics.simplices_created++;
 				new_simplex->SE = simplex_list.push_back(new_simplex);
-				{
-					Vector3 center;
-					center.x = double(new_simplex->circum_center_x);
-					center.y = double(new_simplex->circum_center_y);
-					center.z = double(new_simplex->circum_center_z);
-
-					const real_t radius2 = Math::sqrt(double(new_simplex->circum_r2)) + 0.0001;
-					Vector3 extents = Vector3(radius2, radius2, radius2);
-					Vector3i from = Vector3i((center - extents) * proportions * ACCEL_GRID_SIZE);
-					Vector3i to = Vector3i((center + extents) * proportions * ACCEL_GRID_SIZE);
-					from = from.clampi(0, ACCEL_GRID_SIZE - 1);
-					to = to.clampi(0, ACCEL_GRID_SIZE - 1);
-
-					for (int32_t x = from.x; x <= to.x; x++) {
-						for (int32_t y = from.y; y <= to.y; y++) {
-							for (int32_t z = from.z; z <= to.z; z++) {
-								GridPos gp;
-								gp.pos = Vector3(x, y, z);
-								gp.E = acceleration_grid[x][y][z].push_back(new_simplex);
-								new_simplex->grid_positions.push_back(gp);
-							}
-						}
-					}
-				}
+				new_simplex->spatial_id = spatial_index.insert(simplex_bounds(*new_simplex), new_simplex);
+				statistics.index_entries++;
+				statistics.peak_index_entries = MAX(statistics.peak_index_entries, uint64_t(spatial_index.get_leaf_count()));
 			}
 
 			triangles.clear();
 			triangles_inserted.clear();
 		}
 
-		//print_line("end with simplices: " + itos(simplex_list.size()));
+		// Release index nodes before freeing their simplex userdata.
+		spatial_index.clear();
 		Vector<OutputSimplex> ret_simplices;
 		ret_simplices.resize(simplex_list.size());
 		OutputSimplex *ret_simplicesw = ret_simplices.ptrw();
@@ -392,6 +446,9 @@ public:
 
 		memfree(points);
 
+		if (r_statistics) {
+			*r_statistics = statistics;
+		}
 		return ret_simplices;
 	}
 };

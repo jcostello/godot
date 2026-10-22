@@ -1,0 +1,65 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<class name="LightProbeVolume" inherits="Node3D" api_type="core" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="../class.xsd">
+	<brief_description>
+		Generates and edits a grid of light probe positions.
+	</brief_description>
+	<description>
+		A placement container for a [LightProbeSystem]. Grid generation is explicit: changing size or spacing does not overwrite manually edited positions. Probes are visible only when this volume or its system is selected. The editor toolbar switches between Wireframe and Baked Lighting. Bake previews use the actual stored spherical harmonics and camera exposure; unbaked or moved positions remain wireframe and invalid positions remain red. Positions can be selected and transformed using subgizmos, added, or removed with Undo/Redo in the editor. Six box handles resize the generation volume with the same snapping and centered resizing controls as ReflectionProbe. Each axis smaller than [member spacing] has a single centered position. Other axes include both volume boundaries with cell spacing at most [member spacing]. This allows grids consisting of a single probe, a row, a plane, or a volume. A [LightmapGI] bake in the same branch validates these positions against static geometry. Rejected probes appear red, remain editable, and are excluded from baking and interpolation. Editing placement retains the last validation colors by stable ID and marks the results as stale. Validation runs again on the next bake. Generate Grid filters newly generated points against static geometry; custom points can be retained when confirming regeneration. Remove Invalid Probes deletes points marked invalid by the last check and supports Undo/Redo. Results are transient and are not saved with the scene.
+	</description>
+	<tutorials>
+	</tutorials>
+	<methods>
+		<method name="get_system" qualifiers="const">
+			<return type="LightProbeSystem" />
+			<description>
+				Returns the nearest ancestor [LightProbeSystem]. No manual system assignment is needed.
+			</description>
+		</method>
+		<method name="create_grid_layout" qualifiers="const">
+			<return type="Dictionary" />
+			<param index="0" name="preserve_custom" type="bool" default="false" />
+			<description>
+				Creates an unfiltered grid snapshot without modifying placement. If [param preserve_custom] is true, retains custom and moved probes with their IDs, skips their original grid slots, and avoids generating duplicate points at their retained positions. Existing IDs are reused at exactly matching positions. Returns an empty dictionary if the grid exceeds the resource limit or the ID allocator is exhausted.
+			</description>
+		</method>
+		<method name="generate_grid">
+			<return type="void" />
+			<param index="0" name="preserve_custom" type="bool" default="false" />
+			<description>
+				Replaces placement with a generated grid. In the scene tree, newly generated positions are filtered against static opaque geometry using the system clearance. Custom and moved positions are kept if [param preserve_custom] is true, even if previously invalid. Outside the tree, no geometry filtering is possible. This method does not create an editor Undo/Redo action; use the editor toolbar for undoable generation.
+			</description>
+		</method>
+		<method name="get_probe_validation_status" qualifiers="const">
+			<return type="int" enum="LightProbeVolume.ValidationStatus" />
+			<param index="0" name="id" type="int" />
+			<description>Returns the last bake-time validation status for a probe ID, or [constant VALIDATION_UNCHECKED] if it has no result.</description>
+		</method>
+		<method name="get_probe_validation_reason" qualifiers="const">
+			<return type="String" />
+			<param index="0" name="id" type="int" />
+			<description>Returns a localized description of the validation status for a probe ID.</description>
+		</method>
+		<method name="get_validation_summary" qualifiers="const">
+			<return type="String" />
+			<description>Returns counts of valid, rejected, and unchecked probes for display.</description>
+		</method>
+	</methods>
+	<members>
+		<member default="true" name="enabled" type="bool" setter="set_enabled" getter="is_enabled">Whether this volume contributes positions to its system.</member>
+		<member default="Vector3(8, 4, 8)" name="size" type="Vector3" setter="set_size" getter="get_size">Positive local dimensions of the grid generation box, centered at the node origin.</member>
+		<member default="2.0" name="spacing" type="float" setter="set_spacing" getter="get_spacing">Maximum grid spacing in local units. Axes smaller than this value have one centered position; axes equal to or larger than this value include both boundaries.</member>
+		<member name="data" type="LightProbeVolumeData" setter="set_data" getter="get_data">Editable placement data. Node duplication duplicates this resource so probe edits do not affect the original node.</member>
+	</members>
+	<signals>
+		<signal name="validation_changed">
+			<description>Emitted when validation results are published, reset, or marked stale by placement changes.</description>
+		</signal>
+	</signals>
+	<constants>
+		<constant name="VALIDATION_UNCHECKED" value="0" enum="ValidationStatus">No validation result is available for this ID.</constant>
+		<constant name="VALIDATION_VALID" value="1" enum="ValidationStatus">Accepted for baking.</constant>
+		<constant name="VALIDATION_INSIDE_GEOMETRY" value="2" enum="ValidationStatus">Inside a closed mesh component.</constant>
+		<constant name="VALIDATION_TOO_CLOSE" value="3" enum="ValidationStatus">On or too close to a static surface.</constant>
+		<constant name="VALIDATION_AMBIGUOUS" value="4" enum="ValidationStatus">Interior queries disagreed or were ambiguous. Excluded conservatively.</constant>
+	</constants>
+</class>

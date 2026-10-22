@@ -30,8 +30,6 @@
 
 #include "light_storage.h"
 
-#include <cfloat>
-
 #include "core/config/engine.h"
 #include "core/config/project_settings.h"
 #include "core/math/geometry_3d.h"
@@ -42,6 +40,8 @@
 #include "servers/rendering/renderer_rd/storage_rd/texture_storage.h"
 #include "servers/rendering/renderer_rd/uniform_set_cache_rd.h"
 #include "servers/rendering/rendering_server_globals.h"
+
+#include <cfloat>
 
 using namespace RendererRD;
 
@@ -2075,7 +2075,7 @@ RID LightStorage::lightmap_allocate() {
 }
 
 void LightStorage::lightmap_initialize(RID p_lightmap) {
-	lightmap_owner.initialize_rid(p_lightmap, Lightmap());
+	lightmap_owner.initialize_rid(p_lightmap);
 }
 
 void LightStorage::lightmap_free(RID p_rid) {
@@ -2174,6 +2174,7 @@ void LightStorage::lightmap_set_probe_capture_data(RID p_lightmap, const PackedV
 	lm->bsp_tree = p_bsp_tree;
 	lm->point_sh = p_point_sh;
 	lm->tetrahedra = p_tetrahedra;
+	lm->probe_capture.update(p_bsp_tree.is_empty() ? p_points : PackedVector3Array(), p_bsp_tree.is_empty() ? p_tetrahedra : PackedInt32Array());
 	_lightmap_update_probe_volume(lm);
 }
 
@@ -2225,6 +2226,10 @@ bool LightStorage::_lightmap_tap_sh_light(const Lightmap *p_lightmap, const Vect
 
 	for (int i = 0; i < 9; i++) {
 		r_sh[i] = Color(0, 0, 0, 0);
+	}
+
+	if (lm->bsp_tree.is_empty()) {
+		return lm->probe_capture.sample(p_point, lm->point_sh, r_sh);
 	}
 
 	if (!lm->points.size() || !lm->bsp_tree.size() || !lm->tetrahedra.size()) {
@@ -2282,7 +2287,7 @@ void LightStorage::_lightmap_update_probe_volume(Lightmap *p_lightmap) {
 		p_lightmap->probe_volume_texture = RID();
 	}
 
-	if (p_lightmap->points.is_empty() || p_lightmap->tetrahedra.is_empty() || p_lightmap->bsp_tree.is_empty() || p_lightmap->bounds.size.x <= 0.0 || p_lightmap->bounds.size.y <= 0.0 || p_lightmap->bounds.size.z <= 0.0) {
+	if (p_lightmap->points.is_empty() || p_lightmap->tetrahedra.is_empty() || p_lightmap->bounds.size.x <= 0.0 || p_lightmap->bounds.size.y <= 0.0 || p_lightmap->bounds.size.z <= 0.0) {
 		return;
 	}
 

@@ -36,6 +36,7 @@
 #include "scene/3d/node_3d.h"
 #include "scene/3d/skeleton_3d.h"
 #include "scene/resources/mesh.h"
+#include "scene/resources/multimesh.h"
 
 class Timer;
 class EditorNode3DGizmoPlugin;
@@ -46,6 +47,7 @@ class EditorNode3DGizmo : public Node3DGizmo {
 	struct Instance {
 		RID instance;
 		Ref<Mesh> mesh;
+		Ref<MultiMesh> multimesh;
 		Ref<Material> material;
 		Ref<SkinReference> skin_reference;
 		bool extra_margin = false;
@@ -101,6 +103,7 @@ public:
 	void add_lines(const Vector<Vector3> &p_lines, const Ref<Material> &p_material, bool p_billboard = false, const Color &p_modulate = Color(1, 1, 1));
 	void add_vertices(const Vector<Vector3> &p_vertices, const Ref<Material> &p_material, Mesh::PrimitiveType p_primitive_type, bool p_billboard = false, const Color &p_modulate = Color(1, 1, 1));
 	void add_mesh(const Ref<Mesh> &p_mesh, const Ref<Material> &p_material = Ref<Material>(), const Transform3D &p_xform = Transform3D(), const Ref<SkinReference> &p_skin_reference = Ref<SkinReference>());
+	void add_multimesh(const Ref<MultiMesh> &p_multimesh, const Ref<Material> &p_material = Ref<Material>());
 	void add_collision_segments(const Vector<Vector3> &p_lines);
 	void add_collision_triangles(const Ref<TriangleMesh> &p_tmesh);
 	void set_collision_meshes_are_snap_source(bool p_enable) { collision_meshes_are_snap_source = p_enable; }

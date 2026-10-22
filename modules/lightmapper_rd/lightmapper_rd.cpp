@@ -1872,7 +1872,13 @@ LightmapperRD::BakeError LightmapperRD::_denoise_slice(RenderingDevice *p_rd, Re
 	return BAKE_OK;
 }
 
-LightmapperRD::BakeError LightmapperRD::bake(BakeQuality p_quality, bool p_use_denoiser, float p_denoiser_strength, int p_denoiser_range, int p_bounces, float p_bounce_indirect_energy, float p_bias, bool p_bake_ao, float p_ao_distance, float p_ao_strength, float p_ao_light_affect, int p_ao_samples, int p_max_texture_size, bool p_bake_sh, bool p_bake_shadowmask, bool p_texture_for_bounces, GenerateProbes p_generate_probes, const Ref<Image> &p_environment_panorama, const Basis &p_environment_transform, BakeStepFunc p_step_function, void *p_bake_userdata, float p_exposure_normalization, float p_environment_exposure_multiplier, float p_supersampling_factor) {
+LightmapperRD::BakeError LightmapperRD::bake(BakeQuality p_quality, bool p_use_denoiser, float p_denoiser_strength, int p_denoiser_range, int p_bounces, float p_bounce_indirect_energy, float p_bias, bool p_bake_ao, float p_ao_distance, float p_ao_strength, float p_ao_light_affect, int p_ao_samples, int p_max_texture_size, bool p_bake_sh, bool p_bake_shadowmask, bool p_texture_for_bounces, const Ref<Image> &p_environment_panorama, const Basis &p_environment_transform, BakeStepFunc p_step_function, void *p_bake_userdata, float p_exposure_normalization, float p_environment_exposure_multiplier, float p_supersampling_factor, bool p_bake_lightmaps) {
+	if (!p_bake_lightmaps) {
+		p_use_denoiser = false;
+		p_bake_ao = false;
+		p_bake_sh = false;
+		p_bake_shadowmask = false;
+	}
 	int denoiser = GLOBAL_GET("rendering/lightmapping/denoising/denoiser");
 	String oidn_path = EDITOR_GET("filesystem/tools/oidn/oidn_denoise_path");
 	static const char *oidn_devices[] = { "default", "cpu", "sycl", "cuda", "hip", "metal" };
@@ -2670,7 +2676,7 @@ LightmapperRD::BakeError LightmapperRD::bake(BakeQuality p_quality, bool p_use_d
 			}
 		}
 	} staged_light_files;
-	staged_light_files.paths.resize(atlas_slices * light_coefficients);
+	staged_light_files.paths.resize(p_bake_lightmaps ? atlas_slices * light_coefficients : 0);
 	const String staged_light_prefix = EditorPaths::get_singleton()->get_cache_dir().path_join(vformat("lightmap_accum_%d_", OS::get_singleton()->get_process_id()));
 	for (int layer = 0; layer < staged_light_files.paths.size(); layer++) {
 		staged_light_files.paths.write[layer] = staged_light_prefix + itos(layer);
@@ -2826,9 +2832,11 @@ LightmapperRD::BakeError LightmapperRD::bake(BakeQuality p_quality, bool p_use_d
 					}
 				}
 			}
-			for (int coefficient = 0; coefficient < light_coefficients; coefficient++) {
-				if (!store_staged_light_layer(s * light_coefficients + coefficient, rd->texture_get_data(light_accum_tex, coefficient))) {
-					return BAKE_ERROR_LIGHTMAP_CANT_PRE_BAKE_MESHES;
+			if (p_bake_lightmaps) {
+				for (int coefficient = 0; coefficient < light_coefficients; coefficient++) {
+					if (!store_staged_light_layer(s * light_coefficients + coefficient, rd->texture_get_data(light_accum_tex, coefficient))) {
+						return BAKE_ERROR_LIGHTMAP_CANT_PRE_BAKE_MESHES;
+					}
 				}
 			}
 			// Preserve direct lighting on disk while the reusable slice accumulates bounces.
@@ -2884,7 +2892,7 @@ LightmapperRD::BakeError LightmapperRD::bake(BakeQuality p_quality, bool p_use_d
 
 	/* SECONDARY (indirect) LIGHT PASS(ES) */
 
-	if (p_bounces > 0) {
+	if (p_bake_lightmaps && p_bounces > 0) {
 		Vector<RD::Uniform> uniforms;
 		{
 			{
@@ -3163,6 +3171,25 @@ LightmapperRD::BakeError LightmapperRD::bake(BakeQuality p_quality, bool p_use_d
 				}
 			}
 		}
+	}
+
+	if (probe_positions.size() > 0) {
+		probe_values.resize(probe_positions.size() * 9);
+		Vector<uint8_t> probe_data = rd->buffer_get_data(light_probe_buffer);
+		ERR_FAIL_COND_V(uint64_t(probe_data.size()) != uint64_t(probe_values.size()) * sizeof(Color), BAKE_ERROR_LIGHTMAP_CANT_PRE_BAKE_MESHES);
+		memcpy(probe_values.ptrw(), probe_data.ptr(), probe_data.size());
+		rd->free_rid(light_probe_buffer);
+
+#ifdef DEBUG_TEXTURES
+		{
+			Ref<Image> img2 = Image::create_from_data(probe_values.size(), 1, false, Image::FORMAT_RGBAF, probe_data);
+			img2->save_exr("res://6_lightprobes.exr", false);
+		}
+#endif
+	}
+
+	if (!p_bake_lightmaps) {
+		return BAKE_OK;
 	}
 
 	// Emission and direct-light lookup have no consumers after indirect lighting
@@ -3763,21 +3790,6 @@ LightmapperRD::BakeError LightmapperRD::bake(BakeQuality p_quality, bool p_use_d
 			img->convert(Image::FORMAT_R8);
 			shadowmask_textures.push_back(img);
 		}
-	}
-
-	if (probe_positions.size() > 0) {
-		probe_values.resize(probe_positions.size() * 9);
-		Vector<uint8_t> probe_data = rd->buffer_get_data(light_probe_buffer);
-		ERR_FAIL_COND_V(uint64_t(probe_data.size()) != uint64_t(probe_values.size()) * sizeof(Color), BAKE_ERROR_LIGHTMAP_CANT_PRE_BAKE_MESHES);
-		memcpy(probe_values.ptrw(), probe_data.ptr(), probe_data.size());
-		rd->free_rid(light_probe_buffer);
-
-#ifdef DEBUG_TEXTURES
-		{
-			Ref<Image> img2 = Image::create_from_data(probe_values.size(), 1, false, Image::FORMAT_RGBAF, probe_data);
-			img2->save_exr("res://6_lightprobes.exr", false);
-		}
-#endif
 	}
 
 	return BAKE_OK;

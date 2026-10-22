@@ -30,19 +30,23 @@
 
 #include "lightmap_gi.h"
 
+#include "light_probe_geometry.h"
+
 #include "core/config/engine.h"
 #include "core/config/project_settings.h"
 #include "core/io/config_file.h"
+#include "core/io/dir_access.h"
 #include "core/io/resource_loader.h"
 #include "core/io/resource_saver.h"
 #include "core/math/delaunay_3d.h"
-#include "core/math/geometry_3d.h"
+#include "core/math/delaunay_3d_incremental.h"
+#include "core/object/callable_mp.h"
 #include "core/object/class_db.h"
 #include "core/object/object.h"
 #include "core/os/os.h"
 #include "core/templates/hash_map.h"
+#include "core/templates/hash_set.h"
 #include "scene/3d/light_3d.h"
-#include "scene/3d/lightmap_probe.h"
 #include "scene/3d/mesh_instance_3d.h"
 #include "scene/resources/camera_attributes.h"
 #include "scene/resources/environment.h"
@@ -59,68 +63,177 @@
 #endif
 
 namespace {
-// Only accelerates candidate lookup: the original approximate comparison and
-// lowest matching plane index remain authoritative, including opposite normals.
-class ProbePlaneIndex {
-	HashMap<Vector3i, LocalVector<uint32_t>> buckets;
+void collect_probe_systems(Node *p_root, LightmapGI *p_source, Vector<LightProbeSystem *> &r_systems) {
+	if (!p_root) {
+		return;
+	}
+	if (Object::cast_to<LightmapGI>(p_root) && p_root != p_source) {
+		return;
+	}
+	if (LightProbeSystem *system = Object::cast_to<LightProbeSystem>(p_root)) {
+		r_systems.push_back(system);
+	}
+	for (int i = 0; i < p_root->get_child_count(); i++) {
+		if (p_root->get_child(i)->get_owner()) {
+			collect_probe_systems(p_root->get_child(i), p_source, r_systems);
+		}
+	}
+}
 
-	static Vector3i key(const Plane &p_plane) {
-		const double cell = double(CMP_EPSILON) * 4.0;
-		// log(1 + |d|) bounds relative-tolerance matches at large distances and
-		// absolute-tolerance matches near zero without enormous integer cells.
-		const double distance = double(p_plane.d);
-		const double signed_distance = (distance < 0.0 ? -1.0 : 1.0) * Math::log(1.0 + Math::abs(distance));
-		return Vector3i(int32_t(Math::floor(double(p_plane.normal.x) / cell)), int32_t(Math::floor(double(p_plane.normal.y) / cell)), int32_t(Math::floor(signed_distance / cell)));
+LightmapGI::BakeError prepare_probe_capture(Lightmapper *p_lightmapper, LightProbeSystem *p_system, int p_probe_offset, int p_probe_count, const Transform3D &p_capture_transform, float p_exposure, bool p_interior, Lightmapper::BakeStepFunc p_step, void *p_userdata, Ref<LightProbeData> &r_capture) {
+	const Ref<LightProbeData> previous_capture = p_system->get_light_data();
+	const bool use_probe_cache = previous_capture.is_valid() && !previous_capture->is_cache_invalidated() && p_system->get_capture_global_transform().is_equal_approx(p_capture_transform);
+	const PackedVector3Array previous_probe_points = use_probe_cache ? previous_capture->get_points() : PackedVector3Array();
+	const PackedInt32Array previous_probe_tetrahedra = use_probe_cache ? previous_capture->get_tetrahedra() : PackedInt32Array();
+	const uint32_t previous_probe_hash = use_probe_cache ? previous_capture->get_position_hash() : 0;
+	Dictionary probe_capture_data;
+	const int probe_count = p_probe_count;
+	ERR_FAIL_COND_V(p_probe_offset + probe_count > p_lightmapper->get_bake_probe_count(), LightmapGI::BAKE_ERROR_MESHES_INVALID);
+
+	// Probe SH may change between bakes.
+	PackedColorArray probe_sh;
+	PackedVector3Array probe_points;
+	probe_sh.resize(probe_count * 9);
+	probe_points.resize(probe_count);
+
+	AABB system_bounds;
+	uint32_t bake_probe_hash = HASH_MURMUR3_SEED;
+	for (int i = 0; i < probe_count; i++) {
+		// Calculate the hash from probe positions.
+		Vector3 point = p_lightmapper->get_bake_probe_point(p_probe_offset + i);
+		bake_probe_hash = hash_murmur3_one_double(point.x, bake_probe_hash);
+		bake_probe_hash = hash_murmur3_one_double(point.y, bake_probe_hash);
+		bake_probe_hash = hash_murmur3_one_double(point.z, bake_probe_hash);
+
+		if (i == 0) {
+			system_bounds.position = point;
+		} else {
+			system_bounds.expand_to(point);
+		}
+		probe_points.set(i, point);
+		Vector<Color> colors = p_lightmapper->get_bake_probe_sh(p_probe_offset + i);
+		ERR_FAIL_COND_V(colors.size() != 9, LightmapGI::BAKE_ERROR_MESHES_INVALID);
+		for (int j = 0; j < 9; j++) {
+			probe_sh.set(i * 9 + j, colors[j]);
+		}
 	}
 
-public:
-	int get_or_insert(const Plane &p_plane, LocalVector<Plane> &r_planes) {
-		// Common axis-aligned planes often live near the start of the array.
-		const uint32_t prefix = MIN(uint32_t(16), r_planes.size());
-		for (uint32_t i = 0; i < prefix; i++) {
-			if (r_planes[i].is_equal_approx_any_side(p_plane)) {
-				return i;
+	// Measure structure generation separately from probe lighting.
+	const uint64_t probe_structure_start = OS::get_singleton()->get_ticks_usec();
+	const bool probe_hash_matches = bake_probe_hash == previous_probe_hash;
+	const bool probe_positions_match = probe_points == previous_probe_points;
+	const bool rebuild_probe_structure = !probe_hash_matches || !probe_positions_match;
+	print_line(vformat("Lightmap probe structure start: action=%s, probes=%d, cached_probes=%d, hash_matches=%s, positions_match=%s.",
+			rebuild_probe_structure ? "rebuild" : "reuse", probe_count, previous_probe_points.size(), probe_hash_matches ? "yes" : "no", probe_positions_match ? "yes" : "no"));
+
+	PackedInt32Array tetrahedra = previous_probe_tetrahedra;
+	const char *action = "reuse";
+	if (rebuild_probe_structure || !use_probe_cache) {
+		if (p_step && p_step(0.8, RTR("Updating Probe Volumes"), p_userdata, true)) {
+			return LightmapGI::BAKE_ERROR_USER_ABORTED;
+		}
+		Vector<Delaunay3D::OutputSimplex> solved;
+		Delaunay3DIncremental::Statistics incremental_statistics;
+		const uint64_t local_start = OS::get_singleton()->get_ticks_usec();
+		const bool incremental = Delaunay3DIncremental::update(previous_probe_points, previous_probe_tetrahedra, probe_points, solved, incremental_statistics);
+		print_line(vformat("Lightmap probe incremental: result=%s, reason=%s, time=%.3fs, removed_points=%d, inserted_points=%d, removed_tetrahedra=%d, inserted_tetrahedra=%d.",
+				incremental ? "accepted" : "full_rebuild_required", incremental_statistics.fallback_reason, double(OS::get_singleton()->get_ticks_usec() - local_start) / 1e6,
+				incremental_statistics.removed_points, incremental_statistics.inserted_points, incremental_statistics.removed_tetrahedra, incremental_statistics.inserted_tetrahedra));
+		if (incremental) {
+			action = "incremental";
+		} else {
+			action = "rebuild";
+			Delaunay3D::Statistics statistics;
+			const uint64_t full_start = OS::get_singleton()->get_ticks_usec();
+			solved = Delaunay3D::tetrahedralize(probe_points, &statistics);
+			print_line(vformat("Lightmap probe Delaunay: time=%.3fs, probes=%d, tetrahedra=%d.", double(OS::get_singleton()->get_ticks_usec() - full_start) / 1e6, probe_count, solved.size()));
+			print_line(vformat("Lightmap probe Delaunay work: sphere_tests=%d, precise_tests=%d, simplices_created=%d, index=bvh, index_entries=%d, peak_index_entries=%d.",
+					statistics.sphere_tests, statistics.precise_sphere_tests, statistics.simplices_created, statistics.index_entries, statistics.peak_index_entries));
+		}
+		tetrahedra.resize(solved.size() * 4);
+		for (int i = 0; i < solved.size(); i++) {
+			for (int j = 0; j < 4; j++) {
+				tetrahedra.set(i * 4 + j, solved[i].points[j]);
 			}
 		}
-		uint32_t match = UINT32_MAX;
-		if (r_planes.size() < 128 || !p_plane.is_finite()) {
-			for (uint32_t i = prefix; i < r_planes.size(); i++) {
-				if (r_planes[i].is_equal_approx_any_side(p_plane)) {
-					match = i;
-					break;
+	}
+	// New captures use the runtime tetrahedron BVH, with no serialized BSP.
+	probe_capture_data["tetrahedra"] = tetrahedra;
+	print_line(vformat("Lightmap probe topology: action=%s, lookup=bvh, probes=%d, tetrahedra=%d, total=%.3fs.", action, probe_count, tetrahedra.size() / 4, double(OS::get_singleton()->get_ticks_usec() - probe_structure_start) / 1e6));
+
+	print_line(vformat("Lightmap probe structure end: action=%s, total=%.3fs.", action, double(OS::get_singleton()->get_ticks_usec() - probe_structure_start) / 1e6));
+	if (probe_count > 0) {
+		system_bounds.grow_by(MAX(real_t(0.05), system_bounds.size.length() * real_t(0.001)));
+	}
+	probe_capture_data["bounds"] = system_bounds;
+	probe_capture_data["interior"] = p_interior;
+	probe_capture_data["points"] = probe_points;
+	probe_capture_data["sh"] = probe_sh;
+	probe_capture_data["bsp"] = PackedInt32Array();
+	probe_capture_data["baked_exposure"] = p_exposure;
+	probe_capture_data["lightprobe_hash"] = bake_probe_hash;
+	probe_capture_data["stale"] = false;
+	r_capture.instantiate();
+	ERR_FAIL_COND_V(r_capture->set_capture_data(probe_capture_data) != OK, LightmapGI::BAKE_ERROR_MESHES_INVALID);
+	return LightmapGI::BAKE_ERROR_OK;
+}
+
+Error save_bake_resources(const Vector<Ref<Resource>> &p_resources, const Vector<String> &p_paths) {
+	ERR_FAIL_COND_V(p_resources.size() != p_paths.size(), ERR_INVALID_PARAMETER);
+	Vector<String> backups;
+	backups.resize(p_paths.size());
+	const String suffix = vformat(".bake_backup_%d_%d", OS::get_singleton()->get_process_id(), OS::get_singleton()->get_ticks_usec());
+	for (int i = 0; i < p_paths.size(); i++) {
+		for (int j = 0; j < i; j++) {
+			ERR_FAIL_COND_V(p_paths[i] == p_paths[j], ERR_INVALID_PARAMETER);
+		}
+	}
+	for (int i = 0; i < p_paths.size(); i++) {
+		if (FileAccess::exists(p_paths[i])) {
+			const String backup = p_paths[i] + suffix;
+			const Error error = DirAccess::copy_absolute(p_paths[i], backup);
+			if (error != OK) {
+				if (FileAccess::exists(backup)) {
+					DirAccess::remove_absolute(backup);
 				}
-			}
-		} else {
-			for (int sign = 0; sign < 2; sign++) {
-				const Vector3i center = key(sign == 0 ? p_plane : -p_plane);
-				for (int x = -1; x <= 1; x++) {
-					for (int y = -1; y <= 1; y++) {
-						for (int z = -1; z <= 1; z++) {
-							const LocalVector<uint32_t> *candidates = buckets.getptr(center + Vector3i(x, y, z));
-							if (!candidates) {
-								continue;
-							}
-							for (uint32_t index : *candidates) {
-								if (index < match && r_planes[index].is_equal_approx_any_side(p_plane)) {
-									match = index;
-								}
-							}
-						}
+				for (const String &created : backups) {
+					if (!created.is_empty()) {
+						DirAccess::remove_absolute(created);
 					}
 				}
+				return error;
 			}
+			backups.write[i] = backup;
 		}
-		if (match != UINT32_MAX) {
-			return match;
-		}
-		const uint32_t index = r_planes.size();
-		r_planes.push_back(p_plane);
-		if (p_plane.is_finite()) {
-			buckets[key(p_plane)].push_back(index);
-		}
-		return index;
 	}
-};
+	for (int i = 0; i < p_paths.size(); i++) {
+		const Error error = ResourceSaver::save(p_resources[i], p_paths[i]);
+		if (error != OK) {
+			for (int j = 0; j <= i; j++) {
+				if (backups[j].is_empty()) {
+					if (FileAccess::exists(p_paths[j])) {
+						DirAccess::remove_absolute(p_paths[j]);
+					}
+				} else if (DirAccess::copy_absolute(backups[j], p_paths[j]) != OK) {
+					ERR_PRINT(vformat("Could not restore bake resource '%s'. Recovery copy retained at '%s'.", p_paths[j], backups[j]));
+					backups.write[j] = String(); // Keep the recovery file.
+				}
+			}
+			for (const String &backup : backups) {
+				if (!backup.is_empty()) {
+					DirAccess::remove_absolute(backup);
+				}
+			}
+			return error;
+		}
+	}
+	for (const String &backup : backups) {
+		if (!backup.is_empty()) {
+			DirAccess::remove_absolute(backup);
+		}
+	}
+	return OK;
+}
 } // namespace
 
 void LightmapGIData::add_user(const NodePath &p_path, const Rect2 &p_uv_scale, int p_slice_index, int32_t p_sub_instance) {
@@ -305,21 +418,22 @@ void LightmapGIData::update_specular_intensity(float p_intensity) {
 
 void LightmapGIData::set_capture_data(const AABB &p_bounds, bool p_interior, const PackedVector3Array &p_points, const PackedColorArray &p_point_sh, const PackedInt32Array &p_tetrahedra, const PackedInt32Array &p_bsp_tree, float p_baked_exposure, uint32_t p_lightprobe_hash) {
 	if (p_points.size()) {
-		int pc = p_points.size();
-		ERR_FAIL_COND(pc * 9 != p_point_sh.size());
-		ERR_FAIL_COND((p_tetrahedra.size() % 4) != 0);
-		ERR_FAIL_COND((p_bsp_tree.size() % 6) != 0);
+		ERR_FAIL_COND(p_points.size() * 9 != p_point_sh.size());
+		ERR_FAIL_COND(p_tetrahedra.size() % 4 != 0 || p_bsp_tree.size() % 6 != 0);
+	}
+	if (p_points.size()) {
 		RS::get_singleton()->lightmap_set_probe_capture_data(lightmap, p_points, p_point_sh, p_tetrahedra, p_bsp_tree);
 		RS::get_singleton()->lightmap_set_probe_bounds(lightmap, p_bounds);
 		RS::get_singleton()->lightmap_set_probe_interior(lightmap, p_interior);
 	} else {
 		RS::get_singleton()->lightmap_set_probe_capture_data(lightmap, PackedVector3Array(), PackedColorArray(), PackedInt32Array(), PackedInt32Array());
-		RS::get_singleton()->lightmap_set_probe_bounds(lightmap, AABB());
+		RS::get_singleton()->lightmap_set_probe_bounds(lightmap, p_bounds);
 		RS::get_singleton()->lightmap_set_probe_interior(lightmap, false);
 	}
 	RS::get_singleton()->lightmap_set_baked_exposure_normalization(lightmap, p_baked_exposure);
 	baked_exposure = p_baked_exposure;
 	lightprobe_hash = p_lightprobe_hash;
+	has_probe_capture_data.set_to(!p_points.is_empty());
 	interior = p_interior;
 	bounds = p_bounds;
 }
@@ -369,7 +483,9 @@ void LightmapGIData::_set_probe_data(const Dictionary &p_data) {
 	if (p_data.has("lightprobe_hash")) { // Older versions will not have it.
 		phash = p_data["lightprobe_hash"];
 	}
-	set_capture_data(p_data["bounds"], p_data["interior"], p_data["points"], p_data["sh"], p_data["tetrahedra"], p_data["bsp"], p_data["baked_exposure"], phash);
+	// Restore full connectivity from captures saved with geometry filtering.
+	const PackedInt32Array topology = p_data.get("topology_tetrahedra", p_data["tetrahedra"]);
+	set_capture_data(p_data["bounds"], p_data["interior"], p_data["points"], p_data["sh"], topology, p_data["bsp"], p_data["baked_exposure"], phash);
 }
 
 Dictionary LightmapGIData::_get_probe_data() const {
@@ -407,7 +523,34 @@ Array LightmapGIData::_get_light_textures_data() const {
 }
 #endif
 
+void LightmapGIData::set_baked_exposure(float p_exposure) {
+	ERR_FAIL_COND(!Math::is_finite(p_exposure) || p_exposure < 0);
+	baked_exposure = p_exposure;
+	RS::get_singleton()->lightmap_set_baked_exposure_normalization(lightmap, baked_exposure);
+}
+
+void LightmapGIData::set_lightmap_bounds(const AABB &p_bounds) {
+	ERR_FAIL_COND(!p_bounds.position.is_finite() || !p_bounds.size.is_finite());
+	ERR_FAIL_COND(p_bounds.size.x < 0 || p_bounds.size.y < 0 || p_bounds.size.z < 0);
+	bounds = p_bounds;
+	RS::get_singleton()->lightmap_set_probe_bounds(lightmap, bounds);
+}
+
+void LightmapGIData::_validate_property(PropertyInfo &p_property) const {
+	// Preview threads validate properties while holding the ClassDB read lock.
+	// Querying the RenderingServer here can deadlock with the main thread.
+	if (p_property.name == "probe_data" && !has_probe_capture_data.is_set()) {
+		p_property.usage &= ~PROPERTY_USAGE_STORAGE;
+	}
+}
+
 void LightmapGIData::_bind_methods() {
+	ClassDB::bind_method(D_METHOD("set_lightmap_bounds", "bounds"), &LightmapGIData::set_lightmap_bounds);
+	ClassDB::bind_method(D_METHOD("_get_lightmap_bounds"), &LightmapGIData::get_capture_bounds);
+	ADD_PROPERTY(PropertyInfo(Variant::AABB, "_lightmap_bounds", PROPERTY_HINT_NONE, "", PROPERTY_USAGE_STORAGE | PROPERTY_USAGE_INTERNAL), "set_lightmap_bounds", "_get_lightmap_bounds");
+	ClassDB::bind_method(D_METHOD("set_baked_exposure", "exposure"), &LightmapGIData::set_baked_exposure);
+	ClassDB::bind_method(D_METHOD("get_baked_exposure"), &LightmapGIData::get_baked_exposure);
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "baked_exposure", PROPERTY_HINT_NONE, "", PROPERTY_USAGE_STORAGE | PROPERTY_USAGE_INTERNAL), "set_baked_exposure", "get_baked_exposure");
 	ClassDB::bind_method(D_METHOD("_set_user_data", "data"), &LightmapGIData::_set_user_data);
 	ClassDB::bind_method(D_METHOD("_get_user_data"), &LightmapGIData::_get_user_data);
 
@@ -465,7 +608,7 @@ LightmapGIData::~LightmapGIData() {
 
 ///////////////////////////
 
-void LightmapGI::_find_meshes_and_lights(Node *p_at_node, Vector<MeshesFound> &meshes, Vector<LightsFound> &lights, Vector<Vector3> &probes) {
+void LightmapGI::_find_meshes_and_lights(Node *p_at_node, Vector<MeshesFound> &meshes, Vector<LightsFound> &lights) {
 	MeshInstance3D *mi = Object::cast_to<MeshInstance3D>(p_at_node);
 	if (mi && mi->get_gi_mode() == GeometryInstance3D::GI_MODE_STATIC && mi->is_visible_in_tree()) {
 		Ref<Mesh> mesh = mi->get_mesh();
@@ -513,7 +656,7 @@ void LightmapGI::_find_meshes_and_lights(Node *p_at_node, Vector<MeshesFound> &m
 
 	Node3D *s = Object::cast_to<Node3D>(p_at_node);
 
-	if (!mi && s) {
+	if (!mi && s && p_at_node->has_method(SNAME("get_bake_meshes"))) {
 		Array bmeshes = p_at_node->call("get_bake_meshes");
 		if (bmeshes.size() && (bmeshes.size() & 1) == 0) {
 			Transform3D xf = get_global_transform().affine_inverse() * s->get_global_transform();
@@ -546,290 +689,14 @@ void LightmapGI::_find_meshes_and_lights(Node *p_at_node, Vector<MeshesFound> &m
 		lights.push_back(lf);
 	}
 
-	LightmapProbe *probe = Object::cast_to<LightmapProbe>(p_at_node);
-
-	if (probe) {
-		Transform3D xf = get_global_transform().affine_inverse() * probe->get_global_transform();
-		probes.push_back(xf.origin);
-	}
-
 	for (int i = 0; i < p_at_node->get_child_count(); i++) {
 		Node *child = p_at_node->get_child(i);
 		if (!child->get_owner()) {
 			continue; //maybe a helper
 		}
 
-		_find_meshes_and_lights(child, meshes, lights, probes);
+		_find_meshes_and_lights(child, meshes, lights);
 	}
-}
-
-int LightmapGI::_bsp_get_simplex_side(const LocalVector<Vector3> &p_points, const LocalVector<BSPSimplex> &p_simplices, const Plane &p_plane, uint32_t p_simplex, BSPPointCache &r_point_cache) const {
-	int over = 0;
-	int under = 0;
-	const BSPSimplex &s = p_simplices[p_simplex];
-	for (int i = 0; i < 4; i++) {
-		const uint32_t point = s.vertices[i];
-		if (r_point_cache.versions[point] != r_point_cache.version) {
-			const Vector3 v = p_points[point];
-			// Preserve the original tolerance and above-plane comparison exactly.
-			const int8_t side = p_plane.has_point(v, 1.0 / (1 << 13)) ? 0 : (p_plane.is_point_over(v) ? 1 : -1);
-			r_point_cache.sides[point] = side;
-			r_point_cache.versions[point] = r_point_cache.version;
-		}
-		const int8_t side = r_point_cache.sides[point];
-		over += side > 0;
-		under += side < 0;
-	}
-
-	ERR_FAIL_COND_V(under == 0 && over == 0, -2); //should never happen, we discarded flat simplices before, but in any case drop it from the bsp tree and throw an error
-	if (under == 0) {
-		return 1; // all over
-	} else if (over == 0) {
-		return -1; // all under
-	} else {
-		return 0; // crossing
-	}
-}
-
-//#define DEBUG_BSP
-
-int32_t LightmapGI::_compute_bsp_tree(const LocalVector<Vector3> &p_points, LocalVector<int32_t> &planes_tested, const LocalVector<BSPSimplex> &p_simplices, const LocalVector<int32_t> &p_simplex_indices, LocalVector<BSPNode> &bsp_nodes, const LocalVector<BSPFace> &p_faces, BSPPointCache &r_point_cache) {
-	ERR_FAIL_COND_V(p_simplex_indices.size() < 2, -1);
-
-	int32_t node_index = (int32_t)bsp_nodes.size();
-	bsp_nodes.push_back(BSPNode());
-
-	//test with all the simplex planes
-	Plane best_plane;
-	float best_plane_score = -1.0;
-
-	// Adjacent pairs have an exact topological separating-face candidate. Verify
-	// both sides with the original tolerance before taking this leaf shortcut.
-	if (p_simplex_indices.size() == 2) {
-		const BSPSimplex &simplex = p_simplices[p_simplex_indices[0]];
-		for (int j = 0; j < 4; j++) {
-			const BSPFace &face = p_faces[simplex.faces[j]];
-			if (!face.manifold || !((face.simplices[0] == p_simplex_indices[0] && face.simplices[1] == p_simplex_indices[1]) || (face.simplices[1] == p_simplex_indices[0] && face.simplices[0] == p_simplex_indices[1]))) {
-				continue;
-			}
-			r_point_cache.begin_plane();
-			const Plane &plane = simplex.face_planes[j];
-			const int side0 = _bsp_get_simplex_side(p_points, p_simplices, plane, p_simplex_indices[0], r_point_cache);
-			const int side1 = _bsp_get_simplex_side(p_points, p_simplices, plane, p_simplex_indices[1], r_point_cache);
-			if ((side0 == -1 && side1 == 1) || (side0 == 1 && side1 == -1)) {
-				best_plane = plane;
-				best_plane_score = 1.0;
-				break;
-			}
-		}
-	}
-
-	for (const int idx : p_simplex_indices) {
-		if (best_plane_score == 1.0f) {
-			break; // A perfect balanced split cannot be improved.
-		}
-		const BSPSimplex &s = p_simplices[idx];
-		for (int j = 0; j < 4 && best_plane_score < 1.0f; j++) {
-			uint32_t plane_index = s.planes[j];
-			if (planes_tested[plane_index] == node_index) {
-				continue; //tested this plane already
-			}
-
-			planes_tested[plane_index] = node_index;
-
-			// Cached in this face's original vertex order, not its deduplicated
-			// representative plane, to preserve precision at large coordinates.
-			const Plane &plane = s.face_planes[j];
-			r_point_cache.begin_plane();
-
-			//test with all the simplices
-			int over_count = 0;
-			int under_count = 0;
-
-			for (const int &index : p_simplex_indices) {
-				int side = _bsp_get_simplex_side(p_points, p_simplices, plane, index, r_point_cache);
-				if (side == -2) {
-					continue; //this simplex is invalid, skip for now
-				} else if (side < 0) {
-					under_count++;
-				} else if (side > 0) {
-					over_count++;
-				}
-			}
-
-			if (under_count == 0 && over_count == 0) {
-				continue; //most likely precision issue with a flat simplex, do not try this plane
-			}
-
-			if (under_count > over_count) { //make sure under is always less than over, so we can compute the same ratio
-				SWAP(under_count, over_count);
-			}
-
-			float score = 0; //by default, score is 0 (worst)
-			if (over_count > 0) {
-				// Simplices that are intersected by the plane are moved into both the over
-				// and under subtrees which makes the entire tree deeper, so the best plane
-				// will have the least intersections while separating the simplices evenly.
-				float balance = float(under_count) / over_count;
-				float separation = float(over_count + under_count) / p_simplex_indices.size();
-				score = balance * separation * separation;
-			}
-
-			if (score > best_plane_score) {
-				best_plane = plane;
-				best_plane_score = score;
-			}
-		}
-	}
-
-	// We often end up with two (or on rare occasions, three) simplices that are
-	// either disjoint or share one vertex and don't have a separating plane
-	// among their faces. The fallback is to loop through new planes created
-	// with one vertex of the first simplex and two vertices of the second until
-	// we find a winner.
-	if (best_plane_score == 0) {
-		const BSPSimplex &simplex0 = p_simplices[p_simplex_indices[0]];
-		const BSPSimplex &simplex1 = p_simplices[p_simplex_indices[1]];
-
-		for (uint32_t i = 0; i < 4 && !best_plane_score; i++) {
-			Vector3 v0 = p_points[simplex0.vertices[i]];
-			for (uint32_t j = 0; j < 3 && !best_plane_score; j++) {
-				if (simplex0.vertices[i] == simplex1.vertices[j]) {
-					break;
-				}
-				Vector3 v1 = p_points[simplex1.vertices[j]];
-				for (uint32_t k = j + 1; k < 4; k++) {
-					if (simplex0.vertices[i] == simplex1.vertices[k]) {
-						break;
-					}
-					Vector3 v2 = p_points[simplex1.vertices[k]];
-
-					Plane plane = Plane(v0, v1, v2);
-					if (plane == Plane()) { // When v0, v1, and v2 are collinear, they can't form a plane.
-						continue;
-					}
-					r_point_cache.begin_plane();
-					int32_t side0 = _bsp_get_simplex_side(p_points, p_simplices, plane, p_simplex_indices[0], r_point_cache);
-					int32_t side1 = _bsp_get_simplex_side(p_points, p_simplices, plane, p_simplex_indices[1], r_point_cache);
-					if ((side0 == 1 && side1 == -1) || (side0 == -1 && side1 == 1)) {
-						best_plane = plane;
-						best_plane_score = 1.0;
-						break;
-					}
-				}
-			}
-		}
-	}
-
-	LocalVector<int32_t> indices_over;
-	LocalVector<int32_t> indices_under;
-
-	r_point_cache.begin_plane();
-	//split again, but add to list
-	for (const uint32_t index : p_simplex_indices) {
-		int side = _bsp_get_simplex_side(p_points, p_simplices, best_plane, index, r_point_cache);
-
-		if (side == -2) {
-			continue; //simplex sits on the plane, does not make sense to use it
-		}
-		if (side <= 0) {
-			indices_under.push_back(index);
-		}
-
-		if (side >= 0) {
-			indices_over.push_back(index);
-		}
-	}
-
-#ifdef DEBUG_BSP
-	print_line("node " + itos(node_index) + " found plane: " + best_plane + " score:" + rtos(best_plane_score) + " - over " + itos(indices_over.size()) + " under " + itos(indices_under.size()));
-#endif
-
-	if (best_plane_score < 0.0 || indices_over.size() == p_simplex_indices.size() || indices_under.size() == p_simplex_indices.size()) {
-		// Failed to separate the tetrahedrons using planes
-		// this means Delaunay broke at some point.
-		// Luckily, because we are using tetrahedrons, we can resort to
-		// less precise but still working ways to generate the separating plane
-		// this will most likely look bad when interpolating, but at least it will not crash.
-		// and the artifact will most likely also be very small, so too difficult to notice.
-
-		//find the longest axis
-
-		WARN_PRINT("Inconsistency found in triangulation while building BSP, probe interpolation quality may degrade a bit.");
-
-		LocalVector<Vector3> centers;
-		AABB bounds_all;
-		for (uint32_t i = 0; i < p_simplex_indices.size(); i++) {
-			AABB bounds;
-			for (uint32_t j = 0; j < 4; j++) {
-				Vector3 p = p_points[p_simplices[p_simplex_indices[i]].vertices[j]];
-				if (j == 0) {
-					bounds.position = p;
-				} else {
-					bounds.expand_to(p);
-				}
-			}
-			centers.push_back(bounds.get_center());
-			if (i == 0) {
-				bounds_all = bounds;
-			} else {
-				bounds_all.merge_with(bounds);
-			}
-		}
-		Vector3::Axis longest_axis = Vector3::Axis(bounds_all.get_longest_axis_index());
-
-		//find the simplex that will go under
-		uint32_t min_d_idx = 0;
-		real_t min_d_dist = centers[0][longest_axis];
-
-		for (uint32_t i = 0; i < centers.size(); i++) {
-			if (centers[i][longest_axis] < min_d_dist) {
-				min_d_idx = i;
-				min_d_dist = centers[i][longest_axis];
-			}
-		}
-		//rebuild best_plane and over/under arrays
-		best_plane = Plane();
-		best_plane.normal[longest_axis] = 1.0;
-		best_plane.d = min_d_dist;
-
-		indices_under.clear();
-		indices_under.push_back(p_simplex_indices[min_d_idx]);
-
-		indices_over.clear();
-
-		for (uint32_t i = 0; i < p_simplex_indices.size(); i++) {
-			if (i == min_d_idx) {
-				continue;
-			}
-			indices_over.push_back(p_simplex_indices[i]);
-		}
-	}
-
-	BSPNode node;
-	node.plane = best_plane;
-
-	if (indices_under.is_empty()) {
-		//nothing to do here
-		node.under = BSPNode::EMPTY_LEAF;
-	} else if (indices_under.size() == 1) {
-		node.under = -(indices_under[0] + 1);
-	} else {
-		node.under = _compute_bsp_tree(p_points, planes_tested, p_simplices, indices_under, bsp_nodes, p_faces, r_point_cache);
-	}
-
-	if (indices_over.is_empty()) {
-		//nothing to do here
-		node.over = BSPNode::EMPTY_LEAF;
-	} else if (indices_over.size() == 1) {
-		node.over = -(indices_over[0] + 1);
-	} else {
-		node.over = _compute_bsp_tree(p_points, planes_tested, p_simplices, indices_over, bsp_nodes, p_faces, r_point_cache);
-	}
-
-	bsp_nodes[node_index] = node;
-
-	return node_index;
 }
 
 bool LightmapGI::_lightmap_bake_step_function(float p_completion, const String &p_text, void *ud, bool p_refresh) {
@@ -839,82 +706,6 @@ bool LightmapGI::_lightmap_bake_step_function(float p_completion, const String &
 		ret = bsud->func(bsud->from_percent + p_completion * (bsud->to_percent - bsud->from_percent), p_text, bsud->ud, p_refresh);
 	}
 	return ret;
-}
-
-void LightmapGI::_plot_triangle_into_octree(GenProbesOctree *p_cell, float p_cell_size, const Vector3 *p_triangle) {
-	for (int i = 0; i < 8; i++) {
-		Vector3i pos = p_cell->offset;
-		uint32_t half_size = p_cell->size / 2;
-		if (i & 1) {
-			pos.x += half_size;
-		}
-		if (i & 2) {
-			pos.y += half_size;
-		}
-		if (i & 4) {
-			pos.z += half_size;
-		}
-
-		AABB subcell;
-		subcell.position = Vector3(pos) * p_cell_size;
-		subcell.size = Vector3(half_size, half_size, half_size) * p_cell_size;
-
-		if (!Geometry3D::triangle_box_overlap(subcell.get_center(), subcell.size * 0.5, p_triangle)) {
-			continue;
-		}
-
-		if (p_cell->children[i] == nullptr) {
-			GenProbesOctree *child = memnew(GenProbesOctree);
-			child->offset = pos;
-			child->size = half_size;
-			p_cell->children[i] = child;
-		}
-
-		if (half_size > 1) {
-			//still levels missing
-			_plot_triangle_into_octree(p_cell->children[i], p_cell_size, p_triangle);
-		}
-	}
-}
-
-void LightmapGI::_gen_new_positions_from_octree(const GenProbesOctree *p_cell, float p_cell_size, const Vector<Vector3> &probe_positions, LocalVector<Vector3> &new_probe_positions, HashMap<Vector3i, bool> &positions_used, const AABB &p_bounds) {
-	for (int i = 0; i < 8; i++) {
-		Vector3i pos = p_cell->offset;
-		if (i & 1) {
-			pos.x += p_cell->size;
-		}
-		if (i & 2) {
-			pos.y += p_cell->size;
-		}
-		if (i & 4) {
-			pos.z += p_cell->size;
-		}
-
-		if (p_cell->size == 1 && !positions_used.has(pos)) {
-			//new position to insert!
-			Vector3 real_pos = p_bounds.position + Vector3(pos) * p_cell_size;
-			//see if a user submitted probe is too close
-			int ppcount = probe_positions.size();
-			const Vector3 *pp = probe_positions.ptr();
-			bool exists = false;
-			for (int j = 0; j < ppcount; j++) {
-				if (pp[j].distance_to(real_pos) < (p_cell_size * 0.5f)) {
-					exists = true;
-					break;
-				}
-			}
-
-			if (!exists) {
-				new_probe_positions.push_back(real_pos);
-			}
-
-			positions_used[pos] = true;
-		}
-
-		if (p_cell->children[i] != nullptr) {
-			_gen_new_positions_from_octree(p_cell->children[i], p_cell_size, probe_positions, new_probe_positions, positions_used, p_bounds);
-		}
-	}
 }
 
 LightmapGI::BakeError LightmapGI::_save_and_reimport_atlas_textures(const Ref<Lightmapper> p_lightmapper, const String &p_base_name, TypedArray<TextureLayered> &r_textures, bool p_is_shadowmask) const {
@@ -1201,17 +992,43 @@ Lightmapper::BakeError LightmapGI::_bake_material(int p_mesh_index, const Size2i
 	return Lightmapper::BAKE_OK;
 }
 
-LightmapGI::BakeError LightmapGI::bake(Node *p_from_node, String p_image_data_path, Lightmapper::BakeStepFunc p_bake_step, void *p_bake_userdata) {
-	if (p_image_data_path.is_empty()) {
-		if (get_light_data().is_null()) {
-			return BAKE_ERROR_NO_SAVE_PATH;
+LightmapGI::BakeError LightmapGI::bake(Node *p_from_node, String p_image_data_path, Lightmapper::BakeStepFunc p_bake_step, void *p_bake_userdata, BakeMode p_mode) {
+	ERR_FAIL_COND_V(p_mode < BAKE_MODE_LIGHTMAP_AND_PROBES || p_mode > BAKE_MODE_PROBES_ONLY, BAKE_ERROR_MESHES_INVALID);
+	const bool bake_lightmaps = p_mode != BAKE_MODE_PROBES_ONLY;
+	const bool bake_probes = p_mode != BAKE_MODE_LIGHTMAP_ONLY;
+	_migrate_legacy_probe_data();
+	Vector<LightProbeSystem *> probe_systems;
+	collect_probe_systems(this, this, probe_systems);
+	if (p_mode == BAKE_MODE_PROBES_ONLY && probe_systems.is_empty()) {
+		return BAKE_ERROR_NO_PROBE_SYSTEM;
+	}
+	Vector<Ref<LightProbeData>> old_probe_resources;
+	HashSet<ObjectID> seen_probe_resources;
+	HashSet<ObjectID> shared_probe_resources;
+	for (LightProbeSystem *system : probe_systems) {
+		const Ref<LightProbeData> capture = system->get_light_data();
+		if (capture.is_null()) {
+			continue;
 		}
-
-		p_image_data_path = get_light_data()->get_path();
-		if (!p_image_data_path.is_resource_file()) {
+		const ObjectID id = capture->get_instance_id();
+		if (seen_probe_resources.has(id)) {
+			shared_probe_resources.insert(id);
+		} else {
+			seen_probe_resources.insert(id);
+			old_probe_resources.push_back(capture);
+		}
+	}
+	const Ref<LightProbeData> previous_probe_capture = old_probe_resources.is_empty() ? Ref<LightProbeData>() : old_probe_resources[0];
+	if (p_image_data_path.is_empty()) {
+		if (!bake_lightmaps && previous_probe_capture.is_valid() && previous_probe_capture->get_path().is_resource_file()) {
+			p_image_data_path = previous_probe_capture->get_path();
+		} else if (get_light_data().is_valid() && get_light_data()->get_path().is_resource_file()) {
+			p_image_data_path = get_light_data()->get_path();
+		} else {
 			return BAKE_ERROR_NO_SAVE_PATH;
 		}
 	}
+	const Ref<LightmapGIData> previous_lightmap_data = get_light_data();
 
 	Ref<Lightmapper> lightmapper = Lightmapper::create();
 	ERR_FAIL_COND_V(lightmapper.is_null(), BAKE_ERROR_NO_LIGHTMAPPER);
@@ -1222,19 +1039,50 @@ LightmapGI::BakeError LightmapGI::bake(Node *p_from_node, String p_image_data_pa
 		Vector<String> light_texture_paths;
 		Vector<String> shadow_texture_paths;
 		bool restore = true;
+		bool mutated = false;
+		bool atlases_unloaded = false;
+		Dictionary probe_backup;
+		Array user_backup;
+		TypedArray<TextureLayered> light_backup;
+		TypedArray<TextureLayered> shadow_backup;
+		bool sh_backup = false;
+		bool packed_backup = false;
+		String path_backup;
+
+		void backup_before_mutation(const Ref<LightmapGIData> &p_data) {
+			data = p_data;
+			probe_backup = data->get("probe_data");
+			user_backup = data->get("user_data");
+			light_backup = data->get_lightmap_textures();
+			shadow_backup = data->get_shadowmask_textures();
+			sh_backup = data->is_using_spherical_harmonics();
+			packed_backup = data->_is_using_packed_directional();
+			path_backup = data->get_path();
+			mutated = true;
+		}
 
 		void restore_if_needed() {
 			if (!restore || data.is_null()) {
 				return;
 			}
-			TypedArray<TextureLayered> light_textures;
+			if (!mutated && !atlases_unloaded) {
+				return;
+			}
+			if (mutated) {
+				data->set("user_data", user_backup);
+				data->set_uses_spherical_harmonics(sh_backup);
+				data->_set_uses_packed_directional(packed_backup);
+				data->set("probe_data", probe_backup);
+				data->set_path(path_backup, true);
+			}
+			TypedArray<TextureLayered> light_textures = light_backup;
 			for (const String &path : light_texture_paths) {
 				Ref<TextureLayered> texture = ResourceLoader::load(path);
 				if (texture.is_valid()) {
 					light_textures.push_back(texture);
 				}
 			}
-			TypedArray<TextureLayered> shadow_textures;
+			TypedArray<TextureLayered> shadow_textures = shadow_backup;
 			for (const String &path : shadow_texture_paths) {
 				Ref<TextureLayered> texture = ResourceLoader::load(path);
 				if (texture.is_valid()) {
@@ -1254,7 +1102,7 @@ LightmapGI::BakeError LightmapGI::bake(Node *p_from_node, String p_image_data_pa
 
 	previous_lightmap.owner = this;
 	previous_lightmap.data = get_light_data();
-	if (previous_lightmap.data.is_valid()) {
+	if (bake_lightmaps && previous_lightmap.data.is_valid()) {
 		const TypedArray<TextureLayered> light_textures = previous_lightmap.data->get_lightmap_textures();
 		const TypedArray<TextureLayered> shadow_textures = previous_lightmap.data->get_shadowmask_textures();
 		bool can_unload = true;
@@ -1275,6 +1123,7 @@ LightmapGI::BakeError LightmapGI::bake(Node *p_from_node, String p_image_data_pa
 			previous_lightmap.shadow_texture_paths.push_back(texture->get_path());
 		}
 		if (can_unload) {
+			previous_lightmap.atlases_unloaded = true;
 			set_light_data(Ref<LightmapGIData>());
 			previous_lightmap.data->set_lightmap_textures(TypedArray<TextureLayered>());
 			previous_lightmap.data->set_shadowmask_textures(TypedArray<TextureLayered>());
@@ -1302,9 +1151,10 @@ LightmapGI::BakeError LightmapGI::bake(Node *p_from_node, String p_image_data_pa
 	bake_materials_ud.meshes = &meshes_found;
 	Vector<LightsFound> lights_found;
 	Vector<Vector3> probes_found;
+	Vector<int> system_probe_counts;
 	AABB bounds;
 	{
-		_find_meshes_and_lights(p_from_node ? p_from_node : get_parent(), meshes_found, lights_found, probes_found);
+		_find_meshes_and_lights(p_from_node ? p_from_node : get_parent(), meshes_found, lights_found);
 
 		if (meshes_found.is_empty()) {
 			return BAKE_ERROR_NO_MESHES;
@@ -1423,89 +1273,31 @@ LightmapGI::BakeError LightmapGI::bake(Node *p_from_node, String p_image_data_pa
 		}
 	}
 
-	/* STEP 2, CREATE PROBES */
-
-	if (p_bake_step) {
-		p_bake_step(0.3, RTR("Creating probes"), p_bake_userdata, true);
-	}
-
-	//bounds need to include the user probes
-	for (int i = 0; i < probes_found.size(); i++) {
-		bounds.expand_to(probes_found[i]);
-	}
-
-	bounds.grow_by(bounds.size.length() * 0.001);
-
-	if (gen_probes == GENERATE_PROBES_DISABLED) {
-		// generate 8 probes on bound endpoints
-		for (int i = 0; i < 8; i++) {
-			probes_found.push_back(bounds.get_endpoint(i));
+	if (bake_probes && !probe_systems.is_empty()) {
+		if (p_bake_step && p_bake_step(0.12, RTR("Preparing probe validation"), p_bake_userdata, true)) {
+			return BAKE_ERROR_USER_ABORTED;
 		}
-	} else {
-		// detect probes from geometry
-		static const int subdiv_values[6] = { 0, 4, 8, 16, 32 };
-		int subdiv = subdiv_values[gen_probes];
-
-		float subdiv_cell_size;
-		Vector3i bound_limit;
-		{
-			int longest_axis = bounds.get_longest_axis_index();
-			subdiv_cell_size = bounds.size[longest_axis] / subdiv;
-			int axis_n1 = (longest_axis + 1) % 3;
-			int axis_n2 = (longest_axis + 2) % 3;
-
-			bound_limit[longest_axis] = subdiv;
-			bound_limit[axis_n1] = int(Math::ceil(bounds.size[axis_n1] / subdiv_cell_size));
-			bound_limit[axis_n2] = int(Math::ceil(bounds.size[axis_n2] / subdiv_cell_size));
-			//compensate bounds
-			bounds.size[axis_n1] = bound_limit[axis_n1] * subdiv_cell_size;
-			bounds.size[axis_n2] = bound_limit[axis_n2] * subdiv_cell_size;
+		LightProbeGeometry geometry;
+		Error error = geometry.build(p_from_node ? p_from_node : get_parent(), p_bake_step, p_bake_userdata);
+		if (error != OK) {
+			return error == ERR_SKIP ? BAKE_ERROR_USER_ABORTED : BAKE_ERROR_MESHES_INVALID;
 		}
-
-		GenProbesOctree octree;
-		octree.size = subdiv;
-
-		const int mesh_data_size = mesh_data.size();
-		for (int i = 0; i < mesh_data_size; i++) {
-			if (p_bake_step) {
-				float p = (float)(i) / mesh_data_size;
-				p_bake_step(0.3 + p * 0.1, vformat(RTR("Creating probes from mesh %d/%d"), i, mesh_data_size), p_bake_userdata, false);
+		// An explicit system supplies the whole probe layout. Never add legacy
+		// generated corners or rejected placements back into the accepted set.
+		probes_found.clear();
+		for (LightProbeSystem *system : probe_systems) {
+			Vector<Vector3> accepted;
+			error = system->prepare_bake(geometry, get_global_transform(), accepted, p_bake_step, p_bake_userdata);
+			if (error != OK) {
+				return error == ERR_SKIP ? BAKE_ERROR_USER_ABORTED : BAKE_ERROR_MESHES_INVALID;
 			}
-
-			for (int j = 0; j < mesh_data[i].points.size(); j += 3) {
-				Vector3 points[3] = { mesh_data[i].points[j + 0] - bounds.position, mesh_data[i].points[j + 1] - bounds.position, mesh_data[i].points[j + 2] - bounds.position };
-				_plot_triangle_into_octree(&octree, subdiv_cell_size, points);
-			}
+			system_probe_counts.push_back(accepted.size());
+			probes_found.append_array(accepted);
 		}
-
-		LocalVector<Vector3> new_probe_positions;
-		HashMap<Vector3i, bool> positions_used;
-		for (uint32_t i = 0; i < 8; i++) { //insert bounding endpoints
-			Vector3i pos;
-			if (i & 1) {
-				pos.x += bound_limit.x;
-			}
-			if (i & 2) {
-				pos.y += bound_limit.y;
-			}
-			if (i & 4) {
-				pos.z += bound_limit.z;
-			}
-
-			positions_used[pos] = true;
-			Vector3 real_pos = bounds.position + Vector3(pos) * subdiv_cell_size; //use same formula for numerical stability
-			new_probe_positions.push_back(real_pos);
+		for (const Vector3 &point : probes_found) {
+			bounds.expand_to(point);
 		}
-		//skip first level, since probes are always added at bounds endpoints anyway (code above this)
-		for (int i = 0; i < 8; i++) {
-			if (octree.children[i]) {
-				_gen_new_positions_from_octree(octree.children[i], subdiv_cell_size, probes_found, new_probe_positions, positions_used, bounds);
-			}
-		}
-
-		for (const Vector3 &position : new_probe_positions) {
-			probes_found.push_back(position);
-		}
+		bounds.grow_by(bounds.size.length() * 0.001);
 	}
 
 	const bool use_physical_light_units = GLOBAL_GET("rendering/lights_and_shadows/use_physical_light_units");
@@ -1678,12 +1470,13 @@ LightmapGI::BakeError LightmapGI::bake(Node *p_from_node, String p_image_data_pa
 	}
 
 	// The panorama is generated at the renderer's reference exposure, while
-	// direct and emissive lighting use the selected bake exposure.
-	const float environment_exposure_multiplier = exposure_normalization / reference_exposure_normalization;
+	// direct and emissive lighting use the selected bake exposure. Apply the
+	// environment energy here so it affects every environment source equally.
+	const float environment_exposure_multiplier = environment_energy * exposure_normalization / reference_exposure_normalization;
 
-	Lightmapper::BakeError bake_err = lightmapper->bake(Lightmapper::BakeQuality(bake_quality), use_denoiser, denoiser_strength, denoiser_range, bounces,
-			bounce_indirect_energy, bias, bake_ao, ao_distance, ao_strength, ao_light_affect, ao_samples, max_texture_size, directional, shadowmask_mode != LightmapGIData::SHADOWMASK_MODE_NONE, use_texture_for_bounces,
-			Lightmapper::GenerateProbes(gen_probes), environment_image, environment_transform, _lightmap_bake_step_function, &bsud, exposure_normalization, environment_exposure_multiplier, (supersampling_enabled ? supersampling_factor : 1));
+	Lightmapper::BakeError bake_err = lightmapper->bake(Lightmapper::BakeQuality(bake_quality), bake_lightmaps && use_denoiser, denoiser_strength, denoiser_range, bounces,
+			bounce_indirect_energy, bias, bake_lightmaps && bake_ao, ao_distance, ao_strength, ao_light_affect, ao_samples, max_texture_size, bake_lightmaps && directional, bake_lightmaps && shadowmask_mode != LightmapGIData::SHADOWMASK_MODE_NONE, use_texture_for_bounces,
+			environment_image, environment_transform, _lightmap_bake_step_function, &bsud, exposure_normalization, environment_exposure_multiplier, (supersampling_enabled ? supersampling_factor : 1), bake_lightmaps);
 
 	if (bake_err == Lightmapper::BAKE_ERROR_TEXTURE_EXCEEDS_MAX_SIZE) {
 		return BAKE_ERROR_TEXTURE_SIZE_TOO_SMALL;
@@ -1695,252 +1488,192 @@ LightmapGI::BakeError LightmapGI::bake(Node *p_from_node, String p_image_data_pa
 		return BAKE_ERROR_USER_ABORTED;
 	}
 
-	// POSTBAKE: Save Textures.
 	TypedArray<TextureLayered> lightmap_textures;
 	TypedArray<TextureLayered> shadowmask_textures;
+	bool save_shadowmask = false;
+	if (bake_lightmaps) {
+		// POSTBAKE: Save Textures.
 
-	const String texture_filename = p_image_data_path.get_basename();
-	const int shadowmask_texture_count = lightmapper->get_shadowmask_texture_count();
-	const bool save_shadowmask = shadowmask_mode != LightmapGIData::SHADOWMASK_MODE_NONE && shadowmask_texture_count > 0;
+		const String texture_filename = p_image_data_path.get_basename();
+		const int shadowmask_texture_count = lightmapper->get_shadowmask_texture_count();
+		save_shadowmask = shadowmask_mode != LightmapGIData::SHADOWMASK_MODE_NONE && shadowmask_texture_count > 0;
 
-	// Save the lightmap atlases.
-	BakeError save_err = _save_and_reimport_atlas_textures(lightmapper, texture_filename, lightmap_textures, false);
-	ERR_FAIL_COND_V(save_err != BAKE_ERROR_OK, save_err);
-
-	if (save_shadowmask) {
-		// Save the shadowmask atlases.
-		save_err = _save_and_reimport_atlas_textures(lightmapper, texture_filename + "_shadow", shadowmask_textures, true);
+		// Save the lightmap atlases.
+		BakeError save_err = _save_and_reimport_atlas_textures(lightmapper, texture_filename, lightmap_textures, false);
 		ERR_FAIL_COND_V(save_err != BAKE_ERROR_OK, save_err);
+
+		if (save_shadowmask) {
+			// Save the shadowmask atlases.
+			save_err = _save_and_reimport_atlas_textures(lightmapper, texture_filename + "_shadow", shadowmask_textures, true);
+			ERR_FAIL_COND_V(save_err != BAKE_ERROR_OK, save_err);
+		}
 	}
 
-	// POSTBAKE: Save Light Data.
 	Ref<LightmapGIData> gi_data;
+	if (bake_lightmaps) {
+		if (previous_lightmap_data.is_valid()) {
+			gi_data = previous_lightmap_data;
+			previous_lightmap.backup_before_mutation(gi_data);
+			set_light_data(Ref<LightmapGIData>());
+			gi_data->clear();
+		} else {
+			gi_data.instantiate();
+		}
+		gi_data->set_baked_exposure(exposure_normalization);
+		gi_data->set_lightmap_bounds(bounds);
+	}
+	if (bake_lightmaps) {
+		gi_data->set_lightmap_textures(lightmap_textures);
 
-	if (get_light_data().is_valid()) {
-		gi_data = get_light_data();
-		set_light_data(Ref<LightmapGIData>()); // Clear.
-		gi_data->clear();
+		if (save_shadowmask) {
+			gi_data->set_shadowmask_textures(shadowmask_textures);
+		} else {
+			gi_data->clear_shadowmask_textures();
+		}
 
+		gi_data->set_uses_spherical_harmonics(directional);
+		gi_data->_set_uses_packed_directional(directional); // New SH lightmaps are packed automatically.
+
+		for (int i = 0; i < lightmapper->get_bake_mesh_count(); i++) {
+			Dictionary d = lightmapper->get_bake_mesh_userdata(i);
+			NodePath np = d["path"];
+			int32_t subindex = -1;
+			if (d.has("subindex")) {
+				subindex = d["subindex"];
+			}
+
+			Rect2 uv_scale = lightmapper->get_bake_mesh_uv_scale(i);
+			int slice_index = lightmapper->get_bake_mesh_texture_slice(i);
+			gi_data->add_user(np, uv_scale, slice_index, subindex);
+		}
+	}
+
+	Vector<Ref<LightProbeData>> probe_candidates;
+	if (bake_probes && !probe_systems.is_empty()) {
+		int probe_offset = 0;
+		for (int system_index = 0; system_index < probe_systems.size(); system_index++) {
+			LightProbeSystem *system = probe_systems[system_index];
+			Ref<LightProbeData> candidate;
+			const BakeError capture_error = prepare_probe_capture(lightmapper.ptr(), system, probe_offset, system_probe_counts[system_index], get_global_transform(), exposure_normalization, interior, p_bake_step, p_bake_userdata, candidate);
+			if (capture_error != BAKE_ERROR_OK) {
+				return capture_error;
+			}
+			probe_candidates.push_back(candidate);
+			probe_offset += system_probe_counts[system_index];
+		}
 	} else {
-		gi_data.instantiate();
-	}
-
-	gi_data->set_lightmap_textures(lightmap_textures);
-
-	if (save_shadowmask) {
-		gi_data->set_shadowmask_textures(shadowmask_textures);
-	} else {
-		gi_data->clear_shadowmask_textures();
-	}
-
-	gi_data->set_uses_spherical_harmonics(directional);
-	gi_data->_set_uses_packed_directional(directional); // New SH lightmaps are packed automatically.
-
-	for (int i = 0; i < lightmapper->get_bake_mesh_count(); i++) {
-		Dictionary d = lightmapper->get_bake_mesh_userdata(i);
-		NodePath np = d["path"];
-		int32_t subindex = -1;
-		if (d.has("subindex")) {
-			subindex = d["subindex"];
-		}
-
-		Rect2 uv_scale = lightmapper->get_bake_mesh_uv_scale(i);
-		int slice_index = lightmapper->get_bake_mesh_texture_slice(i);
-		gi_data->add_user(np, uv_scale, slice_index, subindex);
-	}
-
-	int probe_count = lightmapper->get_bake_probe_count();
-
-	// Probe SH may change between bakes.
-	LocalVector<Color> probe_sh;
-	LocalVector<Vector3> probe_points;
-	probe_sh.resize(probe_count * 9);
-	probe_points.resize(probe_count);
-
-	uint32_t bake_probe_hash = HASH_MURMUR3_SEED;
-	for (int i = 0; i < probe_count; i++) {
-		// Calculate the hash from probe positions.
-		Vector3 point = lightmapper->get_bake_probe_point(i);
-		bake_probe_hash = hash_murmur3_one_double(point.x, bake_probe_hash);
-		bake_probe_hash = hash_murmur3_one_double(point.y, bake_probe_hash);
-		bake_probe_hash = hash_murmur3_one_double(point.z, bake_probe_hash);
-
-		probe_points[i] = point;
-		Vector<Color> colors = lightmapper->get_bake_probe_sh(i);
-		ERR_CONTINUE(colors.size() != 9);
-		for (int j = 0; j < 9; j++) {
-			probe_sh[i * 9 + j] = colors[j];
+		for (const Ref<LightProbeData> &old_capture : old_probe_resources) {
+			Ref<LightProbeData> candidate;
+			candidate.instantiate();
+			Dictionary snapshot = old_capture->get_capture_data();
+			snapshot["stale"] = old_capture->get_probe_count() > 0;
+			ERR_FAIL_COND_V(candidate->set_capture_data(snapshot) != OK, BAKE_ERROR_MESHES_INVALID);
+			probe_candidates.push_back(candidate);
 		}
 	}
 
-	// If the probe hash doesn't match, build the BSP tree from scratch.
-	if (bake_probe_hash != gi_data->get_lightprobe_hash()) {
-		// Obtain solved simplices.
-		if (p_bake_step) {
-			p_bake_step(0.8, RTR("Generating Probe Volumes"), p_bake_userdata, true);
+	Vector<Ref<Resource>> resources_to_save;
+	Vector<String> resource_paths;
+	Vector<String> probe_paths;
+	if (bake_lightmaps) {
+		gi_data->set_path(p_image_data_path, true);
+		resources_to_save.push_back(gi_data);
+		resource_paths.push_back(p_image_data_path);
+	}
+	for (int i = 0; i < probe_candidates.size(); i++) {
+		const Ref<LightProbeData> old_capture = bake_probes ? probe_systems[i]->get_light_data() : old_probe_resources[i];
+		String path = !bake_lightmaps && i == 0 && (p_image_data_path.get_extension() == "tres" || p_image_data_path.get_extension() == "probebake") ? p_image_data_path : (old_capture.is_valid() ? old_capture->get_path() : String());
+		if (!path.is_resource_file()) {
+			path = p_image_data_path.get_basename() + (i == 0 ? "_probes.tres" : "_probes_" + itos(i) + ".tres");
 		}
+		if (path.get_extension() == "probebake") {
+			path = path.get_basename() + ".tres";
+		}
+		int suffix = i;
+		while (resource_paths.has(path)) {
+			path = p_image_data_path.get_basename() + "_probes_" + itos(++suffix) + ".tres";
+		}
+		probe_paths.push_back(path);
+		resources_to_save.push_back(probe_candidates[i]);
+		resource_paths.push_back(path);
+	}
+	ERR_FAIL_COND_V(save_bake_resources(resources_to_save, resource_paths) != OK, BAKE_ERROR_CANT_CREATE_IMAGE);
 
-		const uint64_t delaunay_start = OS::get_singleton()->get_ticks_usec();
-		Vector<Delaunay3D::OutputSimplex> solved_simplices = Delaunay3D::tetrahedralize(Vector<Vector3>(probe_points));
-		const uint64_t topology_start = OS::get_singleton()->get_ticks_usec();
-		int64_t simplex_count = solved_simplices.size();
-
-		LocalVector<BSPSimplex> bsp_simplices;
-		LocalVector<BSPFace> bsp_faces;
-		LocalVector<Plane> bsp_planes;
-		LocalVector<int32_t> bsp_simplex_indices;
-		PackedInt32Array tetrahedrons;
-		bsp_simplices.reserve(simplex_count);
-		bsp_simplex_indices.reserve(simplex_count);
-		tetrahedrons.resize(simplex_count * 4);
-		{
-			ProbePlaneIndex plane_index;
-			HashMap<Vector3i, int> face_indices;
-			int32_t *tetrahedrons_write = tetrahedrons.ptrw();
-			for (int i = 0; i < simplex_count; i++) {
-				BSPSimplex bsp_simplex;
-				for (int j = 0; j < 4; j++) {
-					bsp_simplex.vertices[j] = solved_simplices[i].points[j];
-					tetrahedrons_write[i * 4 + j] = solved_simplices[i].points[j];
-				}
-				for (int j = 0; j < 4; j++) {
-					static const int face_order[4][3] = {
-						{ 0, 1, 2 },
-						{ 0, 2, 3 },
-						{ 0, 1, 3 },
-						{ 1, 2, 3 }
-					};
-					Vector3i face_key(bsp_simplex.vertices[face_order[j][0]], bsp_simplex.vertices[face_order[j][1]], bsp_simplex.vertices[face_order[j][2]]);
-					const Plane plane(probe_points[face_key.x], probe_points[face_key.y], probe_points[face_key.z]);
-					bsp_simplex.face_planes[j] = plane;
-					bsp_simplex.planes[j] = plane_index.get_or_insert(plane, bsp_planes);
-					if (face_key.x > face_key.y) {
-						SWAP(face_key.x, face_key.y);
-					}
-					if (face_key.y > face_key.z) {
-						SWAP(face_key.y, face_key.z);
-					}
-					if (face_key.x > face_key.y) {
-						SWAP(face_key.x, face_key.y);
-					}
-					int *face_index = face_indices.getptr(face_key);
-					if (!face_index) {
-						bsp_simplex.faces[j] = bsp_faces.size();
-						face_indices.insert(face_key, bsp_faces.size());
-						BSPFace face;
-						face.simplices[0] = i;
-						bsp_faces.push_back(face);
-					} else {
-						bsp_simplex.faces[j] = *face_index;
-						BSPFace &face = bsp_faces[*face_index];
-						if (face.simplices[1] == -1) {
-							face.simplices[1] = i;
-						} else {
-							face.manifold = false; // Keep the conservative BSP path.
-						}
-					}
-				}
-				bsp_simplex_indices.push_back(i);
-				bsp_simplices.push_back(bsp_simplex);
+	if (bake_lightmaps) {
+		previous_lightmap.restore = false;
+		set_light_data(gi_data);
+	}
+	Vector<Ref<LightProbeData>> published_captures;
+	for (int i = 0; i < probe_candidates.size(); i++) {
+		Ref<LightProbeData> capture = bake_probes ? probe_systems[i]->get_light_data() : old_probe_resources[i];
+		const bool shared_capture = bake_probes && capture.is_valid() && shared_probe_resources.has(capture->get_instance_id());
+		if (capture.is_null() || shared_capture) {
+			capture = probe_candidates[i];
+		} else {
+			if (bake_probes) {
+				capture->consume_cache_invalidation();
 			}
+			capture->set_capture_data(probe_candidates[i]->get_capture_data());
 		}
-
-		const uint64_t topology_end = OS::get_singleton()->get_ticks_usec();
-
-//#define DEBUG_SIMPLICES_AS_OBJ_FILE
-#ifdef DEBUG_SIMPLICES_AS_OBJ_FILE
-		{
-			Ref<FileAccess> f = FileAccess::open("res://bsp.obj", FileAccess::WRITE);
-			for (uint32_t i = 0; i < bsp_simplices.size(); i++) {
-				f->store_line("o Simplex" + itos(i));
-				for (int j = 0; j < 4; j++) {
-					f->store_line(vformat("v %f %f %f", probe_points[bsp_simplices[i].vertices[j]].x, probe_points[bsp_simplices[i].vertices[j]].y, probe_points[bsp_simplices[i].vertices[j]].z));
-				}
-				static const int face_order[4][3] = {
-					{ 1, 2, 3 },
-					{ 1, 3, 4 },
-					{ 1, 2, 4 },
-					{ 2, 3, 4 }
-				};
-
-				for (int j = 0; j < 4; j++) {
-					f->store_line(vformat("f %d %d %d", 4 * i + face_order[j][0], 4 * i + face_order[j][1], 4 * i + face_order[j][2]));
-				}
-			}
+		capture->set_path(probe_paths[i], true);
+		if (bake_probes) {
+			published_captures.push_back(capture);
 		}
-#endif
-
-		LocalVector<BSPNode> bsp_nodes;
-		LocalVector<int32_t> planes_tested;
-		planes_tested.resize(bsp_planes.size());
-		for (int &index : planes_tested) {
-			index = 0x7FFFFFFF;
-		}
-
-		if (p_bake_step) {
-			p_bake_step(0.9, RTR("Generating Probe Acceleration Structures"), p_bake_userdata, true);
-		}
-
-		// Compute a BSP tree of the simplices, so it's easy to find the exact one.
-		BSPPointCache point_cache;
-		point_cache.versions.resize_initialized(probe_points.size());
-		point_cache.sides.resize(probe_points.size());
-		const uint64_t bsp_start = OS::get_singleton()->get_ticks_usec();
-		_compute_bsp_tree(probe_points, planes_tested, bsp_simplices, bsp_simplex_indices, bsp_nodes, bsp_faces, point_cache);
-		const uint64_t bsp_end = OS::get_singleton()->get_ticks_usec();
-
-		PackedInt32Array bsp_array;
-		bsp_array.resize(bsp_nodes.size() * 6); // six 32 bits values used for each BSP node
-		{
-			float *fptr = (float *)bsp_array.ptrw();
-			int32_t *iptr = (int32_t *)bsp_array.ptrw();
-			for (uint32_t i = 0; i < bsp_nodes.size(); i++) {
-				fptr[i * 6 + 0] = bsp_nodes[i].plane.normal.x;
-				fptr[i * 6 + 1] = bsp_nodes[i].plane.normal.y;
-				fptr[i * 6 + 2] = bsp_nodes[i].plane.normal.z;
-				fptr[i * 6 + 3] = bsp_nodes[i].plane.d;
-				iptr[i * 6 + 4] = bsp_nodes[i].over;
-				iptr[i * 6 + 5] = bsp_nodes[i].under;
-			}
-//#define DEBUG_BSP_TREE
-#ifdef DEBUG_BSP_TREE
-			Ref<FileAccess> f = FileAccess::open("res://bsp.txt", FileAccess::WRITE);
-			for (uint32_t i = 0; i < bsp_nodes.size(); i++) {
-				f->store_line(itos(i) + " - plane: " + bsp_nodes[i].plane + " over: " + itos(bsp_nodes[i].over) + " under: " + itos(bsp_nodes[i].under));
-			}
-#endif
-		}
-
-		int shared_faces = 0;
-		for (const BSPFace &face : bsp_faces) {
-			shared_faces += face.simplices[1] != -1;
-		}
-		print_line(vformat("Lightmap probe volume: probes=%d, tetrahedra=%d, faces=%d, shared_faces=%d, planes=%d, bsp_nodes=%d; delaunay=%.3fs, topology=%.3fs, bsp=%.3fs.",
-				probe_count, simplex_count, bsp_faces.size(), shared_faces, bsp_planes.size(), bsp_nodes.size(),
-				double(topology_start - delaunay_start) / 1e6, double(topology_end - topology_start) / 1e6, double(bsp_end - bsp_start) / 1e6));
-		gi_data->set_capture_data(bounds, interior, Vector<Vector3>(probe_points), Vector<Color>(probe_sh), tetrahedrons, bsp_array, exposure_normalization, bake_probe_hash);
-	} else {
-		print_verbose("Lightmap probe volume: reusing tetrahedra and BSP for unchanged probe positions.");
-		gi_data->set_capture_data(bounds, interior, Vector<Vector3>(probe_points), Vector<Color>(probe_sh), gi_data->get_capture_tetrahedra(), gi_data->get_capture_bsp_tree(), exposure_normalization, bake_probe_hash);
 	}
-
-	gi_data->set_path(p_image_data_path, true);
-	Error err = ResourceSaver::save(gi_data);
-
-	if (err != OK) {
-		return BAKE_ERROR_CANT_CREATE_IMAGE;
+	for (int i = 0; i < probe_systems.size(); i++) {
+		LightProbeSystem *system = probe_systems[i];
+		if (bake_probes && i < published_captures.size()) {
+			system->set_capture_transform(system->get_global_transform().affine_inverse() * get_global_transform());
+			system->set_light_data(published_captures[i]);
+			system->mark_layout_baked();
+		}
 	}
-
-	previous_lightmap.restore = false;
-	set_light_data(gi_data);
 	update_configuration_warnings();
 
 	return BAKE_ERROR_OK;
 }
 
+void LightmapGI::_migrate_legacy_probe_data() {
+	if (light_data.is_null() || (light_data->get_capture_points().is_empty() && light_data->get_migrated_probe_data().is_null()) || !is_inside_tree()) {
+		return;
+	}
+	Vector<LightProbeSystem *> systems;
+	collect_probe_systems(this, this, systems);
+	Ref<LightProbeData> migrated = light_data->get_migrated_probe_data();
+	bool transferred = false;
+	for (LightProbeSystem *system : systems) {
+		if (system->get_light_data().is_null()) {
+			if (migrated.is_null()) {
+				migrated.instantiate();
+				Dictionary snapshot = light_data->get("probe_data");
+				snapshot["bsp"] = PackedInt32Array(); // Reuse the existing tetrahedra through the shared BVH.
+				snapshot["stale"] = light_data->get_meta(SNAME("_lightmap_probes_stale"), false);
+				if (migrated->set_capture_data(snapshot) != OK) {
+					return;
+				}
+				light_data->set_migrated_probe_data(migrated);
+			}
+			system->set_capture_transform(system->get_global_transform().affine_inverse() * get_global_transform());
+			system->set_light_data(migrated);
+			system->mark_layout_baked();
+			transferred = true;
+		}
+		transferred = transferred || !light_data->get_capture_points().is_empty();
+	}
+	if (transferred) {
+		if (!light_data->get_capture_points().is_empty()) {
+			light_data->set_capture_data(light_data->get_capture_bounds(), light_data->is_interior(), PackedVector3Array(), PackedColorArray(), PackedInt32Array(), PackedInt32Array(), light_data->get_baked_exposure(), 0);
+		}
+		// Refresh this instance's bounds and capture pairs, including instances sharing legacy data.
+		const Ref<LightmapGIData> retained_data = light_data;
+		set_light_data(retained_data);
+	}
+}
+
 void LightmapGI::_notification(int p_what) {
 	switch (p_what) {
 		case NOTIFICATION_POST_ENTER_TREE: {
+			callable_mp(this, &LightmapGI::_migrate_legacy_probe_data).call_deferred();
 			if (light_data.is_valid()) {
 				ERR_FAIL_COND_MSG(
 						light_data->is_using_spherical_harmonics() && !light_data->_is_using_packed_directional(),
@@ -2134,6 +1867,15 @@ LightmapGI::EnvironmentMode LightmapGI::get_environment_mode() const {
 	return environment_mode;
 }
 
+void LightmapGI::set_environment_energy(float p_energy) {
+	ERR_FAIL_COND(p_energy < 0.0);
+	environment_energy = p_energy;
+}
+
+float LightmapGI::get_environment_energy() const {
+	return environment_energy;
+}
+
 void LightmapGI::set_environment_custom_sky(const Ref<Sky> &p_sky) {
 	environment_custom_sky = p_sky;
 }
@@ -2267,14 +2009,6 @@ void LightmapGI::set_supersampling_factor(float p_factor) {
 
 float LightmapGI::get_supersampling_factor() const {
 	return supersampling_factor;
-}
-
-void LightmapGI::set_generate_probes(GenerateProbes p_generate_probes) {
-	gen_probes = p_generate_probes;
-}
-
-LightmapGI::GenerateProbes LightmapGI::get_generate_probes() const {
-	return gen_probes;
 }
 
 void LightmapGI::set_camera_attributes(const Ref<CameraAttributes> &p_camera_attributes) {
@@ -2725,12 +2459,21 @@ PackedStringArray LightmapGI::get_configuration_warnings() const {
 	return warnings;
 }
 
+bool LightmapGI::_set(const StringName &p_name, const Variant &p_value) {
+	// Accept removed bake options in old scene files without persisting them again.
+	return p_name == SNAME("generate_probes_subdiv") || p_name == SNAME("probe_ray_count");
+}
+
 void LightmapGI::_validate_property(PropertyInfo &p_property) const {
 	if (!Engine::get_singleton()->is_editor_hint()) {
 		return;
 	}
 	if (p_property.name == "supersampling_factor") {
 		if (!supersampling_enabled) {
+			p_property.usage = PROPERTY_USAGE_NO_EDITOR;
+		}
+	} else if (p_property.name == "environment_energy") {
+		if (environment_mode == ENVIRONMENT_MODE_DISABLED) {
 			p_property.usage = PROPERTY_USAGE_NO_EDITOR;
 		}
 	} else if (p_property.name == "environment_custom_sky") {
@@ -2778,9 +2521,6 @@ void LightmapGI::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("set_bounce_indirect_energy", "bounce_indirect_energy"), &LightmapGI::set_bounce_indirect_energy);
 	ClassDB::bind_method(D_METHOD("get_bounce_indirect_energy"), &LightmapGI::get_bounce_indirect_energy);
 
-	ClassDB::bind_method(D_METHOD("set_generate_probes", "subdivision"), &LightmapGI::set_generate_probes);
-	ClassDB::bind_method(D_METHOD("get_generate_probes"), &LightmapGI::get_generate_probes);
-
 	ClassDB::bind_method(D_METHOD("set_bias", "bias"), &LightmapGI::set_bias);
 	ClassDB::bind_method(D_METHOD("get_bias"), &LightmapGI::get_bias);
 	ClassDB::bind_method(D_METHOD("set_bake_ao", "enable"), &LightmapGI::set_bake_ao);
@@ -2796,6 +2536,9 @@ void LightmapGI::_bind_methods() {
 
 	ClassDB::bind_method(D_METHOD("set_environment_mode", "mode"), &LightmapGI::set_environment_mode);
 	ClassDB::bind_method(D_METHOD("get_environment_mode"), &LightmapGI::get_environment_mode);
+
+	ClassDB::bind_method(D_METHOD("set_environment_energy", "energy"), &LightmapGI::set_environment_energy);
+	ClassDB::bind_method(D_METHOD("get_environment_energy"), &LightmapGI::get_environment_energy);
 
 	ClassDB::bind_method(D_METHOD("set_environment_custom_sky", "sky"), &LightmapGI::set_environment_custom_sky);
 	ClassDB::bind_method(D_METHOD("get_environment_custom_sky"), &LightmapGI::get_environment_custom_sky);
@@ -2987,26 +2730,24 @@ void LightmapGI::_bind_methods() {
 	ADD_PROPERTY(PropertyInfo(Variant::INT, "max_texture_size", PROPERTY_HINT_RANGE, "2048,16384,1"), "set_max_texture_size", "get_max_texture_size");
 	ADD_GROUP("Environment", "environment_");
 	ADD_PROPERTY(PropertyInfo(Variant::INT, "environment_mode", PROPERTY_HINT_ENUM, "Disabled,Scene,Custom Sky,Custom Color"), "set_environment_mode", "get_environment_mode");
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "environment_energy", PROPERTY_HINT_RANGE, "0,16,0.01,or_greater"), "set_environment_energy", "get_environment_energy");
 	ADD_PROPERTY(PropertyInfo(Variant::OBJECT, "environment_custom_sky", PROPERTY_HINT_RESOURCE_TYPE, Sky::get_class_static()), "set_environment_custom_sky", "get_environment_custom_sky");
 	ADD_PROPERTY(PropertyInfo(Variant::COLOR, "environment_custom_color", PROPERTY_HINT_COLOR_NO_ALPHA), "set_environment_custom_color", "get_environment_custom_color");
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "environment_custom_energy", PROPERTY_HINT_RANGE, "0,64,0.01"), "set_environment_custom_energy", "get_environment_custom_energy");
 	ADD_PROPERTY(PropertyInfo(Variant::OBJECT, "camera_attributes", PROPERTY_HINT_RESOURCE_TYPE, "CameraAttributesPractical,CameraAttributesPhysical"), "set_camera_attributes", "get_camera_attributes");
 
-	ADD_GROUP("Gen Probes", "generate_probes_");
-	ADD_PROPERTY(PropertyInfo(Variant::INT, "generate_probes_subdiv", PROPERTY_HINT_ENUM, "Disabled,4,8,16,32"), "set_generate_probes", "get_generate_probes");
 	ADD_GROUP("Data", "");
 	ADD_PROPERTY(PropertyInfo(Variant::OBJECT, "light_data", PROPERTY_HINT_RESOURCE_TYPE, LightmapGIData::get_class_static()), "set_light_data", "get_light_data");
+
+	BIND_ENUM_CONSTANT(BAKE_MODE_LIGHTMAP_AND_PROBES);
+	BIND_ENUM_CONSTANT(BAKE_MODE_LIGHTMAP_ONLY);
+	BIND_ENUM_CONSTANT(BAKE_MODE_PROBES_ONLY);
+	BIND_ENUM_CONSTANT(BAKE_ERROR_NO_PROBE_SYSTEM);
 
 	BIND_ENUM_CONSTANT(BAKE_QUALITY_LOW);
 	BIND_ENUM_CONSTANT(BAKE_QUALITY_MEDIUM);
 	BIND_ENUM_CONSTANT(BAKE_QUALITY_HIGH);
 	BIND_ENUM_CONSTANT(BAKE_QUALITY_ULTRA);
-
-	BIND_ENUM_CONSTANT(GENERATE_PROBES_DISABLED);
-	BIND_ENUM_CONSTANT(GENERATE_PROBES_SUBDIV_4);
-	BIND_ENUM_CONSTANT(GENERATE_PROBES_SUBDIV_8);
-	BIND_ENUM_CONSTANT(GENERATE_PROBES_SUBDIV_16);
-	BIND_ENUM_CONSTANT(GENERATE_PROBES_SUBDIV_32);
 
 	BIND_ENUM_CONSTANT(BAKE_ERROR_OK);
 	BIND_ENUM_CONSTANT(BAKE_ERROR_NO_SCENE_ROOT);

@@ -36,6 +36,7 @@ struct EditorProgress;
 class EditorFileDialog;
 class LightmapGI;
 class MeshInstance3D;
+class MenuButton;
 class PopupPanel;
 class Shader;
 class ShaderMaterial;
@@ -47,6 +48,12 @@ class LightmapGIEditorPlugin : public EditorPlugin {
 	LightmapGI *lightmap = nullptr;
 
 	Button *bake = nullptr;
+	MenuButton *bake_modes = nullptr;
+	int selected_bake_mode = 0;
+	ObjectID bake_target;
+	ObjectID bake_scene;
+	int pending_bake_mode = 0;
+	bool bake_running = false;
 	Button *preview = nullptr;
 	Button *close_preview = nullptr;
 	Button *preview_options = nullptr;
@@ -86,10 +93,11 @@ class LightmapGIEditorPlugin : public EditorPlugin {
 	EditorFileDialog *file_dialog = nullptr;
 	static EditorProgress *tmp_progress;
 	static bool bake_func_step(float p_progress, const String &p_description, void *, bool p_refresh);
-	static void bake_func_end(uint64_t p_time_started);
+	static void bake_func_end(uint64_t p_time_started, int p_mode, bool p_success);
 
 	void _bake_select_file(const String &p_file);
 	void _bake();
+	void _bake_mode_selected(int p_mode);
 	void _preview_pressed();
 	void _close_preview_pressed();
 	void _update_preview_button(bool p_preview_active);
@@ -106,6 +114,8 @@ protected:
 	void _notification(int p_what);
 
 public:
+	void request_bake(LightmapGI *p_target, int p_mode);
+	bool can_bake() const;
 	virtual String get_plugin_name() const override { return "LightmapGI"; }
 	virtual void edit(Object *p_object) override;
 	virtual bool handles(Object *p_object) const override;

@@ -40,6 +40,7 @@
 #include "servers/rendering/renderer_rd/storage_rd/render_scene_buffers_rd.h"
 #include "servers/rendering/renderer_rd/storage_rd/texture_storage.h"
 #include "servers/rendering/storage/light_storage.h"
+#include "servers/rendering/storage/lightmap_probe_capture.h"
 #include "servers/rendering/storage/utilities.h"
 
 class RenderDataRD;
@@ -384,6 +385,7 @@ private:
 		PackedColorArray point_sh;
 		PackedInt32Array tetrahedra;
 		PackedInt32Array bsp_tree;
+		LightmapProbeCapture probe_capture;
 		float specular_intensity = 0.0f;
 
 		struct BSP {
@@ -1089,7 +1091,7 @@ public:
 		ERR_FAIL_NULL_V(lm, RID());
 		return lm->light_texture;
 	}
-	_FORCE_INLINE_ float lightmap_get_baked_exposure_normalization(RID p_lightmap) const {
+	_FORCE_INLINE_ float lightmap_get_baked_exposure_normalization(RID p_lightmap) const override {
 		const Lightmap *lm = lightmap_owner.get_or_null(p_lightmap);
 		ERR_FAIL_NULL_V(lm, 1.0);
 		return lm->baked_exposure;

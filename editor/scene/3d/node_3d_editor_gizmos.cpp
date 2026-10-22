@@ -215,7 +215,10 @@ void EditorNode3DGizmo::set_node_3d(Node3D *p_node) {
 }
 
 void EditorNode3DGizmo::Instance::create_instance(Node3D *p_base, bool p_hidden) {
-	instance = RS::get_singleton()->instance_create2(mesh->get_rid(), p_base->get_world_3d()->get_scenario());
+	instance = RS::get_singleton()->instance_create2(multimesh.is_valid() ? multimesh->get_rid() : mesh->get_rid(), p_base->get_world_3d()->get_scenario());
+	if (material.is_valid()) {
+		RS::get_singleton()->instance_geometry_set_material_override(instance, material->get_rid());
+	}
 	RS::get_singleton()->instance_attach_object_instance_id(instance, p_base->get_instance_id());
 	if (skin_reference.is_valid()) {
 		RS::get_singleton()->instance_attach_skeleton(instance, skin_reference->get_skeleton());
@@ -243,11 +246,21 @@ void EditorNode3DGizmo::add_mesh(const Ref<Mesh> &p_mesh, const Ref<Material> &p
 	if (valid) {
 		ins.create_instance(spatial_node, hidden);
 		RS::get_singleton()->instance_set_transform(ins.instance, spatial_node->get_global_transform() * ins.xform);
-		if (ins.material.is_valid()) {
-			RS::get_singleton()->instance_geometry_set_material_override(ins.instance, p_material->get_rid());
-		}
 	}
 
+	instances.push_back(ins);
+}
+
+void EditorNode3DGizmo::add_multimesh(const Ref<MultiMesh> &p_multimesh, const Ref<Material> &p_material) {
+	ERR_FAIL_NULL(spatial_node);
+	ERR_FAIL_COND(p_multimesh.is_null() || p_multimesh->get_mesh().is_null());
+	Instance ins;
+	ins.multimesh = p_multimesh;
+	ins.material = p_material;
+	if (valid) {
+		ins.create_instance(spatial_node, hidden);
+		RS::get_singleton()->instance_set_transform(ins.instance, spatial_node->get_global_transform());
+	}
 	instances.push_back(ins);
 }
 
@@ -263,6 +276,16 @@ void EditorNode3DGizmo::_update_bvh() {
 	float effective_icon_size = selectable_icon_size > 0.0f ? selectable_icon_size : 0.0f;
 	Vector3 icon_size_vector3 = Vector3(effective_icon_size, effective_icon_size, effective_icon_size);
 	AABB aabb(transform.origin - icon_size_vector3 * 100.0f, icon_size_vector3 * 200.0f);
+
+	for (const Instance &gizmo_instance : instances) {
+		if (gizmo_instance.multimesh.is_valid()) {
+			AABB bounds = gizmo_instance.multimesh->get_custom_aabb();
+			if (bounds == AABB()) {
+				bounds = gizmo_instance.multimesh->get_aabb();
+			}
+			aabb.merge_with((transform * gizmo_instance.xform).xform(bounds));
+		}
+	}
 
 	for (const Vector3 &segment_end : collision_segments) {
 		aabb.expand_to(transform.xform(segment_end));

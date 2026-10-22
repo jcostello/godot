@@ -250,6 +250,8 @@
 #include "scene/3d/jacobian_ik_3d.h"
 #include "scene/3d/label_3d.h"
 #include "scene/3d/light_3d.h"
+#include "scene/3d/light_probe_data.h"
+#include "scene/3d/light_probe_volume.h"
 #include "scene/3d/lightmap_gi.h"
 #include "scene/3d/lightmap_probe.h"
 #include "scene/3d/limit_angular_velocity_modifier_3d.h"
@@ -676,6 +678,10 @@ void register_scene_types() {
 	GDREGISTER_CLASS(LightmapGI);
 	GDREGISTER_CLASS(LightmapGIData);
 	GDREGISTER_CLASS(LightmapProbe);
+	GDREGISTER_CLASS(LightProbeData);
+	GDREGISTER_CLASS(LightProbeVolumeData);
+	GDREGISTER_CLASS(LightProbeSystem);
+	GDREGISTER_CLASS(LightProbeVolume);
 	GDREGISTER_ABSTRACT_CLASS(Lightmapper);
 
 	GDREGISTER_CLASS(Line3D);

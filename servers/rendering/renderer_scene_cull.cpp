@@ -283,7 +283,7 @@ void RendererSceneCull::_instance_pair(Instance *p_A, Instance *p_B) {
 		InstanceLightmapData *lightmap_data = static_cast<InstanceLightmapData *>(B->base_data);
 		InstanceGeometryData *geom = static_cast<InstanceGeometryData *>(A->base_data);
 
-		if (A->dynamic_gi) {
+		if (A->dynamic_gi && !RSG::light_storage->lightmap_get_probe_capture_points(B->base).is_empty()) {
 			geom->lightmap_captures.insert(B);
 			lightmap_data->geometries.insert(A);
 
@@ -2114,6 +2114,13 @@ void RendererSceneCull::_update_instance_lightmap_captures(Instance *p_instance)
 
 		Color sh[9];
 		RSG::light_storage->lightmap_tap_sh_light(lightmap->base, lm_pos, sh);
+		// Remove each capture's bake exposure before blending lightmaps. The
+		// material shader applies the current camera exposure to the result.
+		const float baked_exposure = RSG::light_storage->lightmap_get_baked_exposure_normalization(lightmap->base);
+		const float inverse_baked_exposure = 1.0f / MAX(1e-20f, baked_exposure);
+		for (Color &coefficient : sh) {
+			coefficient *= inverse_baked_exposure;
+		}
 
 		//rotate it
 		Basis rot = lightmap->transform.basis.orthonormalized();
@@ -2988,7 +2995,12 @@ void RendererSceneCull::_scene_cull(CullData &cull_data, InstanceCullResult &cul
 					cull_result.voxel_gi_instances.push_back(RID::from_uint64(idata.instance_data_rid));
 
 				} else if (base_type == RSE::INSTANCE_LIGHTMAP) {
-					cull_result.lightmaps.push_back(RID::from_uint64(idata.instance_data_rid));
+					// Probe-only captures use the same storage type, but must not consume
+					// the limited texture-lightmap slots used by visible geometry.
+					const InstanceLightmapData *lightmap_data = static_cast<InstanceLightmapData *>(idata.instance->base_data);
+					if (!lightmap_data->users.is_empty()) {
+						cull_result.lightmaps.push_back(RID::from_uint64(idata.instance_data_rid));
+					}
 				} else if (base_type == RSE::INSTANCE_FOG_VOLUME) {
 					cull_result.fog_volumes.push_back(RID::from_uint64(idata.instance_data_rid));
 				} else if (base_type == RSE::INSTANCE_VISIBLITY_NOTIFIER) {

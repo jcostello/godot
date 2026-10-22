@@ -36,6 +36,7 @@
 #include "core/templates/rid_owner.h"
 #include "drivers/gles3/storage/texture_storage.h"
 #include "servers/rendering/storage/light_storage.h"
+#include "servers/rendering/storage/lightmap_probe_capture.h"
 #include "servers/rendering/storage/utilities.h"
 
 #include <platform_gl.h>
@@ -191,6 +192,7 @@ struct Lightmap {
 	PackedColorArray point_sh;
 	PackedInt32Array tetrahedra;
 	PackedInt32Array bsp_tree;
+	LightmapProbeCapture probe_capture;
 	float specular_intensity = 0.0f;
 
 	struct BSP {
@@ -744,6 +746,7 @@ public:
 	virtual void lightmap_set_probe_interior(RID p_lightmap, bool p_interior) override;
 	virtual void lightmap_set_probe_capture_data(RID p_lightmap, const PackedVector3Array &p_points, const PackedColorArray &p_point_sh, const PackedInt32Array &p_tetrahedra, const PackedInt32Array &p_bsp_tree) override;
 	virtual void lightmap_set_baked_exposure_normalization(RID p_lightmap, float p_exposure) override;
+	virtual float lightmap_get_baked_exposure_normalization(RID p_lightmap) const override;
 	virtual PackedVector3Array lightmap_get_probe_capture_points(RID p_lightmap) const override;
 	virtual PackedColorArray lightmap_get_probe_capture_sh(RID p_lightmap) const override;
 	virtual PackedInt32Array lightmap_get_probe_capture_tetrahedra(RID p_lightmap) const override;

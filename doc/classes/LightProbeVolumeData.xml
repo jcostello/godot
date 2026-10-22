@@ -1,0 +1,98 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<class name="LightProbeVolumeData" inherits="Resource" api_type="core" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="../class.xsd">
+	<brief_description>
+		Stores independently editable light probe positions and stable local IDs.
+	</brief_description>
+	<description>
+		Placement data for a [LightProbeVolume]. Positions and IDs are saved together, and the ID allocator never moves backwards during editing or Undo/Redo. This resource stores placement only; it does not contain baked lighting or an interpolation structure.
+	</description>
+	<tutorials>
+	</tutorials>
+	<methods>
+		<method name="get_layout" qualifiers="const">
+			<return type="Dictionary" />
+			<description>
+				Returns a snapshot containing [code]positions[/code] (PackedVector3Array), [code]ids[/code] (PackedInt32Array), [code]next_id[/code] (int), and [code]grid_origins[/code] (Dictionary mapping generated IDs to original grid positions). Modifying the returned dictionary does not change this resource.
+			</description>
+		</method>
+		<method name="set_layout">
+			<return type="void" />
+			<param index="0" name="layout" type="Dictionary" />
+			<description>
+				Replaces positions and IDs atomically after validating the snapshot. IDs must be unique, nonnegative, and less than next_id. Positions must be finite. The optional [code]grid_origins[/code] dictionary records grid provenance and is validated before applying the snapshot. Entries for removed IDs are dropped. Snapshots without provenance treat their points as custom. The ID allocator retains the greater of its current value and the supplied next_id.
+			</description>
+		</method>
+		<method name="get_positions" qualifiers="const">
+			<return type="PackedVector3Array" />
+			<description>
+				Returns positions in volume-local coordinates.
+			</description>
+		</method>
+		<method name="get_probe_ids" qualifiers="const">
+			<return type="PackedInt32Array" />
+			<description>
+				Returns stable IDs parallel to the positions array. IDs are unique within this resource, not across different volumes.
+			</description>
+		</method>
+		<method name="get_probe_count" qualifiers="const">
+			<return type="int" />
+			<description>
+				Returns the number of probe positions.
+			</description>
+		</method>
+		<method name="find_probe" qualifiers="const">
+			<return type="int" />
+			<param index="0" name="id" type="int" />
+			<description>
+				Returns the array index for a stable probe ID, or -1 if it no longer exists.
+			</description>
+		</method>
+		<method name="get_probe_position" qualifiers="const">
+			<return type="Vector3" />
+			<param index="0" name="id" type="int" />
+			<description>
+				Returns a probe position by its stable ID.
+			</description>
+		</method>
+		<method name="set_probe_position">
+			<return type="void" />
+			<param index="0" name="id" type="int" />
+			<param index="1" name="position" type="Vector3" />
+			<description>
+				Moves one probe without changing its ID or other probe positions.
+			</description>
+		</method>
+		<method name="add_probe">
+			<return type="int" />
+			<param index="0" name="position" type="Vector3" />
+			<description>
+				Adds a probe and returns its new ID, or -1 on failure.
+			</description>
+		</method>
+		<method name="remove_probe">
+			<return type="void" />
+			<param index="0" name="id" type="int" />
+			<description>
+				Removes a probe without renumbering the remaining IDs.
+			</description>
+		</method>
+		<method name="get_revision" qualifiers="const">
+			<return type="int" />
+			<description>
+				Returns a monotonically increasing placement revision for this resource instance. It changes for edits and Undo/Redo; it is not a persistent bake identifier.
+			</description>
+		</method>
+		<method name="is_custom_probe" qualifiers="const">
+			<return type="bool" />
+			<param index="0" name="id" type="int" />
+			<description>Returns whether an existing probe was added manually or moved from its recorded grid position. Missing IDs return false.</description>
+		</method>
+		<method name="has_custom_probes" qualifiers="const">
+			<return type="bool" />
+			<description>Returns whether any probe was added manually or moved from its original grid position.</description>
+		</method>
+	</methods>
+	<constants>
+		<constant name="MAX_PROBES" value="65536">Maximum number of positions in one volume data resource.</constant>
+	</constants>
+</class>

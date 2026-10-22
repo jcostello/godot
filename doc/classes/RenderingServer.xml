@@ -2332,7 +2332,7 @@
 			<return type="PackedInt32Array" />
 			<param index="0" name="lightmap" type="RID" />
 			<description>
-				Returns the BSP tree data used for accelerating probe lookups. The BSP data is structured as a series of six signed 32-bit values per BSP node in this order: [code]float plane_x[/code], [code]float plane_y[/code], [code]float plane_z[/code], [code]float plane_distance[/code], [code]int32_t over[/code], [code]int32_t under[/code]. An empty leaf is denoted by the value [code]-2147483648[/code] (the minimum 32-bit signed integer). See also [method lightmap_set_probe_capture_data].
+				Returns the BSP tree data used for accelerating probe lookups. An empty array with non-empty tetrahedra selects a runtime BVH instead. The BSP data is structured as a series of six signed 32-bit values per BSP node in this order: [code]float plane_x[/code], [code]float plane_y[/code], [code]float plane_z[/code], [code]float plane_distance[/code], [code]int32_t over[/code], [code]int32_t under[/code]. An empty leaf is denoted by the value [code]-2147483648[/code] (the minimum 32-bit signed integer). See also [method lightmap_set_probe_capture_data].
 			</description>
 		</method>
 		<method name="lightmap_get_probe_capture_points" qualifiers="const">
@@ -2403,7 +2403,7 @@
 			<param index="3" name="tetrahedra" type="PackedInt32Array" />
 			<param index="4" name="bsp_tree" type="PackedInt32Array" />
 			<description>
-				Sets the probe capture data for the given lightmap instance. See [method lightmap_get_probe_capture_points], [method lightmap_get_probe_capture_sh], [method lightmap_get_probe_capture_tetrahedra], and [method lightmap_get_probe_capture_bsp_tree] for the expected data formats.
+				Sets the probe capture data for the given lightmap instance. If [param bsp_tree] is empty, a runtime BVH is maintained from [param tetrahedra]; unchanged tetrahedra reuse their BVH entries when capture data is updated. Outside the tetrahedral volume, this path extends lighting from the closest tetrahedron surface. Captures without tetrahedra blend up to four nearest probes. Non-empty BSP data retains the legacy lookup behavior. See [method lightmap_get_probe_capture_points], [method lightmap_get_probe_capture_sh], [method lightmap_get_probe_capture_tetrahedra], and [method lightmap_get_probe_capture_bsp_tree] for the expected data formats.
 			</description>
 		</method>
 		<method name="lightmap_set_probe_capture_update_speed">

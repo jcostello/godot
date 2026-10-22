@@ -31,13 +31,15 @@
 #pragma once
 
 #include "core/io/resource.h"
-#include "core/templates/local_vector.h"
+#include "core/templates/safe_refcount.h"
+#include "scene/3d/light_probe_data.h"
 #include "scene/3d/lightmapper.h"
 #include "scene/3d/visual_instance_3d.h"
 #include "servers/rendering/lightmap_adjustments.h"
 
 class CameraAttributes;
 class Light3D;
+class LightProbeSystem;
 class Mesh;
 class Sky;
 
@@ -72,6 +74,8 @@ private:
 	AABB bounds;
 	float baked_exposure = 1.0;
 	uint32_t lightprobe_hash = 0;
+	SafeFlag has_probe_capture_data;
+	Ref<LightProbeData> migrated_probe_data; // Session-only legacy migration, never serialized.
 
 	struct User {
 		NodePath path;
@@ -92,8 +96,11 @@ private:
 
 protected:
 	static void _bind_methods();
+	void _validate_property(PropertyInfo &p_property) const;
 
 public:
+	Ref<LightProbeData> get_migrated_probe_data() const { return migrated_probe_data; }
+	void set_migrated_probe_data(const Ref<LightProbeData> &p_data) { migrated_probe_data = p_data; }
 	void add_user(const NodePath &p_path, const Rect2 &p_uv_scale, int p_slice_index, int32_t p_sub_instance = -1);
 	int get_user_count() const;
 	NodePath get_user_path(int p_user) const;
@@ -121,6 +128,8 @@ public:
 
 	bool is_interior() const;
 	float get_baked_exposure() const;
+	void set_baked_exposure(float p_exposure);
+	void set_lightmap_bounds(const AABB &p_bounds);
 
 	void set_capture_data(const AABB &p_bounds, bool p_interior, const PackedVector3Array &p_points, const PackedColorArray &p_point_sh, const PackedInt32Array &p_tetrahedra, const PackedInt32Array &p_bsp_tree, float p_baked_exposure, uint32_t p_lightprobe_hash);
 	PackedVector3Array get_capture_points() const;
@@ -159,12 +168,10 @@ public:
 		BAKE_QUALITY_ULTRA,
 	};
 
-	enum GenerateProbes {
-		GENERATE_PROBES_DISABLED,
-		GENERATE_PROBES_SUBDIV_4,
-		GENERATE_PROBES_SUBDIV_8,
-		GENERATE_PROBES_SUBDIV_16,
-		GENERATE_PROBES_SUBDIV_32,
+	enum BakeMode {
+		BAKE_MODE_LIGHTMAP_AND_PROBES,
+		BAKE_MODE_LIGHTMAP_ONLY,
+		BAKE_MODE_PROBES_ONLY,
 	};
 
 	enum BakeError {
@@ -180,6 +187,7 @@ public:
 		BAKE_ERROR_TEXTURE_SIZE_TOO_SMALL,
 		BAKE_ERROR_LIGHTMAP_TOO_SMALL,
 		BAKE_ERROR_ATLAS_TOO_SMALL,
+		BAKE_ERROR_NO_PROBE_SYSTEM,
 	};
 
 	enum EnvironmentMode {
@@ -215,13 +223,13 @@ private:
 	float supersampling_factor = 2.0;
 	bool interior = false;
 	EnvironmentMode environment_mode = ENVIRONMENT_MODE_SCENE;
+	float environment_energy = 1.0;
 	Ref<Sky> environment_custom_sky;
 	Color environment_custom_color = Color(1, 1, 1);
 	float environment_custom_energy = 1.0;
 	bool directional = false;
 	bool use_texture_for_bounces = true;
 	LightmapGIData::ShadowmaskMode shadowmask_mode = LightmapGIData::SHADOWMASK_MODE_NONE;
-	GenerateProbes gen_probes = GENERATE_PROBES_SUBDIV_8;
 	Ref<CameraAttributes> camera_attributes;
 	float specular_intensity = 0.0f;
 	LightmapAdjustments adjustments;
@@ -256,47 +264,11 @@ private:
 
 	static Lightmapper::BakeError _bake_material(int p_mesh_index, const Size2i &p_size, Ref<Image> &r_albedo, Ref<Image> &r_emission, void *p_userdata);
 
-	void _find_meshes_and_lights(Node *p_at_node, Vector<MeshesFound> &meshes, Vector<LightsFound> &lights, Vector<Vector3> &probes);
+	void _find_meshes_and_lights(Node *p_at_node, Vector<MeshesFound> &meshes, Vector<LightsFound> &lights);
 
+	void _migrate_legacy_probe_data();
 	void _assign_lightmaps();
 	void _clear_lightmaps();
-
-	struct BSPSimplex {
-		int vertices[4] = {};
-		int planes[4] = {};
-		int faces[4] = {};
-		Plane face_planes[4]; // Original vertex order, preserving plane precision.
-	};
-
-	struct BSPFace {
-		int simplices[2] = { -1, -1 };
-		bool manifold = true;
-	};
-
-	struct BSPPointCache {
-		LocalVector<uint32_t> versions;
-		LocalVector<int8_t> sides;
-		uint32_t version = 0;
-
-		void begin_plane() {
-			if (++version == 0) {
-				for (uint32_t &stamp : versions) {
-					stamp = 0;
-				}
-				version = 1;
-			}
-		}
-	};
-
-	struct BSPNode {
-		static const int32_t EMPTY_LEAF = INT32_MIN;
-		Plane plane;
-		int32_t over = EMPTY_LEAF;
-		int32_t under = EMPTY_LEAF;
-	};
-
-	int _bsp_get_simplex_side(const LocalVector<Vector3> &p_points, const LocalVector<BSPSimplex> &p_simplices, const Plane &p_plane, uint32_t p_simplex, BSPPointCache &r_point_cache) const;
-	int32_t _compute_bsp_tree(const LocalVector<Vector3> &p_points, LocalVector<int32_t> &planes_tested, const LocalVector<BSPSimplex> &p_simplices, const LocalVector<int32_t> &p_simplex_indices, LocalVector<BSPNode> &bsp_nodes, const LocalVector<BSPFace> &p_faces, BSPPointCache &r_point_cache);
 
 	struct BakeStepUD {
 		Lightmapper::BakeStepFunc func;
@@ -307,24 +279,11 @@ private:
 
 	static bool _lightmap_bake_step_function(float p_completion, const String &p_text, void *ud, bool p_refresh);
 
-	struct GenProbesOctree {
-		Vector3i offset;
-		uint32_t size = 0;
-		GenProbesOctree *children[8] = { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr };
-		~GenProbesOctree() {
-			for (int i = 0; i < 8; i++) {
-				memdelete(children[i]);
-			}
-		}
-	};
-
-	void _plot_triangle_into_octree(GenProbesOctree *p_cell, float p_cell_size, const Vector3 *p_triangle);
-	void _gen_new_positions_from_octree(const GenProbesOctree *p_cell, float p_cell_size, const Vector<Vector3> &probe_positions, LocalVector<Vector3> &new_probe_positions, HashMap<Vector3i, bool> &positions_used, const AABB &p_bounds);
-
 	BakeError _save_and_reimport_atlas_textures(const Ref<Lightmapper> p_lightmapper, const String &p_base_name, TypedArray<TextureLayered> &r_textures, bool p_is_shadowmask = false) const;
 	void _build_area_light_texture_atlas(const Vector<LightmapGI::LightsFound> &lights_found, HashMap<Ref<Texture2D>, AreaLightAtlasTexture> &r_texture_rects, Size2i &r_atlas_size, int &r_mipmaps) const;
 
 protected:
+	bool _set(const StringName &p_name, const Variant &p_value);
 	void _validate_property(PropertyInfo &p_property) const;
 	static void _bind_methods();
 	void _update_color_adjustments();
@@ -360,6 +319,9 @@ public:
 
 	void set_environment_mode(EnvironmentMode p_mode);
 	EnvironmentMode get_environment_mode() const;
+
+	void set_environment_energy(float p_energy);
+	float get_environment_energy() const;
 
 	void set_environment_custom_sky(const Ref<Sky> &p_sky);
 	Ref<Sky> get_environment_custom_sky() const;
@@ -401,9 +363,6 @@ public:
 
 	void set_supersampling_factor(float p_factor);
 	float get_supersampling_factor() const;
-
-	void set_generate_probes(GenerateProbes p_generate_probes);
-	GenerateProbes get_generate_probes() const;
 
 	void set_camera_attributes(const Ref<CameraAttributes> &p_camera_attributes);
 	Ref<CameraAttributes> get_camera_attributes() const;
@@ -481,7 +440,7 @@ public:
 
 	AABB get_aabb() const override;
 
-	BakeError bake(Node *p_from_node, String p_image_data_path = "", Lightmapper::BakeStepFunc p_bake_step = nullptr, void *p_bake_userdata = nullptr);
+	BakeError bake(Node *p_from_node, String p_image_data_path = "", Lightmapper::BakeStepFunc p_bake_step = nullptr, void *p_bake_userdata = nullptr, BakeMode p_mode = BAKE_MODE_LIGHTMAP_AND_PROBES);
 
 	virtual PackedStringArray get_configuration_warnings() const override;
 
@@ -490,7 +449,7 @@ public:
 
 VARIANT_ENUM_CAST(LightmapGIData::ShadowmaskMode);
 VARIANT_ENUM_CAST(LightmapGI::BakeQuality);
-VARIANT_ENUM_CAST(LightmapGI::GenerateProbes);
+VARIANT_ENUM_CAST(LightmapGI::BakeMode);
 VARIANT_ENUM_CAST(LightmapGI::BakeError);
 VARIANT_ENUM_CAST(LightmapGI::EnvironmentMode);
 VARIANT_ENUM_CAST(LightmapGI::DebugMode);

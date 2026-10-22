@@ -479,13 +479,25 @@ vec3 generate_hemisphere_cosine_weighted_direction(inout uint noise) {
 	return vec3(sqrt(noise1) * cos(noise2), sqrt(noise1) * sin(noise2), sqrt(1.0 - noise1));
 }
 
-// Distribution generation adapted from "Generating uniformly distributed numbers on a sphere"
-// <http://corysimon.github.io/articles/uniformdistn-on-sphere/>
-vec3 generate_sphere_uniform_direction(inout uint noise) {
-	float theta = 2.0 * PI * randomize(noise);
-	float phi = acos(1.0 - 2.0 * randomize(noise));
-	return vec3(sin(phi) * cos(theta), sin(phi) * sin(theta), cos(phi));
+#ifdef MODE_LIGHT_PROBES
+// A uniform random quaternion gives the complete Fibonacci sphere a different
+// orientation per probe without changing its even distribution.
+vec4 generate_probe_rotation(inout uint noise) {
+	float u = randomize(noise);
+	float a = 2.0 * PI * randomize(noise);
+	float b = 2.0 * PI * randomize(noise);
+	return vec4(sqrt(1.0 - u) * vec2(sin(a), cos(a)), sqrt(u) * vec2(sin(b), cos(b)));
 }
+
+vec3 generate_probe_direction(uint sample_index, uint sample_count, vec4 rotation) {
+	float z = 1.0 - 2.0 * (float(sample_index) + 0.5) / float(sample_count);
+	float radius = sqrt(max(0.0, 1.0 - z * z));
+	float angle = 2.39996323 * float(sample_index); // Golden angle.
+	vec3 direction = vec3(radius * cos(angle), radius * sin(angle), z);
+	vec3 t = 2.0 * cross(rotation.xyz, direction);
+	return direction + rotation.w * t + cross(rotation.xyz, t);
+}
+#endif
 
 vec3 generate_ray_dir_from_normal(vec3 normal, inout uint noise) {
 	vec3 v0 = abs(normal.z) < 0.999 ? vec3(0.0, 0.0, 1.0) : vec3(0.0, 1.0, 0.0);
@@ -1406,9 +1418,15 @@ void main() {
 			vec4(0.0),
 			vec4(0.0));
 
-	uint noise = random_seed(ivec3(params.ray_from, probe_index, 49502741 /* some prime */));
+	// Position-based seeding keeps surviving probes stable when others are added
+	// or removed. Global sample indices keep directions and paths independent of
+	// how samples are split across dispatches.
+	uint probe_seed = random_seed(floatBitsToInt(position));
+	uint rotation_noise = hash(probe_seed ^ 49502741u);
+	vec4 probe_rotation = generate_probe_rotation(rotation_noise);
 	for (uint i = params.ray_from; i < params.ray_to; i++) {
-		vec3 ray_dir = generate_sphere_uniform_direction(noise);
+		vec3 ray_dir = generate_probe_direction(i, params.ray_count, probe_rotation);
+		uint noise = hash(probe_seed ^ hash(i) ^ 92821u);
 		bool unused_near_backface;
 		vec3 light = trace_indirect_light(position, ray_dir, noise, 0.0, unused_near_backface);
 
