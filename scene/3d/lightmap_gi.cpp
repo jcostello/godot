@@ -39,6 +39,8 @@
 #include "core/math/geometry_3d.h"
 #include "core/object/class_db.h"
 #include "core/object/object.h"
+#include "core/os/os.h"
+#include "core/templates/hash_map.h"
 #include "scene/3d/light_3d.h"
 #include "scene/3d/lightmap_probe.h"
 #include "scene/3d/mesh_instance_3d.h"
@@ -56,9 +58,70 @@
 #include "servers/display/display_server.h"
 #endif
 
-#if defined(ANDROID_ENABLED) || defined(APPLE_EMBEDDED_ENABLED)
-#include "core/os/os.h"
-#endif
+namespace {
+// Only accelerates candidate lookup: the original approximate comparison and
+// lowest matching plane index remain authoritative, including opposite normals.
+class ProbePlaneIndex {
+	HashMap<Vector3i, LocalVector<uint32_t>> buckets;
+
+	static Vector3i key(const Plane &p_plane) {
+		const double cell = double(CMP_EPSILON) * 4.0;
+		// log(1 + |d|) bounds relative-tolerance matches at large distances and
+		// absolute-tolerance matches near zero without enormous integer cells.
+		const double distance = double(p_plane.d);
+		const double signed_distance = (distance < 0.0 ? -1.0 : 1.0) * Math::log(1.0 + Math::abs(distance));
+		return Vector3i(int32_t(Math::floor(double(p_plane.normal.x) / cell)), int32_t(Math::floor(double(p_plane.normal.y) / cell)), int32_t(Math::floor(signed_distance / cell)));
+	}
+
+public:
+	int get_or_insert(const Plane &p_plane, LocalVector<Plane> &r_planes) {
+		// Common axis-aligned planes often live near the start of the array.
+		const uint32_t prefix = MIN(uint32_t(16), r_planes.size());
+		for (uint32_t i = 0; i < prefix; i++) {
+			if (r_planes[i].is_equal_approx_any_side(p_plane)) {
+				return i;
+			}
+		}
+		uint32_t match = UINT32_MAX;
+		if (r_planes.size() < 128 || !p_plane.is_finite()) {
+			for (uint32_t i = prefix; i < r_planes.size(); i++) {
+				if (r_planes[i].is_equal_approx_any_side(p_plane)) {
+					match = i;
+					break;
+				}
+			}
+		} else {
+			for (int sign = 0; sign < 2; sign++) {
+				const Vector3i center = key(sign == 0 ? p_plane : -p_plane);
+				for (int x = -1; x <= 1; x++) {
+					for (int y = -1; y <= 1; y++) {
+						for (int z = -1; z <= 1; z++) {
+							const LocalVector<uint32_t> *candidates = buckets.getptr(center + Vector3i(x, y, z));
+							if (!candidates) {
+								continue;
+							}
+							for (uint32_t index : *candidates) {
+								if (index < match && r_planes[index].is_equal_approx_any_side(p_plane)) {
+									match = index;
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+		if (match != UINT32_MAX) {
+			return match;
+		}
+		const uint32_t index = r_planes.size();
+		r_planes.push_back(p_plane);
+		if (p_plane.is_finite()) {
+			buckets[key(p_plane)].push_back(index);
+		}
+		return index;
+	}
+};
+} // namespace
 
 void LightmapGIData::add_user(const NodePath &p_path, const Rect2 &p_uv_scale, int p_slice_index, int32_t p_sub_instance) {
 	User user;
@@ -500,22 +563,22 @@ void LightmapGI::_find_meshes_and_lights(Node *p_at_node, Vector<MeshesFound> &m
 	}
 }
 
-int LightmapGI::_bsp_get_simplex_side(const LocalVector<Vector3> &p_points, const LocalVector<BSPSimplex> &p_simplices, const Plane &p_plane, uint32_t p_simplex) const {
+int LightmapGI::_bsp_get_simplex_side(const LocalVector<Vector3> &p_points, const LocalVector<BSPSimplex> &p_simplices, const Plane &p_plane, uint32_t p_simplex, BSPPointCache &r_point_cache) const {
 	int over = 0;
 	int under = 0;
 	const BSPSimplex &s = p_simplices[p_simplex];
 	for (int i = 0; i < 4; i++) {
-		const Vector3 v = p_points[s.vertices[i]];
-		// The tolerance used here comes from experiments on scenes up to
-		// 1000x1000x100 meters. If it's any smaller, some simplices will
-		// appear to self-intersect due to a lack of precision in Plane.
-		if (p_plane.has_point(v, 1.0 / (1 << 13))) {
-			// Coplanar.
-		} else if (p_plane.is_point_over(v)) {
-			over++;
-		} else {
-			under++;
+		const uint32_t point = s.vertices[i];
+		if (r_point_cache.versions[point] != r_point_cache.version) {
+			const Vector3 v = p_points[point];
+			// Preserve the original tolerance and above-plane comparison exactly.
+			const int8_t side = p_plane.has_point(v, 1.0 / (1 << 13)) ? 0 : (p_plane.is_point_over(v) ? 1 : -1);
+			r_point_cache.sides[point] = side;
+			r_point_cache.versions[point] = r_point_cache.version;
 		}
+		const int8_t side = r_point_cache.sides[point];
+		over += side > 0;
+		under += side < 0;
 	}
 
 	ERR_FAIL_COND_V(under == 0 && over == 0, -2); //should never happen, we discarded flat simplices before, but in any case drop it from the bsp tree and throw an error
@@ -530,7 +593,7 @@ int LightmapGI::_bsp_get_simplex_side(const LocalVector<Vector3> &p_points, cons
 
 //#define DEBUG_BSP
 
-int32_t LightmapGI::_compute_bsp_tree(const LocalVector<Vector3> &p_points, const LocalVector<Plane> &p_planes, LocalVector<int32_t> &planes_tested, const LocalVector<BSPSimplex> &p_simplices, const LocalVector<int32_t> &p_simplex_indices, LocalVector<BSPNode> &bsp_nodes) {
+int32_t LightmapGI::_compute_bsp_tree(const LocalVector<Vector3> &p_points, LocalVector<int32_t> &planes_tested, const LocalVector<BSPSimplex> &p_simplices, const LocalVector<int32_t> &p_simplex_indices, LocalVector<BSPNode> &bsp_nodes, const LocalVector<BSPFace> &p_faces, BSPPointCache &r_point_cache) {
 	ERR_FAIL_COND_V(p_simplex_indices.size() < 2, -1);
 
 	int32_t node_index = (int32_t)bsp_nodes.size();
@@ -540,9 +603,33 @@ int32_t LightmapGI::_compute_bsp_tree(const LocalVector<Vector3> &p_points, cons
 	Plane best_plane;
 	float best_plane_score = -1.0;
 
-	for (const int idx : p_simplex_indices) {
-		const BSPSimplex &s = p_simplices[idx];
+	// Adjacent pairs have an exact topological separating-face candidate. Verify
+	// both sides with the original tolerance before taking this leaf shortcut.
+	if (p_simplex_indices.size() == 2) {
+		const BSPSimplex &simplex = p_simplices[p_simplex_indices[0]];
 		for (int j = 0; j < 4; j++) {
+			const BSPFace &face = p_faces[simplex.faces[j]];
+			if (!face.manifold || !((face.simplices[0] == p_simplex_indices[0] && face.simplices[1] == p_simplex_indices[1]) || (face.simplices[1] == p_simplex_indices[0] && face.simplices[0] == p_simplex_indices[1]))) {
+				continue;
+			}
+			r_point_cache.begin_plane();
+			const Plane &plane = simplex.face_planes[j];
+			const int side0 = _bsp_get_simplex_side(p_points, p_simplices, plane, p_simplex_indices[0], r_point_cache);
+			const int side1 = _bsp_get_simplex_side(p_points, p_simplices, plane, p_simplex_indices[1], r_point_cache);
+			if ((side0 == -1 && side1 == 1) || (side0 == 1 && side1 == -1)) {
+				best_plane = plane;
+				best_plane_score = 1.0;
+				break;
+			}
+		}
+	}
+
+	for (const int idx : p_simplex_indices) {
+		if (best_plane_score == 1.0f) {
+			break; // A perfect balanced split cannot be improved.
+		}
+		const BSPSimplex &s = p_simplices[idx];
+		for (int j = 0; j < 4 && best_plane_score < 1.0f; j++) {
 			uint32_t plane_index = s.planes[j];
 			if (planes_tested[plane_index] == node_index) {
 				continue; //tested this plane already
@@ -550,27 +637,17 @@ int32_t LightmapGI::_compute_bsp_tree(const LocalVector<Vector3> &p_points, cons
 
 			planes_tested[plane_index] = node_index;
 
-			static const int face_order[4][3] = {
-				{ 0, 1, 2 },
-				{ 0, 2, 3 },
-				{ 0, 1, 3 },
-				{ 1, 2, 3 }
-			};
-
-			// despite getting rid of plane duplicates, we should still use here the actual plane to avoid numerical error
-			// from thinking this same simplex is intersecting rather than on a side
-			Vector3 v0 = p_points[s.vertices[face_order[j][0]]];
-			Vector3 v1 = p_points[s.vertices[face_order[j][1]]];
-			Vector3 v2 = p_points[s.vertices[face_order[j][2]]];
-
-			Plane plane(v0, v1, v2);
+			// Cached in this face's original vertex order, not its deduplicated
+			// representative plane, to preserve precision at large coordinates.
+			const Plane &plane = s.face_planes[j];
+			r_point_cache.begin_plane();
 
 			//test with all the simplices
 			int over_count = 0;
 			int under_count = 0;
 
 			for (const int &index : p_simplex_indices) {
-				int side = _bsp_get_simplex_side(p_points, p_simplices, plane, index);
+				int side = _bsp_get_simplex_side(p_points, p_simplices, plane, index, r_point_cache);
 				if (side == -2) {
 					continue; //this simplex is invalid, skip for now
 				} else if (side < 0) {
@@ -631,8 +708,9 @@ int32_t LightmapGI::_compute_bsp_tree(const LocalVector<Vector3> &p_points, cons
 					if (plane == Plane()) { // When v0, v1, and v2 are collinear, they can't form a plane.
 						continue;
 					}
-					int32_t side0 = _bsp_get_simplex_side(p_points, p_simplices, plane, p_simplex_indices[0]);
-					int32_t side1 = _bsp_get_simplex_side(p_points, p_simplices, plane, p_simplex_indices[1]);
+					r_point_cache.begin_plane();
+					int32_t side0 = _bsp_get_simplex_side(p_points, p_simplices, plane, p_simplex_indices[0], r_point_cache);
+					int32_t side1 = _bsp_get_simplex_side(p_points, p_simplices, plane, p_simplex_indices[1], r_point_cache);
 					if ((side0 == 1 && side1 == -1) || (side0 == -1 && side1 == 1)) {
 						best_plane = plane;
 						best_plane_score = 1.0;
@@ -646,9 +724,10 @@ int32_t LightmapGI::_compute_bsp_tree(const LocalVector<Vector3> &p_points, cons
 	LocalVector<int32_t> indices_over;
 	LocalVector<int32_t> indices_under;
 
+	r_point_cache.begin_plane();
 	//split again, but add to list
 	for (const uint32_t index : p_simplex_indices) {
-		int side = _bsp_get_simplex_side(p_points, p_simplices, best_plane, index);
+		int side = _bsp_get_simplex_side(p_points, p_simplices, best_plane, index, r_point_cache);
 
 		if (side == -2) {
 			continue; //simplex sits on the plane, does not make sense to use it
@@ -663,7 +742,7 @@ int32_t LightmapGI::_compute_bsp_tree(const LocalVector<Vector3> &p_points, cons
 	}
 
 #ifdef DEBUG_BSP
-	print_line("node " + itos(node_index) + " found plane: " + best_plane + " score:" + rtos(best_plane_score) + " - over " + itos(indices_over.size()) + " under " + itos(indices_under.size()) + " intersecting " + itos(intersecting));
+	print_line("node " + itos(node_index) + " found plane: " + best_plane + " score:" + rtos(best_plane_score) + " - over " + itos(indices_over.size()) + " under " + itos(indices_under.size()));
 #endif
 
 	if (best_plane_score < 0.0 || indices_over.size() == p_simplex_indices.size() || indices_under.size() == p_simplex_indices.size()) {
@@ -690,8 +769,9 @@ int32_t LightmapGI::_compute_bsp_tree(const LocalVector<Vector3> &p_points, cons
 					bounds.expand_to(p);
 				}
 			}
+			centers.push_back(bounds.get_center());
 			if (i == 0) {
-				centers.push_back(bounds.get_center());
+				bounds_all = bounds;
 			} else {
 				bounds_all.merge_with(bounds);
 			}
@@ -699,8 +779,8 @@ int32_t LightmapGI::_compute_bsp_tree(const LocalVector<Vector3> &p_points, cons
 		Vector3::Axis longest_axis = Vector3::Axis(bounds_all.get_longest_axis_index());
 
 		//find the simplex that will go under
-		uint32_t min_d_idx = 0xFFFFFFFF;
-		float min_d_dist = 1e20;
+		uint32_t min_d_idx = 0;
+		real_t min_d_dist = centers[0][longest_axis];
 
 		for (uint32_t i = 0; i < centers.size(); i++) {
 			if (centers[i][longest_axis] < min_d_dist) {
@@ -714,7 +794,7 @@ int32_t LightmapGI::_compute_bsp_tree(const LocalVector<Vector3> &p_points, cons
 		best_plane.d = min_d_dist;
 
 		indices_under.clear();
-		indices_under.push_back(min_d_idx);
+		indices_under.push_back(p_simplex_indices[min_d_idx]);
 
 		indices_over.clear();
 
@@ -735,7 +815,7 @@ int32_t LightmapGI::_compute_bsp_tree(const LocalVector<Vector3> &p_points, cons
 	} else if (indices_under.size() == 1) {
 		node.under = -(indices_under[0] + 1);
 	} else {
-		node.under = _compute_bsp_tree(p_points, p_planes, planes_tested, p_simplices, indices_under, bsp_nodes);
+		node.under = _compute_bsp_tree(p_points, planes_tested, p_simplices, indices_under, bsp_nodes, p_faces, r_point_cache);
 	}
 
 	if (indices_over.is_empty()) {
@@ -744,7 +824,7 @@ int32_t LightmapGI::_compute_bsp_tree(const LocalVector<Vector3> &p_points, cons
 	} else if (indices_over.size() == 1) {
 		node.over = -(indices_over[0] + 1);
 	} else {
-		node.over = _compute_bsp_tree(p_points, p_planes, planes_tested, p_simplices, indices_over, bsp_nodes);
+		node.over = _compute_bsp_tree(p_points, planes_tested, p_simplices, indices_over, bsp_nodes, p_faces, r_point_cache);
 	}
 
 	bsp_nodes[node_index] = node;
@@ -1265,6 +1345,7 @@ LightmapGI::BakeError LightmapGI::bake(Node *p_from_node, String p_image_data_pa
 
 			//get geometry
 
+			md.rt_transform = mf.xform;
 			Basis normal_xform = mf.xform.basis.inverse().transposed();
 
 			for (int i = 0; i < mf.mesh->get_surface_count(); i++) {
@@ -1329,6 +1410,7 @@ LightmapGI::BakeError LightmapGI::bake(Node *p_from_node, String p_image_data_pa
 							bounds.expand_to(v);
 						}
 						md.points.push_back(v);
+						md.rt_points.push_back(vr[vidx[k]]);
 
 						md.uv2.push_back(uvr[vidx[k]]);
 						md.normal.push_back(normal_xform.xform(nr[vidx[k]]).normalized());
@@ -1698,56 +1780,72 @@ LightmapGI::BakeError LightmapGI::bake(Node *p_from_node, String p_image_data_pa
 			p_bake_step(0.8, RTR("Generating Probe Volumes"), p_bake_userdata, true);
 		}
 
+		const uint64_t delaunay_start = OS::get_singleton()->get_ticks_usec();
 		Vector<Delaunay3D::OutputSimplex> solved_simplices = Delaunay3D::tetrahedralize(Vector<Vector3>(probe_points));
+		const uint64_t topology_start = OS::get_singleton()->get_ticks_usec();
 		int64_t simplex_count = solved_simplices.size();
 
 		LocalVector<BSPSimplex> bsp_simplices;
+		LocalVector<BSPFace> bsp_faces;
 		LocalVector<Plane> bsp_planes;
 		LocalVector<int32_t> bsp_simplex_indices;
 		PackedInt32Array tetrahedrons;
-
-		for (int i = 0; i < simplex_count; i++) {
-			//Prepare a special representation of the simplex, which uses a BSP Tree
-			BSPSimplex bsp_simplex;
-			for (int j = 0; j < 4; j++) {
-				bsp_simplex.vertices[j] = solved_simplices[i].points[j];
-			}
-			for (int j = 0; j < 4; j++) {
-				static const int face_order[4][3] = {
-					{ 0, 1, 2 },
-					{ 0, 2, 3 },
-					{ 0, 1, 3 },
-					{ 1, 2, 3 }
-				};
-				Vector3 a = probe_points[solved_simplices[i].points[face_order[j][0]]];
-				Vector3 b = probe_points[solved_simplices[i].points[face_order[j][1]]];
-				Vector3 c = probe_points[solved_simplices[i].points[face_order[j][2]]];
-
-				//store planes in an array, but ensure they are reused, to speed up processing
-
-				Plane p(a, b, c);
-				int plane_index = -1;
-				for (uint32_t k = 0; k < bsp_planes.size(); k++) {
-					if (bsp_planes[k].is_equal_approx_any_side(p)) {
-						plane_index = k;
-						break;
+		bsp_simplices.reserve(simplex_count);
+		bsp_simplex_indices.reserve(simplex_count);
+		tetrahedrons.resize(simplex_count * 4);
+		{
+			ProbePlaneIndex plane_index;
+			HashMap<Vector3i, int> face_indices;
+			int32_t *tetrahedrons_write = tetrahedrons.ptrw();
+			for (int i = 0; i < simplex_count; i++) {
+				BSPSimplex bsp_simplex;
+				for (int j = 0; j < 4; j++) {
+					bsp_simplex.vertices[j] = solved_simplices[i].points[j];
+					tetrahedrons_write[i * 4 + j] = solved_simplices[i].points[j];
+				}
+				for (int j = 0; j < 4; j++) {
+					static const int face_order[4][3] = {
+						{ 0, 1, 2 },
+						{ 0, 2, 3 },
+						{ 0, 1, 3 },
+						{ 1, 2, 3 }
+					};
+					Vector3i face_key(bsp_simplex.vertices[face_order[j][0]], bsp_simplex.vertices[face_order[j][1]], bsp_simplex.vertices[face_order[j][2]]);
+					const Plane plane(probe_points[face_key.x], probe_points[face_key.y], probe_points[face_key.z]);
+					bsp_simplex.face_planes[j] = plane;
+					bsp_simplex.planes[j] = plane_index.get_or_insert(plane, bsp_planes);
+					if (face_key.x > face_key.y) {
+						SWAP(face_key.x, face_key.y);
+					}
+					if (face_key.y > face_key.z) {
+						SWAP(face_key.y, face_key.z);
+					}
+					if (face_key.x > face_key.y) {
+						SWAP(face_key.x, face_key.y);
+					}
+					int *face_index = face_indices.getptr(face_key);
+					if (!face_index) {
+						bsp_simplex.faces[j] = bsp_faces.size();
+						face_indices.insert(face_key, bsp_faces.size());
+						BSPFace face;
+						face.simplices[0] = i;
+						bsp_faces.push_back(face);
+					} else {
+						bsp_simplex.faces[j] = *face_index;
+						BSPFace &face = bsp_faces[*face_index];
+						if (face.simplices[1] == -1) {
+							face.simplices[1] = i;
+						} else {
+							face.manifold = false; // Keep the conservative BSP path.
+						}
 					}
 				}
-
-				if (plane_index == -1) {
-					plane_index = bsp_planes.size();
-					bsp_planes.push_back(p);
-				}
-
-				bsp_simplex.planes[j] = plane_index;
-
-				//also fill simplex array
-				tetrahedrons.push_back(solved_simplices[i].points[j]);
+				bsp_simplex_indices.push_back(i);
+				bsp_simplices.push_back(bsp_simplex);
 			}
-
-			bsp_simplex_indices.push_back(bsp_simplices.size());
-			bsp_simplices.push_back(bsp_simplex);
 		}
+
+		const uint64_t topology_end = OS::get_singleton()->get_ticks_usec();
 
 //#define DEBUG_SIMPLICES_AS_OBJ_FILE
 #ifdef DEBUG_SIMPLICES_AS_OBJ_FILE
@@ -1784,7 +1882,12 @@ LightmapGI::BakeError LightmapGI::bake(Node *p_from_node, String p_image_data_pa
 		}
 
 		// Compute a BSP tree of the simplices, so it's easy to find the exact one.
-		_compute_bsp_tree(probe_points, bsp_planes, planes_tested, bsp_simplices, bsp_simplex_indices, bsp_nodes);
+		BSPPointCache point_cache;
+		point_cache.versions.resize_initialized(probe_points.size());
+		point_cache.sides.resize(probe_points.size());
+		const uint64_t bsp_start = OS::get_singleton()->get_ticks_usec();
+		_compute_bsp_tree(probe_points, planes_tested, bsp_simplices, bsp_simplex_indices, bsp_nodes, bsp_faces, point_cache);
+		const uint64_t bsp_end = OS::get_singleton()->get_ticks_usec();
 
 		PackedInt32Array bsp_array;
 		bsp_array.resize(bsp_nodes.size() * 6); // six 32 bits values used for each BSP node
@@ -1808,8 +1911,16 @@ LightmapGI::BakeError LightmapGI::bake(Node *p_from_node, String p_image_data_pa
 #endif
 		}
 
+		int shared_faces = 0;
+		for (const BSPFace &face : bsp_faces) {
+			shared_faces += face.simplices[1] != -1;
+		}
+		print_line(vformat("Lightmap probe volume: probes=%d, tetrahedra=%d, faces=%d, shared_faces=%d, planes=%d, bsp_nodes=%d; delaunay=%.3fs, topology=%.3fs, bsp=%.3fs.",
+				probe_count, simplex_count, bsp_faces.size(), shared_faces, bsp_planes.size(), bsp_nodes.size(),
+				double(topology_start - delaunay_start) / 1e6, double(topology_end - topology_start) / 1e6, double(bsp_end - bsp_start) / 1e6));
 		gi_data->set_capture_data(bounds, interior, Vector<Vector3>(probe_points), Vector<Color>(probe_sh), tetrahedrons, bsp_array, exposure_normalization, bake_probe_hash);
 	} else {
+		print_verbose("Lightmap probe volume: reusing tetrahedra and BSP for unchanged probe positions.");
 		gi_data->set_capture_data(bounds, interior, Vector<Vector3>(probe_points), Vector<Color>(probe_sh), gi_data->get_capture_tetrahedra(), gi_data->get_capture_bsp_tree(), exposure_normalization, bake_probe_hash);
 	}
 

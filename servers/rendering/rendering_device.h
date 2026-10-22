@@ -1363,6 +1363,7 @@ private:
 		LocalVector<InstanceBuffer> instance_buffers;
 	};
 
+	void _acceleration_structure_release_scratch(RID p_structure);
 	Error _acceleration_structure_scratch_buffer_create(AccelerationStructure *p_acceleration_structure);
 	void _blas_remove_tlas_dependencies(AccelerationStructure *p_blas, RID p_blas_id);
 	void _tlas_remove_blas_dependencies(AccelerationStructure *p_tlas, RID p_tlas_id);
@@ -1397,7 +1398,8 @@ public:
 	};
 
 	Error blas_build(RID p_blas);
-	Error tlas_build(RID p_tlas, Span<AccelerationStructureInstance> p_instances);
+	// Ray-query-only instances do not require a hit shader binding table range.
+	Error tlas_build(RID p_tlas, Span<AccelerationStructureInstance> p_instances, bool p_ray_queries_only = false);
 
 private:
 	/**********************************/
@@ -1945,6 +1947,7 @@ public:
 
 	void submit();
 	void sync();
+	Error local_device_clear_transient_resources(const Vector<RID> &p_keep);
 
 	enum MemoryType {
 		MEMORY_TEXTURES,
