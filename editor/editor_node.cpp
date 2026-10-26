@@ -119,6 +119,7 @@
 #include "editor/inspector/editor_resource_picker.h"
 #include "editor/inspector/editor_resource_preview.h"
 #include "editor/inspector/multi_node_edit.h"
+#include "editor/inspector/multi_resource_edit.h"
 #include "editor/plugins/editor_plugin.h"
 #include "editor/plugins/editor_plugin_list.h"
 #include "editor/plugins/editor_resource_conversion_plugin.h"
@@ -3166,6 +3167,11 @@ void EditorNode::_add_to_history(const Object *p_object, const String &p_propert
 		if (multi_node_edit && history_multi_node_edit && multi_node_edit->is_same_selection(history_multi_node_edit)) {
 			return;
 		}
+		const MultiResourceEdit *multi_resource_edit = Object::cast_to<const MultiResourceEdit>(p_object);
+		const MultiResourceEdit *history_multi_resource_edit = ObjectDB::get_instance<MultiResourceEdit>(history_id);
+		if (multi_resource_edit && history_multi_resource_edit && multi_resource_edit->is_same_selection(history_multi_resource_edit)) {
+			return;
+		}
 		if (p_inspector_only) {
 			editor_history.add_object(id, String(), true);
 		} else if (p_property.is_empty()) {
@@ -3323,8 +3329,9 @@ void EditorNode::_edit_current(bool p_skip_foreign, bool p_skip_inspector_update
 			editable_info,
 			info_is_warning);
 
-	Object *editor_owner = (is_node || current_obj->is_class("MultiNodeEdit")) ? (Object *)SceneTreeDock::get_singleton() : is_resource ? (Object *)InspectorDock::get_inspector_singleton()
-																																		: (Object *)this;
+	const bool is_multi_resource = current_obj->is_class("MultiResourceEdit");
+	Object *editor_owner = (is_node || current_obj->is_class("MultiNodeEdit")) ? (Object *)SceneTreeDock::get_singleton() : (is_resource || is_multi_resource) ? (Object *)InspectorDock::get_inspector_singleton()
+																											: (Object *)this;
 
 	// Take care of the main editor plugin.
 
@@ -6014,6 +6021,8 @@ Ref<Texture2D> EditorNode::get_object_icon(const Object *p_object, const String 
 
 	if (Object::cast_to<MultiNodeEdit>(p_object)) {
 		return get_class_icon(Object::cast_to<MultiNodeEdit>(p_object)->get_edited_class_name(), p_fallback);
+	} else if (Object::cast_to<MultiResourceEdit>(p_object)) {
+		return get_class_icon(Object::cast_to<MultiResourceEdit>(p_object)->get_edited_class_name(), p_fallback);
 	} else {
 		return _get_class_or_script_icon(p_object->get_class(), scr.is_valid() ? scr->get_path() : String(), p_fallback);
 	}
