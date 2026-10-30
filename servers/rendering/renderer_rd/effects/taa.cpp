@@ -39,9 +39,12 @@ using namespace RendererRD;
 TAA::TAA() {
 	Vector<String> taa_modes;
 	taa_modes.push_back("\n#define MODE_TAA_RESOLVE");
+	taa_modes.push_back("\n#define MODE_TAA_SHARPEN");
 	taa_shader.initialize(taa_modes);
 	shader_version = taa_shader.version_create();
-	pipeline = RD::get_singleton()->compute_pipeline_create(taa_shader.version_get_shader(shader_version, 0));
+	for (int i = 0; i < TAA_MODE_MAX; i++) {
+		pipelines[i] = RD::get_singleton()->compute_pipeline_create(taa_shader.version_get_shader(shader_version, i));
+	}
 }
 
 TAA::~TAA() {
@@ -54,7 +57,7 @@ void TAA::resolve(RID p_frame, RID p_temp, RID p_depth, RID p_velocity, RID p_pr
 	MaterialStorage *material_storage = MaterialStorage::get_singleton();
 	ERR_FAIL_NULL(material_storage);
 
-	RID shader = taa_shader.version_get_shader(shader_version, 0);
+	RID shader = taa_shader.version_get_shader(shader_version, TAA_MODE_RESOLVE);
 	ERR_FAIL_COND(shader.is_null());
 
 	RID default_sampler = material_storage->sampler_rd_get_default(RSE::CANVAS_ITEM_TEXTURE_FILTER_LINEAR, RSE::CANVAS_ITEM_TEXTURE_REPEAT_DISABLED);
@@ -72,7 +75,7 @@ void TAA::resolve(RID p_frame, RID p_temp, RID p_depth, RID p_velocity, RID p_pr
 	push_constant.variance_dynamic = CLAMP(base_variance * variance_scale, base_variance_min, base_variance_max); // Variance dynamically scales based on resolution
 
 	RD::ComputeListID compute_list = RD::get_singleton()->compute_list_begin();
-	RD::get_singleton()->compute_list_bind_compute_pipeline(compute_list, pipeline);
+	RD::get_singleton()->compute_list_bind_compute_pipeline(compute_list, pipelines[TAA_MODE_RESOLVE]);
 
 	RD::Uniform u_frame_source(RD::UNIFORM_TYPE_IMAGE, 0, { p_frame });
 	RD::Uniform u_depth(RD::UNIFORM_TYPE_SAMPLER_WITH_TEXTURE, 1, { default_sampler, p_depth });
@@ -87,6 +90,31 @@ void TAA::resolve(RID p_frame, RID p_temp, RID p_depth, RID p_velocity, RID p_pr
 	RD::get_singleton()->compute_list_end();
 }
 
+void TAA::sharpen(RID p_source, RID p_dest, Size2i p_resolution) {
+	UniformSetCacheRD *uniform_set_cache = UniformSetCacheRD::get_singleton();
+	ERR_FAIL_NULL(uniform_set_cache);
+
+	RID shader = taa_shader.version_get_shader(shader_version, TAA_MODE_SHARPEN);
+	ERR_FAIL_COND(shader.is_null());
+
+	TAASharpenPushConstant push_constant;
+	memset(&push_constant, 0, sizeof(TAASharpenPushConstant));
+	push_constant.resolution_width = p_resolution.width;
+	push_constant.resolution_height = p_resolution.height;
+	push_constant.sharpness = 0.5f; // 0.0 to 1.0, counters the softness of accumulating jittered samples.
+
+	RD::ComputeListID compute_list = RD::get_singleton()->compute_list_begin();
+	RD::get_singleton()->compute_list_bind_compute_pipeline(compute_list, pipelines[TAA_MODE_SHARPEN]);
+
+	RD::Uniform u_source(RD::UNIFORM_TYPE_IMAGE, 0, { p_source });
+	RD::Uniform u_dest(RD::UNIFORM_TYPE_IMAGE, 1, { p_dest });
+
+	RD::get_singleton()->compute_list_bind_uniform_set(compute_list, uniform_set_cache->get_cache(shader, 0, u_source, u_dest), 0);
+	RD::get_singleton()->compute_list_set_push_constant(compute_list, &push_constant, sizeof(TAASharpenPushConstant));
+	RD::get_singleton()->compute_list_dispatch_threads(compute_list, p_resolution.width, p_resolution.height, 1);
+	RD::get_singleton()->compute_list_end();
+}
+
 void TAA::process(Ref<RenderSceneBuffersRD> p_render_buffers, RD::DataFormat p_format, float p_z_near, float p_z_far) {
 	CopyEffects *copy_effects = CopyEffects::get_singleton();
 
@@ -94,17 +122,28 @@ void TAA::process(Ref<RenderSceneBuffersRD> p_render_buffers, RD::DataFormat p_f
 	Size2i internal_size = p_render_buffers->get_internal_size();
 	Size2i target_size = p_render_buffers->get_target_size();
 
+	if (!p_render_buffers->has_custom_data(SNAME("taa"))) {
+		Ref<TAAHistory> history;
+		history.instantiate();
+		p_render_buffers->set_custom_data(SNAME("taa"), history);
+	}
+	Ref<TAAHistory> history = p_render_buffers->get_custom_data(SNAME("taa"));
+
 	bool just_allocated = false;
-	if (!p_render_buffers->has_texture(SNAME("taa"), SNAME("history"))) {
+	if (!p_render_buffers->has_texture(SNAME("taa"), SNAME("history_a"))) {
 		uint32_t usage_bits = RD::TEXTURE_USAGE_SAMPLING_BIT | RD::TEXTURE_USAGE_STORAGE_BIT;
 
-		p_render_buffers->create_texture(SNAME("taa"), SNAME("history"), p_format, usage_bits);
-		p_render_buffers->create_texture(SNAME("taa"), SNAME("temp"), p_format, usage_bits);
+		p_render_buffers->create_texture(SNAME("taa"), SNAME("history_a"), p_format, usage_bits);
+		p_render_buffers->create_texture(SNAME("taa"), SNAME("history_b"), p_format, usage_bits);
 
 		p_render_buffers->create_texture(SNAME("taa"), SNAME("prev_velocity"), RD::DATA_FORMAT_R16G16_SFLOAT, usage_bits);
 
 		just_allocated = true;
 	}
+
+	// Ping-pong: resolve reads last frame's history and writes the new one, which then becomes next frame's history.
+	const StringName history_read_name = history->flip ? SNAME("history_b") : SNAME("history_a");
+	const StringName history_write_name = history->flip ? SNAME("history_a") : SNAME("history_b");
 
 	RD::get_singleton()->draw_command_begin_label("TAA");
 
@@ -112,18 +151,23 @@ void TAA::process(Ref<RenderSceneBuffersRD> p_render_buffers, RD::DataFormat p_f
 		// Get our (cached) slices
 		RID internal_texture = p_render_buffers->get_internal_texture(v);
 		RID velocity_buffer = p_render_buffers->get_velocity_buffer(false, v);
-		RID taa_history = p_render_buffers->get_texture_slice(SNAME("taa"), SNAME("history"), v, 0);
+		RID taa_history_read = p_render_buffers->get_texture_slice(SNAME("taa"), history_read_name, v, 0);
 		RID taa_prev_velocity = p_render_buffers->get_texture_slice(SNAME("taa"), SNAME("prev_velocity"), v, 0);
 
-		if (!just_allocated) {
+		if (just_allocated) {
+			copy_effects->copy_to_rect(internal_texture, taa_history_read, Rect2(0, 0, internal_size.x, internal_size.y));
+		} else {
 			RID depth_texture = p_render_buffers->get_depth_texture(v);
-			RID taa_temp = p_render_buffers->get_texture_slice(SNAME("taa"), SNAME("temp"), v, 0);
-			resolve(internal_texture, taa_temp, depth_texture, velocity_buffer, taa_prev_velocity, taa_history, Size2(internal_size.x, internal_size.y), p_z_near, p_z_far);
-			copy_effects->copy_to_rect(taa_temp, internal_texture, Rect2(0, 0, internal_size.x, internal_size.y));
+			RID taa_history_write = p_render_buffers->get_texture_slice(SNAME("taa"), history_write_name, v, 0);
+			resolve(internal_texture, taa_history_write, depth_texture, velocity_buffer, taa_prev_velocity, taa_history_read, Size2(internal_size.x, internal_size.y), p_z_near, p_z_far);
+			sharpen(taa_history_write, internal_texture, internal_size);
 		}
 
-		copy_effects->copy_to_rect(internal_texture, taa_history, Rect2(0, 0, internal_size.x, internal_size.y));
 		copy_effects->copy_to_rect(velocity_buffer, taa_prev_velocity, Rect2(0, 0, target_size.x, target_size.y));
+	}
+
+	if (!just_allocated) {
+		history->flip = !history->flip;
 	}
 
 	RD::get_singleton()->draw_command_end_label();
