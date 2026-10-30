@@ -447,7 +447,7 @@ Dictionary LightProbeVolume::create_filtered_grid_layout(Node *p_geometry_root, 
 	layout["positions"] = positions;
 	layout["ids"] = ids;
 	layout["grid_origins"] = origins;
-	print_line(vformat("Light probe grid: candidates=%d, kept=%d, rejected_by_geometry=%d, preserved_custom=%s.", candidates.size(), positions.size(), rejected, p_preserve_custom ? "yes" : "no"));
+	print_verbose(vformat("Light probe grid: candidates=%d, kept=%d, rejected_by_geometry=%d, preserved_custom=%s.", candidates.size(), positions.size(), rejected, p_preserve_custom ? "yes" : "no"));
 	return layout;
 }
 
@@ -619,7 +619,7 @@ Error LightProbeSystem::prepare_bake(LightProbeGeometry &p_geometry, const Trans
 			return ERR_SKIP;
 		}
 	}
-	print_line(vformat("Light probe validation: system=%s, total=%d, accepted=%d, rejected=%d.", get_path(), positions.size(), accepted.size(), rejected));
+	print_verbose(vformat("Light probe validation: system=%s, total=%d, accepted=%d, rejected=%d.", get_path(), positions.size(), accepted.size(), rejected));
 	r_points = accepted;
 	return OK;
 }

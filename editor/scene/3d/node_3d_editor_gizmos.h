@@ -51,8 +51,11 @@ class EditorNode3DGizmo : public Node3DGizmo {
 		Ref<Material> material;
 		Ref<SkinReference> skin_reference;
 		bool extra_margin = false;
+		// Drawn like scene geometry, without the gizmo exposure compensation.
+		bool scene_exposure = false;
 		Transform3D xform;
 
+		int get_layer_mask(bool p_hidden) const;
 		void create_instance(Node3D *p_base, bool p_hidden = false);
 	};
 
@@ -103,7 +106,7 @@ public:
 	void add_lines(const Vector<Vector3> &p_lines, const Ref<Material> &p_material, bool p_billboard = false, const Color &p_modulate = Color(1, 1, 1));
 	void add_vertices(const Vector<Vector3> &p_vertices, const Ref<Material> &p_material, Mesh::PrimitiveType p_primitive_type, bool p_billboard = false, const Color &p_modulate = Color(1, 1, 1));
 	void add_mesh(const Ref<Mesh> &p_mesh, const Ref<Material> &p_material = Ref<Material>(), const Transform3D &p_xform = Transform3D(), const Ref<SkinReference> &p_skin_reference = Ref<SkinReference>());
-	void add_multimesh(const Ref<MultiMesh> &p_multimesh, const Ref<Material> &p_material = Ref<Material>());
+	void add_multimesh(const Ref<MultiMesh> &p_multimesh, const Ref<Material> &p_material = Ref<Material>(), bool p_scene_exposure = false);
 	void add_collision_segments(const Vector<Vector3> &p_lines);
 	void add_collision_triangles(const Ref<TriangleMesh> &p_tmesh);
 	void set_collision_meshes_are_snap_source(bool p_enable) { collision_meshes_are_snap_source = p_enable; }

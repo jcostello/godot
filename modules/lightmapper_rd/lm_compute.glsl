@@ -87,10 +87,20 @@ layout(rgba8, set = 1, binding = 5) uniform restrict writeonly image2DArray shad
 #elif defined(MODE_BOUNCE_LIGHT)
 layout(set = 1, binding = 5) uniform texture2D environment;
 layout(r32ui, set = 1, binding = 7) uniform restrict uimage2DArray invalid_samples;
+// Adaptive sampling: x = sum of sample luminance, y = sum of squared luminance (negative once converged).
+layout(rg32f, set = 1, binding = 10) uniform restrict image2DArray adaptive_stats;
 #endif
 
 #if defined(MODE_DIRECT_LIGHT) || defined(MODE_BOUNCE_LIGHT) || defined(MODE_LIGHT_PROBES)
 layout(set = 1, binding = 6) uniform texture2D area_light_atlas;
+#endif
+
+#if defined(MODE_BOUNCE_LIGHT) || defined(MODE_LIGHT_PROBES)
+// Layout: per-cell pdf (w * h), marginal row CDF (h), per-row conditional CDFs (w * h).
+layout(set = 1, binding = 9, std430) restrict readonly buffer EnvironmentCDF {
+	float data[];
+}
+env_cdf;
 #endif
 
 #if defined(MODE_PAD_OIDN) || defined(MODE_DILATE) || defined(MODE_DENOISE) || defined(MODE_PACK_L1_COEFFS)
@@ -472,11 +482,56 @@ float randomize(inout uint value) {
 const float PI = 3.14159265f;
 
 // http://www.realtimerendering.com/raytracinggems/unofficial_RayTracingGems_v1.4.pdf (chapter 15)
-vec3 generate_hemisphere_cosine_weighted_direction(inout uint noise) {
-	float noise1 = randomize(noise);
-	float noise2 = randomize(noise) * 2.0 * PI;
+vec3 generate_hemisphere_cosine_weighted_direction(vec2 p_rand) {
+	float noise1 = p_rand.x;
+	float noise2 = p_rand.y * 2.0 * PI;
 
 	return vec3(sqrt(noise1) * cos(noise2), sqrt(noise1) * sin(noise2), sqrt(1.0 - noise1));
+}
+
+vec3 generate_hemisphere_cosine_weighted_direction(inout uint noise) {
+	return generate_hemisphere_cosine_weighted_direction(vec2(randomize(noise), randomize(noise)));
+}
+
+// R2 low-discrepancy sequence, offset by p_rotation (Cranley-Patterson) so each texel gets a decorrelated but still stratified set.
+// https://extremelearning.com.au/unreasonable-effectiveness-of-quasirandom-sequences/
+vec2 r2_sequence(uint p_index, vec2 p_rotation) {
+	const vec2 alpha = vec2(0.7548776662466927, 0.5698402909980532);
+	return fract(p_rotation + alpha * float(p_index));
+}
+
+// Shuffled, Owen-scrambled 2D Sobol, from Brent Burley, "Practical Hash-based Owen Scrambling" (JCGT 2020).
+// Each (p_seed) gives an independent, still stratified 2D sequence over p_index, used for path decisions after the first ray.
+uint laine_karras_permutation(uint p_x, uint p_seed) {
+	p_x += p_seed;
+	p_x ^= p_x * 0x6c50b47cu;
+	p_x ^= p_x * 0xb82f1e52u;
+	p_x ^= p_x * 0xc7afe638u;
+	p_x ^= p_x * 0x8d22f6e6u;
+	return p_x;
+}
+
+uint nested_uniform_scramble(uint p_x, uint p_seed) {
+	return bitfieldReverse(laine_karras_permutation(bitfieldReverse(p_x), p_seed));
+}
+
+uint sobol_dimension_1(uint p_index) {
+	uint result = 0u;
+	uint v = 1u << 31;
+	for (uint index = p_index; index != 0u; index >>= 1u) {
+		if ((index & 1u) != 0u) {
+			result ^= v;
+		}
+		v ^= v >> 1u;
+	}
+	return result;
+}
+
+vec2 sobol_owen_2d(uint p_index, uint p_seed) {
+	uint index = nested_uniform_scramble(p_index, p_seed);
+	uint x = nested_uniform_scramble(bitfieldReverse(index), hash(p_seed ^ 0xa511e9b3u));
+	uint y = nested_uniform_scramble(sobol_dimension_1(index), hash(p_seed ^ 0x63d83595u));
+	return vec2(x >> 8u, y >> 8u) / 16777216.0; // 24 bits keep the result strictly below 1.0 in float.
 }
 
 #ifdef MODE_LIGHT_PROBES
@@ -499,12 +554,16 @@ vec3 generate_probe_direction(uint sample_index, uint sample_count, vec4 rotatio
 }
 #endif
 
-vec3 generate_ray_dir_from_normal(vec3 normal, inout uint noise) {
+vec3 generate_ray_dir_from_normal(vec3 normal, vec2 p_rand) {
 	vec3 v0 = abs(normal.z) < 0.999 ? vec3(0.0, 0.0, 1.0) : vec3(0.0, 1.0, 0.0);
 	vec3 tangent = normalize(cross(v0, normal));
 	vec3 bitangent = normalize(cross(tangent, normal));
 	mat3 normal_mat = mat3(tangent, bitangent, normal);
-	return normal_mat * generate_hemisphere_cosine_weighted_direction(noise);
+	return normal_mat * generate_hemisphere_cosine_weighted_direction(p_rand);
+}
+
+vec3 generate_ray_dir_from_normal(vec3 normal, inout uint noise) {
+	return generate_ray_dir_from_normal(normal, vec2(randomize(noise), randomize(noise)));
 }
 
 #if defined(MODE_DIRECT_LIGHT) || defined(MODE_BOUNCE_LIGHT) || defined(MODE_LIGHT_PROBES)
@@ -677,7 +736,10 @@ void trace_direct_light(vec3 p_position, vec3 p_normal, vec3 p_geometry_normal, 
 	float penumbra = 0.0;
 	vec3 penumbra_color = vec3(0.0);
 	if (p_soft_shadowing) {
-		const bool use_soft_shadows = (light_data.size > 0.0);
+		// Area lights always sample their rectangle, their size comes from area_width/area_height, not light_data.size.
+		const bool is_area = light_data.type == LIGHT_TYPE_AREA;
+		const bool use_soft_shadows = (light_data.size > 0.0) || is_area;
+		const vec2 area_rotation = is_area ? vec2(randomize(r_noise), randomize(r_noise)) : vec2(0.0);
 		const uint ray_count = AA_SAMPLES;
 		const uint total_ray_count = use_soft_shadows ? params.ray_count : ray_count;
 		const uint shadowing_rays_check_penumbra_denom = 2;
@@ -720,7 +782,7 @@ void trace_direct_light(vec3 p_position, vec3 p_normal, vec3 p_geometry_normal, 
 					// Optimization:
 					// Once already traced an important proportion of rays, if all are hits or misses,
 					// assume we're not in the penumbra so we can infer the rest would have the same result.
-					if (j == shadowing_ray_count / shadowing_rays_check_penumbra_denom) {
+					if (!is_area && j == shadowing_ray_count / shadowing_rays_check_penumbra_denom) {
 						if (soft_shadow_hits == j) {
 							// Assume totally lit
 							soft_shadow_hits = shadowing_ray_count;
@@ -732,10 +794,24 @@ void trace_direct_light(vec3 p_position, vec3 p_normal, vec3 p_geometry_normal, 
 						}
 					}
 
-					float a = randomize(r_noise) * 2.0 * PI;
-					float vogel_index = float(total_ray_count - 1 - (i * shadowing_ray_count + j)); // Start from (total_ray_count - 1) so we check the outer points first.
-					vec2 light_disk_sample = get_vogel_disk(vogel_index, a, shadowing_ray_count_sqrt) * soft_shadowing_disk_size * light_data.shadow_blur;
-					vec3 light_disk_to_point = normalize(light_to_point + light_disk_sample.x * light_to_point_tan + light_disk_sample.y * light_to_point_bitan);
+					vec3 light_disk_to_point;
+					vec3 shadow_ray_end;
+					if (is_area) {
+						// Target points across the actual rectangle so the penumbra follows the light's shape.
+						vec2 rect_sample = r2_sequence(i * shadowing_ray_count + j, area_rotation) - vec2(0.5);
+						vec3 target = light_data.position + rect_sample.x * light_data.area_width.xyz + rect_sample.y * light_data.area_height.xyz;
+						light_disk_to_point = normalize(origin - target);
+						if (dot(p_geometry_normal, -light_disk_to_point) <= 0.0) {
+							continue; // Part of the light below the surface, the LTC integral already excludes it.
+						}
+						shadow_ray_end = target + light_disk_to_point * bake_params.bias;
+					} else {
+						float a = randomize(r_noise) * 2.0 * PI;
+						float vogel_index = float(total_ray_count - 1 - (i * shadowing_ray_count + j)); // Start from (total_ray_count - 1) so we check the outer points first.
+						vec2 light_disk_sample = get_vogel_disk(vogel_index, a, shadowing_ray_count_sqrt) * soft_shadowing_disk_size * light_data.shadow_blur;
+						light_disk_to_point = normalize(light_to_point + light_disk_sample.x * light_to_point_tan + light_disk_sample.y * light_to_point_bitan);
+						shadow_ray_end = p_position - light_disk_to_point * dist;
+					}
 					float sample_penumbra = 0.0;
 					vec3 sample_penumbra_color = light_data.color.rgb * light_texture_color;
 					bool sample_did_hit = false;
@@ -744,7 +820,7 @@ void trace_direct_light(vec3 p_position, vec3 p_normal, vec3 p_geometry_normal, 
 						vec4 hit_albedo = vec4(1.0);
 						vec3 hit_position;
 						// Offset the ray origin for AA, offset the light position for soft shadows.
-						uint ret = trace_ray_closest_hit_triangle_albedo_alpha(origin - light_disk_to_point * bake_params.bias, p_position - light_disk_to_point * dist, hit_albedo, hit_position);
+						uint ret = trace_ray_closest_hit_triangle_albedo_alpha(origin - light_disk_to_point * bake_params.bias, shadow_ray_end, hit_albedo, hit_position);
 						if (ret == RAY_MISS) {
 							if (!sample_did_hit) {
 								sample_penumbra = 1.0;
@@ -813,6 +889,12 @@ void trace_direct_light(vec3 p_position, vec3 p_normal, vec3 p_geometry_normal, 
 				light_color = sample_penumbra_color;
 				power_accm = 1;
 			}
+			if (power_accm == 0u) {
+				// Every area light sample was below the horizon, LTC already makes this contribution ~0.
+				power = 1.0;
+				light_color = light_data.color.rgb * light_texture_color;
+				power_accm = 1;
+			}
 			aa_power += power / float(power_accm);
 			penumbra_color += light_color / float(power_accm);
 		}
@@ -871,17 +953,109 @@ void trace_direct_light(vec3 p_position, vec3 p_normal, vec3 p_geometry_normal, 
 
 #if defined(MODE_BOUNCE_LIGHT) || defined(MODE_LIGHT_PROBES)
 
-vec3 trace_environment_color(vec3 ray_dir) {
+vec2 environment_dir_to_uv(vec3 ray_dir) {
 	vec3 sky_dir = normalize(mat3(bake_params.env_transform) * ray_dir);
-	vec2 st = vec2(atan(sky_dir.x, sky_dir.z) - PI, acos(sky_dir.y));
+	vec2 st = vec2(atan(sky_dir.x, sky_dir.z) - PI, acos(clamp(sky_dir.y, -1.0, 1.0)));
 	if (st.x < 0.0) {
 		st.x += PI * 2.0;
 	}
-
-	return textureLod(sampler2D(environment, linear_sampler), st / vec2(PI * 2.0, PI), 0.0).rgb * bake_params.environment_exposure_multiplier;
+	return st / vec2(PI * 2.0, PI);
 }
 
-vec3 trace_indirect_light(vec3 p_position, vec3 p_ray_dir, inout uint r_noise, float p_texel_size, out bool r_near_backface) {
+vec3 trace_environment_color(vec3 ray_dir) {
+	return textureLod(sampler2D(environment, linear_sampler), environment_dir_to_uv(ray_dir), 0.0).rgb * bake_params.environment_exposure_multiplier;
+}
+
+// Solid angle pdf of sample_environment() for a direction.
+float environment_pdf(vec3 ray_dir) {
+	if (bake_params.env_cdf_width == 0u) {
+		return 0.0;
+	}
+	uvec2 size = uvec2(bake_params.env_cdf_width, bake_params.env_cdf_height);
+	vec2 uv = environment_dir_to_uv(ray_dir);
+	uvec2 cell = min(uvec2(uv * vec2(size)), size - 1u);
+	float sin_theta = sin(uv.y * PI);
+	return sin_theta > 0.0 ? env_cdf.data[cell.y * size.x + cell.x] / (2.0 * PI * PI * sin_theta) : 0.0;
+}
+
+// Returns the first index in [p_offset, p_offset + p_count) whose CDF value exceeds p_value.
+uint environment_cdf_search(uint p_offset, uint p_count, float p_value) {
+	uint lo = 0u;
+	uint hi = p_count - 1u;
+	while (lo < hi) {
+		uint mid = (lo + hi) / 2u;
+		if (env_cdf.data[p_offset + mid] > p_value) {
+			hi = mid;
+		} else {
+			lo = mid + 1u;
+		}
+	}
+	return lo;
+}
+
+// Picks a direction proportionally to environment luminance. Inverse of environment_dir_to_uv().
+vec3 sample_environment(vec2 p_rand, out float r_pdf) {
+	uint w = bake_params.env_cdf_width;
+	uint h = bake_params.env_cdf_height;
+	uint marginal_ofs = w * h;
+	uint row = environment_cdf_search(marginal_ofs, h, p_rand.y);
+	float row_lo = row > 0u ? env_cdf.data[marginal_ofs + row - 1u] : 0.0;
+	float dv = (p_rand.y - row_lo) / max(env_cdf.data[marginal_ofs + row] - row_lo, 1e-8);
+
+	uint row_ofs = marginal_ofs + h + row * w;
+	uint col = environment_cdf_search(row_ofs, w, p_rand.x);
+	float col_lo = col > 0u ? env_cdf.data[row_ofs + col - 1u] : 0.0;
+	float du = (p_rand.x - col_lo) / max(env_cdf.data[row_ofs + col] - col_lo, 1e-8);
+
+	vec2 uv = (vec2(col, row) + clamp(vec2(du, dv), 0.0, 1.0)) / vec2(w, h);
+	float theta = uv.y * PI;
+	float phi = uv.x * 2.0 * PI + PI;
+	float sin_theta = sin(theta);
+	r_pdf = sin_theta > 0.0 ? env_cdf.data[row * w + col] / (2.0 * PI * PI * sin_theta) : 0.0;
+	vec3 sky_dir = vec3(sin_theta * sin(phi), cos(theta), sin_theta * cos(phi));
+	// shortcut: transpose assumes env_transform is a pure rotation, use inverse() if scaled skies are ever needed.
+	return normalize(transpose(mat3(bake_params.env_transform)) * sky_dir);
+}
+
+float mis_power_heuristic(float p_pdf, float p_other_pdf) {
+	float a = p_pdf * p_pdf;
+	return a / max(a + p_other_pdf * p_other_pdf, 1e-20);
+}
+
+// Next event estimation towards the environment from a surface. The result is MIS weighted against
+// cosine sampling and already divided by the cosine pdf, so it adds directly to cosine-sampled radiance.
+vec3 sample_environment_light(vec3 p_position, vec3 p_normal, vec3 p_geometry_normal, vec2 p_rand, out vec3 r_dir) {
+	r_dir = p_normal;
+	if (bake_params.env_cdf_width == 0u) {
+		return vec3(0.0);
+	}
+	float env_pdf;
+	r_dir = sample_environment(p_rand, env_pdf);
+	float cos_theta = dot(p_normal, r_dir);
+	if (env_pdf <= 0.0 || cos_theta <= 0.0 || dot(p_geometry_normal, r_dir) <= 0.0) {
+		return vec3(0.0);
+	}
+	if (trace_ray_any_hit(p_position + r_dir * bake_params.bias, p_position + r_dir * length(bake_params.world_size)) != RAY_MISS) {
+		return vec3(0.0);
+	}
+	float cosine_pdf = cos_theta / PI;
+	return trace_environment_color(r_dir) * mis_power_heuristic(env_pdf, cosine_pdf) * cosine_pdf / env_pdf;
+}
+
+vec3 clamp_indirect_sample(vec3 p_light) {
+	if (bake_params.indirect_sample_clamp > 0.0) {
+		float luminance = dot(p_light, vec3(0.2126, 0.7152, 0.0722));
+		if (luminance > bake_params.indirect_sample_clamp) {
+			p_light *= bake_params.indirect_sample_clamp / luminance;
+		}
+	}
+	return p_light;
+}
+
+// p_origin_nee: the caller already sampled the environment from p_position with normal p_origin_normal,
+// so environment hits of the first ray must be MIS weighted.
+// p_sample_index and p_path_seed pick the stratified samples for every path vertex, so paths of the same texel stay stratified past the first ray.
+vec3 trace_indirect_light(vec3 p_position, vec3 p_ray_dir, inout uint r_noise, float p_texel_size, bool p_origin_nee, vec3 p_origin_normal, uint p_sample_index, uint p_path_seed, out bool r_near_backface) {
 	// The lower limit considers the case where the lightmapper might have bounces disabled but light probes are requested.
 	vec3 position = p_position;
 	vec3 ray_dir = p_ray_dir;
@@ -889,8 +1063,14 @@ vec3 trace_indirect_light(vec3 p_position, vec3 p_ray_dir, inout uint r_noise, f
 	uint transparency_rays_left = bake_params.transparency_rays;
 	vec3 throughput = vec3(1.0);
 	vec3 light = vec3(0.0);
+	// Whether the environment was explicitly sampled from the vertex the current ray left, and that vertex's normal.
+	bool vertex_nee = p_origin_nee;
+	vec3 vertex_normal = p_origin_normal;
 	r_near_backface = false;
+	uint path_vertex = 0u; // Unlike depth, also advances on transparent hits so every decision gets its own dimensions.
 	for (uint depth = 0; depth < max_depth; depth++) {
+		path_vertex++;
+		uint vertex_seed = hash(p_path_seed ^ hash(path_vertex));
 		uint tidx;
 		vec3 barycentric;
 		float hit_distance;
@@ -939,6 +1119,10 @@ vec3 trace_indirect_light(vec3 p_position, vec3 p_ray_dir, inout uint r_noise, f
 			throughput = mix(throughput, throughput * albedo_alpha.rgb, albedo_alpha.a);
 			light += throughput * direct_light * bake_params.bounce_indirect_energy * albedo_alpha.a;
 
+			// Only the texel samples the environment explicitly. Each bounce vertex would cost another full-length
+			// shadow ray for little gain, so rays leaving it find the sky by cosine sampling alone, at full weight.
+			vertex_nee = false;
+
 			if (albedo_alpha.a < 1.0) {
 				transparency_rays_left -= 1;
 				depth -= 1;
@@ -958,7 +1142,7 @@ vec3 trace_indirect_light(vec3 p_position, vec3 p_ray_dir, inout uint r_noise, f
 			// Use Russian Roulette to determine a probability to terminate the bounce earlier as an optimization.
 			// <https://computergraphics.stackexchange.com/questions/2316/is-russian-roulette-really-the-answer>
 			float p = max(max(throughput.x, throughput.y), throughput.z);
-			if (randomize(r_noise) > p) {
+			if (sobol_owen_2d(p_sample_index, vertex_seed ^ 0x9e3779b9u).x > p) {
 				break;
 			}
 
@@ -966,13 +1150,14 @@ vec3 trace_indirect_light(vec3 p_position, vec3 p_ray_dir, inout uint r_noise, f
 			throughput *= 1.0 / p;
 
 			// Generate a new ray direction for the next bounce from this surface's normal.
-			ray_dir = generate_ray_dir_from_normal(normal, r_noise);
+			ray_dir = generate_ray_dir_from_normal(normal, sobol_owen_2d(p_sample_index, vertex_seed ^ 0x51ed270bu));
 			if (dot(geometry_normal, ray_dir) <= 0.0 && albedo_alpha.a >= 1.0) {
 				break;
 			}
 		} else if (trace_result == RAY_MISS) {
 			// Look for the environment color and stop bouncing.
-			light += throughput * trace_environment_color(ray_dir);
+			float miss_weight = vertex_nee ? mis_power_heuristic(max(dot(vertex_normal, ray_dir), 0.0) / PI, environment_pdf(ray_dir)) : 1.0;
+			light += throughput * trace_environment_color(ray_dir) * miss_weight;
 			break;
 		} else if (trace_result == RAY_BACK) {
 			Vertex vert0 = vertices.data[triangles.data[tidx].indices.x];
@@ -985,6 +1170,8 @@ vec3 trace_indirect_light(vec3 p_position, vec3 p_ray_dir, inout uint r_noise, f
 				break;
 			}
 
+			// The environment shadow ray from the previous vertex was blocked by this surface, so a later miss gets full weight.
+			vertex_nee = false;
 			transparency_rays_left -= 1;
 			depth -= 1;
 			if (transparency_rays_left <= 0) {
@@ -1193,10 +1380,11 @@ void main() {
 	vec3 position = texelFetch(sampler2DArray(ao_position, linear_sampler), ivec3(atlas_pos, params.geometry_slice), 0).xyz;
 	vec3 geometry_normal = texelFetch(sampler2DArray(ao_geometry, linear_sampler), ivec3(atlas_pos, params.geometry_slice), 0).yzw;
 	uint noise = random_seed(ivec3(atlas_pos, 92821));
+	vec2 ray_rotation = vec2(randomize(noise), randomize(noise));
 	float occluded = 0.0;
 	uint valid_samples = 0;
 	for (uint i = 0; i < params.ray_count; i++) {
-		vec3 ray_dir = generate_ray_dir_from_normal(normal, noise);
+		vec3 ray_dir = generate_ray_dir_from_normal(normal, r2_sequence(i, ray_rotation));
 		// Smooth normals can point rays below the actual surface.
 		if (dot(geometry_normal, ray_dir) <= 0.0) {
 			continue;
@@ -1280,6 +1468,11 @@ void main() {
 	if (texel_size_world_space == 1e20) {
 		texel_size_world_space = bake_params.bias * 10.0;
 	}
+	// Seeded per texel only (not per pass), so the full ray budget stays one stratified sequence.
+	const uint texel_seed = random_seed(ivec3(atlas_pos, int(params.atlas_slice) + 7919));
+	uint rotation_noise = texel_seed;
+	vec2 ray_rotation = vec2(randomize(rotation_noise), randomize(rotation_noise));
+	vec2 env_rotation = vec2(randomize(rotation_noise), randomize(rotation_noise));
 	// Preserve each original pass's RNG stream and accumulation boundary while
 	// sharing texel geometry preparation across several passes on hardware RT.
 #ifdef USE_HARDWARE_RAYTRACING
@@ -1288,6 +1481,12 @@ void main() {
 	uint pass_size = max(params.ray_to - params.ray_from, 1u);
 #endif
 	for (uint pass_from = params.ray_from; pass_from < params.ray_to; pass_from += pass_size) {
+		vec2 stats = imageLoad(adaptive_stats, ivec3(atlas_pos, params.output_slice)).xy;
+		if (stats.y < 0.0) {
+			break; // Converged in an earlier pass, its estimate was already rescaled.
+		}
+		float pass_luminance = 0.0;
+		float pass_luminance_sq = 0.0;
 #ifdef USE_SH_LIGHTMAPS
 		vec4 sh_accum[4] = vec4[](
 				vec4(0.0, 0.0, 0.0, 1.0),
@@ -1301,19 +1500,26 @@ void main() {
 		uint noise = random_seed(ivec3(pass_from, atlas_pos));
 		uint near_backface_count = 0u;
 		for (uint i = pass_from; i < min(pass_from + pass_size, params.ray_to); i++) {
-			vec3 ray_dir = generate_ray_dir_from_normal(normal, noise);
-			if (dot(geometry_normal, ray_dir) <= 0.0) {
-				continue;
+			vec3 ray_dir = generate_ray_dir_from_normal(normal, r2_sequence(i, ray_rotation));
+			vec3 light = vec3(0.0);
+			if (dot(geometry_normal, ray_dir) > 0.0) {
+				bool near_backface;
+				light = clamp_indirect_sample(trace_indirect_light(position, ray_dir, noise, texel_size_world_space, true, normal, i, texel_seed, near_backface));
+				near_backface_count += near_backface ? 1u : 0u;
 			}
-			bool near_backface;
-			vec3 light = trace_indirect_light(position, ray_dir, noise, texel_size_world_space, near_backface);
-			near_backface_count += near_backface ? 1u : 0u;
+
+			vec3 env_dir;
+			vec3 env_light = clamp_indirect_sample(sample_environment_light(position, normal, geometry_normal, r2_sequence(i, env_rotation), env_dir));
+			float sample_luminance = dot(light + env_light, vec3(0.2126, 0.7152, 0.0722));
+			pass_luminance += sample_luminance;
+			pass_luminance_sq += sample_luminance * sample_luminance;
 
 #ifdef USE_SH_LIGHTMAPS
 			// These coefficients include the factored out SH evaluation, diffuse convolution, and final application, as well as the BRDF 1/PI and the spherical monte carlo factor.
 			// LO: 1/(2*sqrtPI) * 1/(2*sqrtPI) * PI * PI * 1/PI = 0.25
 			// L1: sqrt(3/(4*pi)) * sqrt(3/(4*pi)) * (PI*2/3) * (2 * PI) * 1/PI = 1.0
 			// Note: This only works because we aren't scaling, rotating, or combing harmonics, we are just directing applying them in the shader.
+			// env_light is already divided by the cosine pdf, so it projects with its own direction using the same coefficients.
 
 			float c[4] = float[](
 					0.25, //l0
@@ -1321,30 +1527,55 @@ void main() {
 					ray_dir.z, //l1n0
 					ray_dir.x //l1p1
 			);
+			float env_c[4] = float[](
+					0.25, //l0
+					env_dir.y, //l1n1
+					env_dir.z, //l1n0
+					env_dir.x //l1p1
+			);
 
 			for (uint j = 0; j < 4; j++) {
-				sh_accum[j].rgb += light * c[j];
+				sh_accum[j].rgb += light * c[j] + env_light * env_c[j];
 			}
 #else
-			light_accum += light;
+			light_accum += light + env_light;
 #endif
 		}
 		if (near_backface_count > 0u) {
 			imageAtomicAdd(invalid_samples, ivec3(atlas_pos, params.atlas_slice), near_backface_count);
 		}
 
+		// Adaptive sampling: stop once the standard error of the mean is small relative to the mean.
+		// Accumulation always divides by ray_count, so a texel stopping after rays_done rays is rescaled by ray_count / rays_done.
+		uint rays_done = min(pass_from + pass_size, params.ray_to);
+		stats += vec2(pass_luminance, pass_luminance_sq);
+		float accum_scale = 1.0;
+		if (bake_params.adaptive_threshold > 0.0 && rays_done < params.ray_count && rays_done >= max(params.ray_count / 4u, 16u)) {
+			float n = float(rays_done);
+			float mean = stats.x / n;
+			float std_error = sqrt(max(stats.y / n - mean * mean, 0.0) / n);
+			if (std_error <= bake_params.adaptive_threshold * max(mean, 1e-3)) {
+				accum_scale = float(params.ray_count) / n;
+				stats.y = -1.0;
+			}
+		}
+		imageStore(adaptive_stats, ivec3(atlas_pos, params.output_slice), vec4(stats, 0.0, 0.0));
+
 		// Add the averaged result to the accumulated light texture.
 #ifdef USE_SH_LIGHTMAPS
 		for (int i = 0; i < 4; i++) {
 			vec4 accum = imageLoad(accum_light, ivec3(atlas_pos, params.output_slice * 4 + i));
-			accum.rgb += sh_accum[i].rgb / float(params.ray_count);
+			accum.rgb = (accum.rgb + sh_accum[i].rgb / float(params.ray_count)) * accum_scale;
 			imageStore(accum_light, ivec3(atlas_pos, params.output_slice * 4 + i), accum);
 		}
 #else
 		vec4 accum = imageLoad(accum_light, ivec3(atlas_pos, params.output_slice));
-		accum.rgb += light_accum / float(params.ray_count);
+		accum.rgb = (accum.rgb + light_accum / float(params.ray_count)) * accum_scale;
 		imageStore(accum_light, ivec3(atlas_pos, params.output_slice), accum);
 #endif
+		if (stats.y < 0.0) {
+			break;
+		}
 
 		if (pass_from + pass_size < params.ray_to) {
 			// The next logical pass reads this invocation's rgba16f result, retaining
@@ -1428,7 +1659,7 @@ void main() {
 		vec3 ray_dir = generate_probe_direction(i, params.ray_count, probe_rotation);
 		uint noise = hash(probe_seed ^ hash(i) ^ 92821u);
 		bool unused_near_backface;
-		vec3 light = trace_indirect_light(position, ray_dir, noise, 0.0, unused_near_backface);
+		vec3 light = clamp_indirect_sample(trace_indirect_light(position, ray_dir, noise, 0.0, false, ray_dir, i, probe_seed, unused_near_backface));
 
 		float c[9] = float[](
 				0.282095, //l0

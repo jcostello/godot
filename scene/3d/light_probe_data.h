@@ -50,7 +50,6 @@ private:
 	float baked_exposure = 1.0f;
 	bool interior = false;
 	bool stale = false;
-	uint32_t position_hash = 0;
 	bool cache_invalidated = false;
 	mutable bool upload_pending = true;
 	mutable bool rebuild_on_upload = false;
@@ -71,7 +70,6 @@ public:
 	PackedInt32Array get_tetrahedra() const { return tetrahedra; }
 	AABB get_bounds() const { return bounds; }
 	float get_baked_exposure() const { return baked_exposure; }
-	uint32_t get_position_hash() const { return position_hash; }
 	int get_probe_count() const { return points.size(); }
 	bool is_stale() const { return stale; }
 	void set_stale(bool p_stale);

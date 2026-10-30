@@ -111,6 +111,9 @@
 		<member name="highlights_white_point" type="float" setter="set_highlights_white_point" getter="get_highlights_white_point" default="1.0">
 			Input luminance mapped to white in this tonal range. Lowering it brightens the range. The value is kept at least 0.001 above the black point. A value of 1 is neutral. Values above white retain HDR headroom. Levels use the maximum luminance of the original lightmap texture as white (1), preserve RGB proportions, and use the original tonal masks. No rebake is required.
 		</member>
+		<member name="indirect_sample_clamp" type="float" setter="set_indirect_sample_clamp" getter="get_indirect_sample_clamp" default="0.0">
+			Maximum luminance of a single indirect lighting sample while baking. Clamping removes fireflies caused by rays hitting small bright emissive surfaces or a bright sun in the environment, at the cost of slightly darkening very bright indirect light. Values around [code]10.0[/code] are a good starting point. [code]0.0[/code] disables clamping.
+		</member>
 		<member name="interior" type="bool" setter="set_interior" getter="is_interior" default="false">
 			If [code]true[/code], ignore environment lighting when baking lightmaps.
 		</member>

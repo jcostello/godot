@@ -214,6 +214,14 @@ void EditorNode3DGizmo::set_node_3d(Node3D *p_node) {
 	spatial_node = p_node;
 }
 
+int EditorNode3DGizmo::Instance::get_layer_mask(bool p_hidden) const {
+	if (p_hidden) {
+		return 0;
+	}
+	// The renderer compensates camera and auto exposure on gizmo layers, so previews of scene lighting use the tool layer.
+	return 1 << (scene_exposure ? Node3DEditorViewport::MISC_TOOL_LAYER : Node3DEditorViewport::GIZMO_EDIT_LAYER);
+}
+
 void EditorNode3DGizmo::Instance::create_instance(Node3D *p_base, bool p_hidden) {
 	instance = RS::get_singleton()->instance_create2(multimesh.is_valid() ? multimesh->get_rid() : mesh->get_rid(), p_base->get_world_3d()->get_scenario());
 	if (material.is_valid()) {
@@ -227,8 +235,7 @@ void EditorNode3DGizmo::Instance::create_instance(Node3D *p_base, bool p_hidden)
 		RS::get_singleton()->instance_set_extra_visibility_margin(instance, 1);
 	}
 	RS::get_singleton()->instance_geometry_set_cast_shadows_setting(instance, RSE::SHADOW_CASTING_SETTING_OFF);
-	int layer = p_hidden ? 0 : 1 << Node3DEditorViewport::GIZMO_EDIT_LAYER;
-	RS::get_singleton()->instance_set_layer_mask(instance, layer); //gizmos are 26
+	RS::get_singleton()->instance_set_layer_mask(instance, get_layer_mask(p_hidden)); //gizmos are 26
 	RS::get_singleton()->instance_geometry_set_flag(instance, RSE::INSTANCE_FLAG_IGNORE_OCCLUSION_CULLING, true);
 	RS::get_singleton()->instance_geometry_set_flag(instance, RSE::INSTANCE_FLAG_USE_BAKED_LIGHT, false);
 }
@@ -251,12 +258,13 @@ void EditorNode3DGizmo::add_mesh(const Ref<Mesh> &p_mesh, const Ref<Material> &p
 	instances.push_back(ins);
 }
 
-void EditorNode3DGizmo::add_multimesh(const Ref<MultiMesh> &p_multimesh, const Ref<Material> &p_material) {
+void EditorNode3DGizmo::add_multimesh(const Ref<MultiMesh> &p_multimesh, const Ref<Material> &p_material, bool p_scene_exposure) {
 	ERR_FAIL_NULL(spatial_node);
 	ERR_FAIL_COND(p_multimesh.is_null() || p_multimesh->get_mesh().is_null());
 	Instance ins;
 	ins.multimesh = p_multimesh;
 	ins.material = p_material;
+	ins.scene_exposure = p_scene_exposure;
 	if (valid) {
 		ins.create_instance(spatial_node, hidden);
 		RS::get_singleton()->instance_set_transform(ins.instance, spatial_node->get_global_transform());
@@ -867,9 +875,8 @@ void EditorNode3DGizmo::set_hidden(bool p_hidden) {
 	}
 
 	hidden = p_hidden;
-	int layer = hidden ? 0 : 1 << Node3DEditorViewport::GIZMO_EDIT_LAYER;
 	for (int i = 0; i < instances.size(); ++i) {
-		RS::get_singleton()->instance_set_layer_mask(instances[i].instance, layer);
+		RS::get_singleton()->instance_set_layer_mask(instances[i].instance, instances[i].get_layer_mask(hidden));
 	}
 
 	_update_bvh();

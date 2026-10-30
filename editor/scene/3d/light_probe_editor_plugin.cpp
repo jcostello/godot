@@ -338,7 +338,7 @@ HashSet<int> LightProbeVolumeGizmoPlugin::_add_baked_probes(EditorNode3DGizmo *p
 	material->set_shader_parameter("probe_sh", ImageTexture::create_from_image(image));
 	const Basis normal_to_capture = system->get_capture_global_transform().basis.orthonormalized().transposed() * p_volume->get_global_transform().basis.inverse().transposed();
 	material->set_shader_parameter("normal_to_capture", normal_to_capture);
-	p_gizmo->add_multimesh(spheres, material);
+	p_gizmo->add_multimesh(spheres, material, true);
 	return baked_ids;
 }
 

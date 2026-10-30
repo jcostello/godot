@@ -3145,6 +3145,9 @@
 			If [code]true[/code], [LightmapGI] baking uses hardware ray queries when supported by the baking device. Otherwise, or if acceleration structure or shader setup fails, baking automatically uses the existing compute tracer. Disable this setting to compare the two tracing methods.
 			This accelerates intersection queries for direct and indirect lighting, probes, ambient occlusion and unocclusion. Lightmap formats and runtime rendering requirements are unchanged. Results may differ slightly due to floating-point intersection precision. Support currently depends on the Vulkan driver and compatible GPU hardware; devices without ray queries continue to bake normally.
 		</member>
+		<member name="rendering/lightmapping/bake_quality/adaptive_sampling_threshold" type="float" setter="" getter="" default="0.02">
+			Relative noise level at which a lightmap texel stops receiving indirect lighting rays when baking with [LightmapGI]. Once at least a quarter of the rays for the current quality were traced, texels whose estimated standard error is below this fraction of their brightness are considered converged, so bright open areas finish early while dark corners keep sampling. Lower values are slower and less noisy. [code]0.0[/code] disables adaptive sampling.
+		</member>
 		<member name="rendering/lightmapping/bake_quality/high_quality_probe_ray_count" type="int" setter="" getter="" default="512">
 			The number of rays to use for baking dynamic object lighting in [LightmapProbe]s when [member LightmapGI.quality] is [constant LightmapGI.BAKE_QUALITY_HIGH].
 		</member>

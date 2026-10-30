@@ -40,10 +40,8 @@ Dictionary LightProbeData::get_capture_data() const {
 	result["points"] = points;
 	result["sh"] = coefficients;
 	result["tetrahedra"] = tetrahedra;
-	result["bsp"] = PackedInt32Array();
 	result["baked_exposure"] = baked_exposure;
 	result["interior"] = interior;
-	result["lightprobe_hash"] = position_hash;
 	result["stale"] = stale;
 	return result;
 }
@@ -55,16 +53,8 @@ Error LightProbeData::set_capture_data(const Dictionary &p_data) {
 	const PackedVector3Array new_points = p_data["points"];
 	const PackedColorArray new_coefficients = p_data["sh"];
 	const PackedInt32Array new_tetrahedra = p_data["tetrahedra"];
-	ERR_FAIL_COND_V(p_data.has("bsp") && p_data["bsp"].get_type() != Variant::PACKED_INT32_ARRAY, ERR_INVALID_DATA);
-	const PackedInt32Array legacy_bsp = p_data.get("bsp", PackedInt32Array());
-	ERR_FAIL_COND_V(!legacy_bsp.is_empty(), ERR_INVALID_DATA); // This resource uses the runtime BVH.
 	ERR_FAIL_COND_V((p_data["baked_exposure"].get_type() != Variant::FLOAT && p_data["baked_exposure"].get_type() != Variant::INT) || p_data["interior"].get_type() != Variant::BOOL, ERR_INVALID_DATA);
 	ERR_FAIL_COND_V(p_data.has("stale") && p_data["stale"].get_type() != Variant::BOOL, ERR_INVALID_DATA);
-	if (p_data.has("lightprobe_hash")) {
-		ERR_FAIL_COND_V(p_data["lightprobe_hash"].get_type() != Variant::INT, ERR_INVALID_DATA);
-		const int64_t hash = p_data["lightprobe_hash"];
-		ERR_FAIL_COND_V(hash < 0 || hash > UINT32_MAX, ERR_INVALID_DATA);
-	}
 	const float new_exposure = p_data["baked_exposure"];
 	const bool new_interior = p_data["interior"];
 	ERR_FAIL_COND_V(!new_bounds.position.is_finite() || !new_bounds.size.is_finite() || !new_bounds.get_end().is_finite() || new_bounds.size.x < 0 || new_bounds.size.y < 0 || new_bounds.size.z < 0, ERR_INVALID_DATA);
@@ -85,7 +75,6 @@ Error LightProbeData::set_capture_data(const Dictionary &p_data) {
 	tetrahedra = new_tetrahedra;
 	baked_exposure = new_exposure;
 	interior = new_interior;
-	position_hash = p_data.get("lightprobe_hash", 0);
 	stale = p_data.get("stale", false);
 	emit_changed();
 	return OK;
@@ -129,7 +118,6 @@ void LightProbeData::set_stale(bool p_stale) {
 
 void LightProbeData::clear_cache() {
 	cache_invalidated = true;
-	print_line("Light probe cache cleared: the next successful probe bake will rebuild its topology and runtime BVH.");
 }
 
 void LightProbeData::consume_cache_invalidation() {

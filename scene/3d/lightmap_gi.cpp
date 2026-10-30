@@ -85,7 +85,6 @@ LightmapGI::BakeError prepare_probe_capture(Lightmapper *p_lightmapper, LightPro
 	const bool use_probe_cache = previous_capture.is_valid() && !previous_capture->is_cache_invalidated() && p_system->get_capture_global_transform().is_equal_approx(p_capture_transform);
 	const PackedVector3Array previous_probe_points = use_probe_cache ? previous_capture->get_points() : PackedVector3Array();
 	const PackedInt32Array previous_probe_tetrahedra = use_probe_cache ? previous_capture->get_tetrahedra() : PackedInt32Array();
-	const uint32_t previous_probe_hash = use_probe_cache ? previous_capture->get_position_hash() : 0;
 	Dictionary probe_capture_data;
 	const int probe_count = p_probe_count;
 	ERR_FAIL_COND_V(p_probe_offset + probe_count > p_lightmapper->get_bake_probe_count(), LightmapGI::BAKE_ERROR_MESHES_INVALID);
@@ -97,14 +96,8 @@ LightmapGI::BakeError prepare_probe_capture(Lightmapper *p_lightmapper, LightPro
 	probe_points.resize(probe_count);
 
 	AABB system_bounds;
-	uint32_t bake_probe_hash = HASH_MURMUR3_SEED;
 	for (int i = 0; i < probe_count; i++) {
-		// Calculate the hash from probe positions.
 		Vector3 point = p_lightmapper->get_bake_probe_point(p_probe_offset + i);
-		bake_probe_hash = hash_murmur3_one_double(point.x, bake_probe_hash);
-		bake_probe_hash = hash_murmur3_one_double(point.y, bake_probe_hash);
-		bake_probe_hash = hash_murmur3_one_double(point.z, bake_probe_hash);
-
 		if (i == 0) {
 			system_bounds.position = point;
 		} else {
@@ -120,15 +113,9 @@ LightmapGI::BakeError prepare_probe_capture(Lightmapper *p_lightmapper, LightPro
 
 	// Measure structure generation separately from probe lighting.
 	const uint64_t probe_structure_start = OS::get_singleton()->get_ticks_usec();
-	const bool probe_hash_matches = bake_probe_hash == previous_probe_hash;
-	const bool probe_positions_match = probe_points == previous_probe_points;
-	const bool rebuild_probe_structure = !probe_hash_matches || !probe_positions_match;
-	print_line(vformat("Lightmap probe structure start: action=%s, probes=%d, cached_probes=%d, hash_matches=%s, positions_match=%s.",
-			rebuild_probe_structure ? "rebuild" : "reuse", probe_count, previous_probe_points.size(), probe_hash_matches ? "yes" : "no", probe_positions_match ? "yes" : "no"));
-
 	PackedInt32Array tetrahedra = previous_probe_tetrahedra;
 	const char *action = "reuse";
-	if (rebuild_probe_structure || !use_probe_cache) {
+	if (probe_points != previous_probe_points || !use_probe_cache) {
 		if (p_step && p_step(0.8, RTR("Updating Probe Volumes"), p_userdata, true)) {
 			return LightmapGI::BAKE_ERROR_USER_ABORTED;
 		}
@@ -136,19 +123,14 @@ LightmapGI::BakeError prepare_probe_capture(Lightmapper *p_lightmapper, LightPro
 		Delaunay3DIncremental::Statistics incremental_statistics;
 		const uint64_t local_start = OS::get_singleton()->get_ticks_usec();
 		const bool incremental = Delaunay3DIncremental::update(previous_probe_points, previous_probe_tetrahedra, probe_points, solved, incremental_statistics);
-		print_line(vformat("Lightmap probe incremental: result=%s, reason=%s, time=%.3fs, removed_points=%d, inserted_points=%d, removed_tetrahedra=%d, inserted_tetrahedra=%d.",
+		print_verbose(vformat("Lightmap probe incremental: result=%s, reason=%s, time=%.3fs, removed_points=%d, inserted_points=%d.",
 				incremental ? "accepted" : "full_rebuild_required", incremental_statistics.fallback_reason, double(OS::get_singleton()->get_ticks_usec() - local_start) / 1e6,
-				incremental_statistics.removed_points, incremental_statistics.inserted_points, incremental_statistics.removed_tetrahedra, incremental_statistics.inserted_tetrahedra));
+				incremental_statistics.removed_points, incremental_statistics.inserted_points));
 		if (incremental) {
 			action = "incremental";
 		} else {
 			action = "rebuild";
-			Delaunay3D::Statistics statistics;
-			const uint64_t full_start = OS::get_singleton()->get_ticks_usec();
-			solved = Delaunay3D::tetrahedralize(probe_points, &statistics);
-			print_line(vformat("Lightmap probe Delaunay: time=%.3fs, probes=%d, tetrahedra=%d.", double(OS::get_singleton()->get_ticks_usec() - full_start) / 1e6, probe_count, solved.size()));
-			print_line(vformat("Lightmap probe Delaunay work: sphere_tests=%d, precise_tests=%d, simplices_created=%d, index=bvh, index_entries=%d, peak_index_entries=%d.",
-					statistics.sphere_tests, statistics.precise_sphere_tests, statistics.simplices_created, statistics.index_entries, statistics.peak_index_entries));
+			solved = Delaunay3D::tetrahedralize(probe_points);
 		}
 		tetrahedra.resize(solved.size() * 4);
 		for (int i = 0; i < solved.size(); i++) {
@@ -159,9 +141,7 @@ LightmapGI::BakeError prepare_probe_capture(Lightmapper *p_lightmapper, LightPro
 	}
 	// New captures use the runtime tetrahedron BVH, with no serialized BSP.
 	probe_capture_data["tetrahedra"] = tetrahedra;
-	print_line(vformat("Lightmap probe topology: action=%s, lookup=bvh, probes=%d, tetrahedra=%d, total=%.3fs.", action, probe_count, tetrahedra.size() / 4, double(OS::get_singleton()->get_ticks_usec() - probe_structure_start) / 1e6));
-
-	print_line(vformat("Lightmap probe structure end: action=%s, total=%.3fs.", action, double(OS::get_singleton()->get_ticks_usec() - probe_structure_start) / 1e6));
+	print_verbose(vformat("Lightmap probe topology: action=%s, probes=%d, tetrahedra=%d, time=%.3fs.", action, probe_count, tetrahedra.size() / 4, double(OS::get_singleton()->get_ticks_usec() - probe_structure_start) / 1e6));
 	if (probe_count > 0) {
 		system_bounds.grow_by(MAX(real_t(0.05), system_bounds.size.length() * real_t(0.001)));
 	}
@@ -169,9 +149,7 @@ LightmapGI::BakeError prepare_probe_capture(Lightmapper *p_lightmapper, LightPro
 	probe_capture_data["interior"] = p_interior;
 	probe_capture_data["points"] = probe_points;
 	probe_capture_data["sh"] = probe_sh;
-	probe_capture_data["bsp"] = PackedInt32Array();
 	probe_capture_data["baked_exposure"] = p_exposure;
-	probe_capture_data["lightprobe_hash"] = bake_probe_hash;
 	probe_capture_data["stale"] = false;
 	r_capture.instantiate();
 	ERR_FAIL_COND_V(r_capture->set_capture_data(probe_capture_data) != OK, LightmapGI::BAKE_ERROR_MESHES_INVALID);
@@ -1424,14 +1402,21 @@ LightmapGI::BakeError LightmapGI::bake(Node *p_from_node, String p_image_data_pa
 	Ref<Image> environment_image;
 	Basis environment_transform;
 
+	// Sky luminance at panorama value 1. Custom skies and colors have no intensity of their own, so they use the reference.
+	float environment_intensity = 1.0f / reference_exposure_normalization;
+
 	// Add everything to lightmapper
 	if (environment_mode != ENVIRONMENT_MODE_DISABLED) {
 		if (p_bake_step) {
 			p_bake_step(4.1, RTR("Preparing Environment"), p_bake_userdata, true);
 		}
 
-		environment_transform = get_global_transform().basis;
+		// The bake happens in this node's local space, so rays must be rotated back to world space before looking up the sky.
+		// Orthonormalized because the lightmapper assumes a pure rotation.
+		environment_transform = get_global_transform().basis.orthonormalized();
 
+		// Bake radiance, not irradiance: the lightmapper integrates the cosine itself and importance samples
+		// the sky, so a pre-convolved sky would be blurred twice and lose sun shadows and directionality.
 		switch (environment_mode) {
 			case ENVIRONMENT_MODE_DISABLED: {
 				//nothing
@@ -1445,14 +1430,18 @@ LightmapGI::BakeError LightmapGI::bake(Node *p_from_node, String p_image_data_pa
 					}
 
 					if (env.is_valid()) {
-						environment_image = RS::get_singleton()->environment_bake_panorama(env->get_rid(), true, Size2i(128, 64));
-						environment_transform = Basis::from_euler(env->get_sky_rotation()).inverse();
+						environment_image = RS::get_singleton()->environment_bake_panorama(env->get_rid(), false, Size2i(512, 256));
+						if (use_physical_light_units) {
+							environment_intensity = env->get_bg_intensity();
+						}
+						// Same as the renderer: world to sky space is the inverse sky orientation.
+						environment_transform = Basis::from_euler(env->get_sky_rotation()).inverse() * environment_transform;
 					}
 				}
 			} break;
 			case ENVIRONMENT_MODE_CUSTOM_SKY: {
 				if (environment_custom_sky.is_valid()) {
-					environment_image = RS::get_singleton()->sky_bake_panorama(environment_custom_sky->get_rid(), environment_custom_energy, true, Size2i(128, 64));
+					environment_image = RS::get_singleton()->sky_bake_panorama(environment_custom_sky->get_rid(), environment_custom_energy, false, Size2i(512, 256));
 				}
 
 			} break;
@@ -1469,14 +1458,14 @@ LightmapGI::BakeError LightmapGI::bake(Node *p_from_node, String p_image_data_pa
 		}
 	}
 
-	// The panorama is generated at the renderer's reference exposure, while
-	// direct and emissive lighting use the selected bake exposure. Apply the
-	// environment energy here so it affects every environment source equally.
-	const float environment_exposure_multiplier = environment_energy * exposure_normalization / reference_exposure_normalization;
+	// The panorama has no exposure or intensity applied, while direct and emissive
+	// lighting use the selected bake exposure. Apply the environment energy here
+	// so it affects every environment source equally.
+	const float environment_exposure_multiplier = environment_energy * exposure_normalization * environment_intensity;
 
 	Lightmapper::BakeError bake_err = lightmapper->bake(Lightmapper::BakeQuality(bake_quality), bake_lightmaps && use_denoiser, denoiser_strength, denoiser_range, bounces,
 			bounce_indirect_energy, bias, bake_lightmaps && bake_ao, ao_distance, ao_strength, ao_light_affect, ao_samples, max_texture_size, bake_lightmaps && directional, bake_lightmaps && shadowmask_mode != LightmapGIData::SHADOWMASK_MODE_NONE, use_texture_for_bounces,
-			environment_image, environment_transform, _lightmap_bake_step_function, &bsud, exposure_normalization, environment_exposure_multiplier, (supersampling_enabled ? supersampling_factor : 1), bake_lightmaps);
+			environment_image, environment_transform, _lightmap_bake_step_function, &bsud, exposure_normalization, environment_exposure_multiplier, (supersampling_enabled ? supersampling_factor : 1), bake_lightmaps, indirect_sample_clamp);
 
 	if (bake_err == Lightmapper::BAKE_ERROR_TEXTURE_EXCEEDS_MAX_SIZE) {
 		return BAKE_ERROR_TEXTURE_SIZE_TOO_SMALL;
@@ -1646,7 +1635,6 @@ void LightmapGI::_migrate_legacy_probe_data() {
 			if (migrated.is_null()) {
 				migrated.instantiate();
 				Dictionary snapshot = light_data->get("probe_data");
-				snapshot["bsp"] = PackedInt32Array(); // Reuse the existing tetrahedra through the shared BVH.
 				snapshot["stale"] = light_data->get_meta(SNAME("_lightmap_probes_stale"), false);
 				if (migrated->set_capture_data(snapshot) != OK) {
 					return;
@@ -1916,6 +1904,15 @@ void LightmapGI::set_bounce_indirect_energy(float p_indirect_energy) {
 
 float LightmapGI::get_bounce_indirect_energy() const {
 	return bounce_indirect_energy;
+}
+
+void LightmapGI::set_indirect_sample_clamp(float p_clamp) {
+	ERR_FAIL_COND(p_clamp < 0.0);
+	indirect_sample_clamp = p_clamp;
+}
+
+float LightmapGI::get_indirect_sample_clamp() const {
+	return indirect_sample_clamp;
 }
 
 void LightmapGI::set_bias(float p_bias) {
@@ -2521,6 +2518,9 @@ void LightmapGI::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("set_bounce_indirect_energy", "bounce_indirect_energy"), &LightmapGI::set_bounce_indirect_energy);
 	ClassDB::bind_method(D_METHOD("get_bounce_indirect_energy"), &LightmapGI::get_bounce_indirect_energy);
 
+	ClassDB::bind_method(D_METHOD("set_indirect_sample_clamp", "indirect_sample_clamp"), &LightmapGI::set_indirect_sample_clamp);
+	ClassDB::bind_method(D_METHOD("get_indirect_sample_clamp"), &LightmapGI::get_indirect_sample_clamp);
+
 	ClassDB::bind_method(D_METHOD("set_bias", "bias"), &LightmapGI::set_bias);
 	ClassDB::bind_method(D_METHOD("get_bias"), &LightmapGI::get_bias);
 	ClassDB::bind_method(D_METHOD("set_bake_ao", "enable"), &LightmapGI::set_bake_ao);
@@ -2712,6 +2712,7 @@ void LightmapGI::_bind_methods() {
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "supersampling_factor", PROPERTY_HINT_RANGE, "1,8,1"), "set_supersampling_factor", "get_supersampling_factor");
 	ADD_PROPERTY(PropertyInfo(Variant::INT, "bounces", PROPERTY_HINT_RANGE, "0,6,1,or_greater"), "set_bounces", "get_bounces");
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "bounce_indirect_energy", PROPERTY_HINT_RANGE, "0,2,0.01"), "set_bounce_indirect_energy", "get_bounce_indirect_energy");
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "indirect_sample_clamp", PROPERTY_HINT_RANGE, "0,100,0.1,or_greater"), "set_indirect_sample_clamp", "get_indirect_sample_clamp");
 	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "directional"), "set_directional", "is_directional");
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "specular_intensity", PROPERTY_HINT_RANGE, "0,10,0.01"), "set_specular_intensity", "get_specular_intensity");
 	ADD_PROPERTY(PropertyInfo(Variant::INT, "shadowmask_mode", PROPERTY_HINT_ENUM, "None,Replace,Overlay"), "set_shadowmask_mode", "get_shadowmask_mode");

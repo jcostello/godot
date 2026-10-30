@@ -944,6 +944,7 @@ layout(location = 10) in flat uint instance_index_interp;
 #ifdef USE_LIGHTMAP
 #include "../bicubic_filter_inc.glsl"
 #include "../lightmap_color_adjustments_inc.glsl"
+#include "../lightmap_sh_inc.glsl"
 #endif //USE_LIGHTMAP
 
 #ifdef USE_MULTIVIEW
@@ -1855,15 +1856,13 @@ void fragment_shader(in SceneData scene_data) {
 
 			if (sc_use_lightmap_bicubic_filter()) {
 				lm_light_l0 = texture_array_bicubic(lightmap_textures[ofs], uvw + vec3(0.0, 0.0, 0.0), lightmaps.data[ofs].light_texture_size).rgb;
-				lm_light_l1n1 = (texture_array_bicubic(lightmap_textures[ofs], uvw + vec3(0.0, 0.0, 1.0), lightmaps.data[ofs].light_texture_size).rgb - vec3(0.5)) * 2.0;
-				lm_light_l1_0 = (texture_array_bicubic(lightmap_textures[ofs], uvw + vec3(0.0, 0.0, 2.0), lightmaps.data[ofs].light_texture_size).rgb - vec3(0.5)) * 2.0;
-				lm_light_l1p1 = (texture_array_bicubic(lightmap_textures[ofs], uvw + vec3(0.0, 0.0, 3.0), lightmaps.data[ofs].light_texture_size).rgb - vec3(0.5)) * 2.0;
 			} else {
 				lm_light_l0 = textureLod(sampler2DArray(lightmap_textures[ofs], SAMPLER_LINEAR_CLAMP), uvw + vec3(0.0, 0.0, 0.0), 0.0).rgb;
-				lm_light_l1n1 = (textureLod(sampler2DArray(lightmap_textures[ofs], SAMPLER_LINEAR_CLAMP), uvw + vec3(0.0, 0.0, 1.0), 0.0).rgb - vec3(0.5)) * 2.0;
-				lm_light_l1_0 = (textureLod(sampler2DArray(lightmap_textures[ofs], SAMPLER_LINEAR_CLAMP), uvw + vec3(0.0, 0.0, 2.0), 0.0).rgb - vec3(0.5)) * 2.0;
-				lm_light_l1p1 = (textureLod(sampler2DArray(lightmap_textures[ofs], SAMPLER_LINEAR_CLAMP), uvw + vec3(0.0, 0.0, 3.0), 0.0).rgb - vec3(0.5)) * 2.0;
 			}
+			// L1 is stored relative to L0 and is low frequency, so bilinear is enough (saves 12 bicubic taps).
+			lm_light_l1n1 = (textureLod(sampler2DArray(lightmap_textures[ofs], SAMPLER_LINEAR_CLAMP), uvw + vec3(0.0, 0.0, 1.0), 0.0).rgb - vec3(0.5)) * 2.0;
+			lm_light_l1_0 = (textureLod(sampler2DArray(lightmap_textures[ofs], SAMPLER_LINEAR_CLAMP), uvw + vec3(0.0, 0.0, 2.0), 0.0).rgb - vec3(0.5)) * 2.0;
+			lm_light_l1p1 = (textureLod(sampler2DArray(lightmap_textures[ofs], SAMPLER_LINEAR_CLAMP), uvw + vec3(0.0, 0.0, 3.0), 0.0).rgb - vec3(0.5)) * 2.0;
 
 			if ((lightmaps.data[ofs].flags & (1u << 8)) != 0u) {
 				lm_light_l0 = clamp(lightmap_grade_color(lm_light_l0, lightmaps.data[ofs].color_adjustment_data), vec3(0.0), vec3(64512.0));
@@ -1884,11 +1883,13 @@ void fragment_shader(in SceneData scene_data) {
 #endif
 			vec3 n = normalize(normal_xform * indirect_normal);
 			float en = lightmaps.data[ofs].exposure_normalization;
+#ifdef NORMAL_USED
+			vec3 baked_n = normalize(normal_xform * geo_normal);
+#else
+			vec3 baked_n = n;
+#endif
 
-			vec3 sh_light = lm_light_l0;
-			sh_light += lm_light_l0 * lm_light_l1n1 * n.y * 4.0;
-			sh_light += lm_light_l0 * lm_light_l1_0 * n.z * 4.0;
-			sh_light += lm_light_l0 * lm_light_l1p1 * n.x * 4.0;
+			vec3 sh_light = lightmap_sh_l1_evaluate(lm_light_l0, lm_light_l0 * lm_light_l1p1 * 4.0, lm_light_l0 * lm_light_l1n1 * 4.0, lm_light_l0 * lm_light_l1_0 * 4.0, n, baked_n);
 			sh_light *= lightmaps.data[ofs].exposure_normalization;
 			ambient_light += sh_light;
 

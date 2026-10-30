@@ -211,6 +211,7 @@ private:
 	int denoiser_range = 10;
 	int bounces = 3;
 	float bounce_indirect_energy = 1.0;
+	float indirect_sample_clamp = 0.0;
 	float bias = 0.0005;
 	bool bake_ao = false;
 	float ao_distance = 1.0;
@@ -337,6 +338,9 @@ public:
 
 	void set_bounce_indirect_energy(float p_indirect_energy);
 	float get_bounce_indirect_energy() const;
+
+	void set_indirect_sample_clamp(float p_clamp);
+	float get_indirect_sample_clamp() const;
 
 	void set_bias(float p_bias);
 	float get_bias() const;

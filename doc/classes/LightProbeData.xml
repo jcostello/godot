@@ -15,7 +15,7 @@
 		</method>
 		<method name="get_capture_data" qualifiers="const">
 			<return type="Dictionary" />
-			<description>Returns the serialized capture snapshot: bounds, points, sh, tetrahedra, an empty bsp array, baked_exposure, interior, lightprobe_hash and stale. Positions and coefficients use the capture frame stored by the systems. The snapshot shares its packed arrays until modified.</description>
+			<description>Returns the serialized capture snapshot: bounds, points, sh, tetrahedra, baked_exposure, interior and stale. Positions and coefficients use the capture frame stored by the systems. The snapshot shares its packed arrays until modified.</description>
 		</method>
 		<method name="get_coefficients" qualifiers="const">
 			<return type="PackedColorArray" />
