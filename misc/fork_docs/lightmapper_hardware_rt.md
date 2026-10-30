@@ -159,37 +159,10 @@ Bake vertices use the original 32-byte position/normal/UV2 layout.
 
 ## CPU probe volume construction
 
-Probe-volume generation remains CPU Delaunay tetrahedralization followed by BSP
-construction, with the same saved tetrahedron indices and six-word BSP node
-format. Quantization, R128 circumsphere predicates, interpolation coefficients
-and runtime capture queries are unchanged.
-
-The Delaunay duplicate pass indexes already-quantized positions, keeping each
-position's last original index and inserting the retained points in their original
-order. The temporary hash table is dropped before tetrahedron insertion.
-
-Volume preparation indexes shared faces by sorted vertex IDs and records their
-two incident tetrahedra temporarily. Faces with more than two incident tetrahedra
-do not use adjacency shortcuts. Each oriented face plane is computed once using
-its original vertex order, retaining the precision behavior of BSP candidates.
-Approximate plane deduplication searches nearby normal/distance buckets, then
-applies the original comparison and selects the lowest matching index. Distance
-keys use a signed logarithm to accommodate relative tolerances at large world
-coordinates; common early planes and small/non-finite cases retain a linear path.
-
-BSP candidate scoring caches each point's original coplanar/over/under result per
-plane generation, reusing it across incident tetrahedra. Verified neighboring
-pairs can split on their shared face directly, and a perfect balanced split ends
-candidate search. Both shortcuts keep the original tolerance and leaf encoding;
-the internal tree may differ while the tetrahedra and interpolation are retained.
-The pre-existing degenerate fallback now computes every tetrahedron center,
-initializes the aggregate bounds and stores global rather than local leaf IDs.
-
-`Lightmap probe volume` logs report probe/tetrahedron/shared-face/plane/node counts
-and separate Delaunay, topology preparation and BSP wall times. Unchanged probe
-positions retain the existing volume cache; verbose output identifies reuse.
-All face, adjacency, plane-index and point-cache data is temporary and adds no
-saved-resource or runtime-memory requirements.
+Probe volumes are built with CPU Delaunay tetrahedralization (incremental when only
+some probes change). No BSP is built or saved anymore: at runtime,
+`LightmapProbeCapture` indexes the tetrahedra in a `DynamicBVH`, and legacy saved
+BSP trees are ignored. Outside the hull, the closest tetrahedron face is extended.
 
 ## Validation without compilation
 

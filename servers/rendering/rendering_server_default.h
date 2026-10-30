@@ -557,7 +557,8 @@ public:
 	FUNC2(lightmap_set_adjustments_enabled, RID, bool)
 	FUNC8(lightmap_set_tonal_settings, RID, const Color &, const Color &, const Color &, const Color &, const Vector3 &, const Vector3 &, int)
 	FUNC4(lightmap_set_tonal_levels, RID, const Vector3 &, const Vector3 &, const Vector3 &)
-	FUNC9(lightmap_set_adjustments, RID, float, const Color &, float, float, float, float, float, float)
+	FUNC3(lightmap_set_tonal_luminance_range, RID, float, float)
+	FUNC8(lightmap_set_adjustments, RID, float, const Color &, float, float, float, float, float)
 	FUNC2(lightmap_set_specular_intensity, RID, float)
 
 	/* Shadow Atlas */

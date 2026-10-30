@@ -355,9 +355,6 @@ private:
 	/* LIGHTMAP */
 
 	struct Lightmap {
-		static constexpr int PROBE_VOLUME_MAX_SIZE = 32;
-		static constexpr int PROBE_VOLUME_MIN_SIZE = 4;
-
 		LightmapAdjustments color_adjustments;
 		float color_adjustment_data[14][4] = {};
 		uint32_t color_adjustment_flags = 0;
@@ -370,10 +367,9 @@ private:
 		uint64_t tonal_range_source_version = 0;
 		float tonal_luminance_min = 0.0f;
 		float tonal_luminance_scale = 0.0f;
+		bool tonal_range_baked = false;
 		RID light_texture;
 		RID shadow_texture;
-		RID probe_volume_texture;
-		Vector3i probe_volume_size;
 		RSE::ShadowmaskMode shadowmask_mode = RSE::SHADOWMASK_MODE_NONE;
 		bool uses_spherical_harmonics = false;
 		bool interior = false;
@@ -387,12 +383,6 @@ private:
 		PackedInt32Array bsp_tree;
 		LightmapProbeCapture probe_capture;
 		float specular_intensity = 0.0f;
-
-		struct BSP {
-			static const int32_t EMPTY_LEAF = INT32_MIN;
-			float plane[4];
-			int32_t over = EMPTY_LEAF, under = EMPTY_LEAF;
-		};
 
 		Dependency dependency;
 	};
@@ -408,7 +398,6 @@ private:
 	mutable RID_Owner<Lightmap, true> lightmap_owner;
 
 	bool _lightmap_tap_sh_light(const Lightmap *p_lightmap, const Vector3 &p_point, Color *r_sh) const;
-	void _lightmap_update_probe_volume(Lightmap *p_lightmap);
 
 	Vector<RID> shadowmask_textures;
 
@@ -1054,9 +1043,10 @@ public:
 	void _update_lightmap_color_adjustments(Lightmap *p_lightmap);
 	void _update_lightmap_tonal_luminance_range(Lightmap *p_lightmap);
 	void lightmap_set_adjustments_enabled(RID p_lightmap, bool p_enabled) override;
-	void lightmap_set_adjustments(RID p_lightmap, float p_energy, const Color &p_tint, float p_saturation, float p_contrast, float p_shadows, float p_midtones, float p_highlights, float p_directionality_strength) override;
+	void lightmap_set_adjustments(RID p_lightmap, float p_energy, const Color &p_tint, float p_saturation, float p_contrast, float p_shadows, float p_midtones, float p_highlights) override;
 	void lightmap_set_tonal_settings(RID p_lightmap, const Color &p_ranges, const Color &p_shadows_tint, const Color &p_midtones_tint, const Color &p_highlights_tint, const Vector3 &p_saturation, const Vector3 &p_contrast, int p_debug_mode) override;
 	void lightmap_set_tonal_levels(RID p_lightmap, const Vector3 &p_black, const Vector3 &p_white, const Vector3 &p_gamma) override;
+	void lightmap_set_tonal_luminance_range(RID p_lightmap, float p_min, float p_max) override;
 	uint32_t lightmap_prepare_color_texture(RID p_lightmap);
 	RID lightmap_get_color_texture(RID p_lightmap) const;
 	uint32_t lightmap_get_editor_color_adjustments(RID p_lightmap, float *r_data) const;
@@ -1095,11 +1085,6 @@ public:
 		const Lightmap *lm = lightmap_owner.get_or_null(p_lightmap);
 		ERR_FAIL_NULL_V(lm, 1.0);
 		return lm->baked_exposure;
-	}
-	_FORCE_INLINE_ RID lightmap_get_probe_volume_texture(RID p_lightmap) const {
-		const Lightmap *lm = lightmap_owner.get_or_null(p_lightmap);
-		ERR_FAIL_NULL_V(lm, RID());
-		return lm->probe_volume_texture;
 	}
 
 	_FORCE_INLINE_ int32_t lightmap_get_array_index(RID p_lightmap) const {

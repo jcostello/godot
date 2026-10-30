@@ -849,7 +849,7 @@ void RendererSceneRenderRD::_render_buffers_post_process_and_tonemap(const Rende
 				tonemap.vignette = environment_get_adjustment_vignette(env);
 				tonemap.vignette_start = environment_get_adjustment_vignette_start(env);
 				tonemap.vignette_end = environment_get_adjustment_vignette_end(env);
-				if ((tonemap.forward_adjustment_flags & (64 | 128)) != 0) {
+				if ((tonemap.forward_adjustment_flags & (RendererEnvironmentStorage::FORWARD_ADJUSTMENT_CURVES | RendererEnvironmentStorage::FORWARD_ADJUSTMENT_LUT)) != 0) {
 					const RID fallback = texture_storage->texture_rd_get_default(RendererRD::TextureStorage::DEFAULT_RD_TEXTURE_WHITE);
 					const RID curves[] = { environment_get_adjustments_hue_vs_hue(env), environment_get_adjustments_hue_vs_saturation(env), environment_get_adjustments_saturation_vs_saturation(env), environment_get_adjustments_luminance_vs_saturation(env) };
 					RID *destinations[] = { &tonemap.hue_vs_hue_texture, &tonemap.hue_vs_saturation_texture, &tonemap.saturation_vs_saturation_texture, &tonemap.luminance_vs_saturation_texture };

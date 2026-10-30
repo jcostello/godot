@@ -2081,9 +2081,6 @@ void LightStorage::lightmap_initialize(RID p_lightmap) {
 void LightStorage::lightmap_free(RID p_rid) {
 	lightmap_set_textures(p_rid, RID(), false);
 	Lightmap *lightmap = lightmap_owner.get_or_null(p_rid);
-	if (lightmap->probe_volume_texture.is_valid()) {
-		RD::get_singleton()->free_rid(lightmap->probe_volume_texture);
-	}
 	if (lightmap->color_parameters_buffer.is_valid()) {
 		RD::get_singleton()->free_rid(lightmap->color_parameters_buffer);
 	}
@@ -2151,7 +2148,6 @@ void LightStorage::lightmap_set_probe_bounds(RID p_lightmap, const AABB &p_bound
 	Lightmap *lm = lightmap_owner.get_or_null(p_lightmap);
 	ERR_FAIL_NULL(lm);
 	lm->bounds = p_bounds;
-	_lightmap_update_probe_volume(lm);
 }
 
 void LightStorage::lightmap_set_probe_interior(RID p_lightmap, bool p_interior) {
@@ -2174,8 +2170,7 @@ void LightStorage::lightmap_set_probe_capture_data(RID p_lightmap, const PackedV
 	lm->bsp_tree = p_bsp_tree;
 	lm->point_sh = p_point_sh;
 	lm->tetrahedra = p_tetrahedra;
-	lm->probe_capture.update(p_bsp_tree.is_empty() ? p_points : PackedVector3Array(), p_bsp_tree.is_empty() ? p_tetrahedra : PackedInt32Array());
-	_lightmap_update_probe_volume(lm);
+	lm->probe_capture.update(p_points, p_tetrahedra);
 }
 
 void LightStorage::lightmap_set_baked_exposure_normalization(RID p_lightmap, float p_exposure) {
@@ -2228,109 +2223,14 @@ bool LightStorage::_lightmap_tap_sh_light(const Lightmap *p_lightmap, const Vect
 		r_sh[i] = Color(0, 0, 0, 0);
 	}
 
-	if (lm->bsp_tree.is_empty()) {
-		return lm->probe_capture.sample(p_point, lm->point_sh, r_sh);
-	}
-
-	if (!lm->points.size() || !lm->bsp_tree.size() || !lm->tetrahedra.size()) {
-		return false;
-	}
-
-	static_assert(sizeof(Lightmap::BSP) == 24);
-
-	const Lightmap::BSP *bsp = (const Lightmap::BSP *)lm->bsp_tree.ptr();
-	int32_t node = 0;
-	while (node >= 0) {
-		if (Plane(bsp[node].plane[0], bsp[node].plane[1], bsp[node].plane[2], bsp[node].plane[3]).is_point_over(p_point)) {
-#ifdef DEBUG_ENABLED
-			ERR_FAIL_COND_V(bsp[node].over >= 0 && bsp[node].over < node, false);
-#endif
-
-			node = bsp[node].over;
-		} else {
-#ifdef DEBUG_ENABLED
-			ERR_FAIL_COND_V(bsp[node].under >= 0 && bsp[node].under < node, false);
-#endif
-			node = bsp[node].under;
-		}
-	}
-
-	if (node == Lightmap::BSP::EMPTY_LEAF) {
-		return false; //nothing could be done
-	}
-
-	node = Math::abs(node) - 1;
-
-	const uint32_t *tetrahedron = (const uint32_t *)&lm->tetrahedra[node * 4];
-	Vector3 points[4] = { lm->points[tetrahedron[0]], lm->points[tetrahedron[1]], lm->points[tetrahedron[2]], lm->points[tetrahedron[3]] };
-	const Color *sh_colors[4]{ &lm->point_sh[tetrahedron[0] * 9], &lm->point_sh[tetrahedron[1] * 9], &lm->point_sh[tetrahedron[2] * 9], &lm->point_sh[tetrahedron[3] * 9] };
-	Color barycentric = Geometry3D::tetrahedron_get_barycentric_coords(points[0], points[1], points[2], points[3], p_point);
-
-	for (int i = 0; i < 4; i++) {
-		float c = CLAMP(barycentric[i], 0.0, 1.0);
-		for (int j = 0; j < 9; j++) {
-			r_sh[j] += sh_colors[i][j] * c;
-		}
-	}
-	return true;
+	// Legacy BSP trees are ignored: the tetrahedra alone drive the lookup.
+	return lm->probe_capture.sample(p_point, lm->point_sh, r_sh);
 }
 
 void LightStorage::lightmap_tap_sh_light(RID p_lightmap, const Vector3 &p_point, Color *r_sh) {
 	Lightmap *lm = lightmap_owner.get_or_null(p_lightmap);
 	ERR_FAIL_NULL(lm);
 	_lightmap_tap_sh_light(lm, p_point, r_sh);
-}
-
-void LightStorage::_lightmap_update_probe_volume(Lightmap *p_lightmap) {
-	if (p_lightmap->probe_volume_texture.is_valid()) {
-		RD::get_singleton()->free_rid(p_lightmap->probe_volume_texture);
-		p_lightmap->probe_volume_texture = RID();
-	}
-
-	if (p_lightmap->points.is_empty() || p_lightmap->tetrahedra.is_empty() || p_lightmap->bounds.size.x <= 0.0 || p_lightmap->bounds.size.y <= 0.0 || p_lightmap->bounds.size.z <= 0.0) {
-		return;
-	}
-
-	const float longest_axis = MAX(p_lightmap->bounds.size.x, MAX(p_lightmap->bounds.size.y, p_lightmap->bounds.size.z));
-	Vector3i volume_size;
-	for (int axis = 0; axis < 3; axis++) {
-		volume_size[axis] = CLAMP(int(Math::round(Lightmap::PROBE_VOLUME_MAX_SIZE * p_lightmap->bounds.size[axis] / longest_axis)), Lightmap::PROBE_VOLUME_MIN_SIZE, Lightmap::PROBE_VOLUME_MAX_SIZE);
-	}
-
-	Vector<float> texels;
-	texels.resize(volume_size.x * volume_size.y * volume_size.z * 4);
-	float *texel_data = texels.ptrw();
-	for (int z = 0; z < volume_size.z; z++) {
-		for (int y = 0; y < volume_size.y; y++) {
-			for (int x = 0; x < volume_size.x; x++) {
-				const Vector3 uvw = (Vector3(x, y, z) + Vector3(0.5, 0.5, 0.5)) / Vector3(volume_size);
-				Color sh[9];
-				const bool valid = _lightmap_tap_sh_light(p_lightmap, p_lightmap->bounds.position + uvw * p_lightmap->bounds.size, sh);
-				const int offset = ((z * volume_size.y + y) * volume_size.x + x) * 4;
-				// The L0 coefficient represents the direction-independent irradiance.
-				texel_data[offset + 0] = sh[0].r * 0.886227f;
-				texel_data[offset + 1] = sh[0].g * 0.886227f;
-				texel_data[offset + 2] = sh[0].b * 0.886227f;
-				texel_data[offset + 3] = valid ? 1.0f : 0.0f;
-			}
-		}
-	}
-
-	RD::TextureFormat format;
-	format.format = RD::DATA_FORMAT_R32G32B32A32_SFLOAT;
-	format.width = volume_size.x;
-	format.height = volume_size.y;
-	format.depth = volume_size.z;
-	format.texture_type = RD::TEXTURE_TYPE_3D;
-	format.usage_bits = RD::TEXTURE_USAGE_SAMPLING_BIT;
-
-	Vector<uint8_t> data;
-	data.resize(texels.size() * sizeof(float));
-	memcpy(data.ptrw(), texels.ptr(), data.size());
-	Vector<Vector<uint8_t>> initial_data;
-	initial_data.push_back(data);
-	p_lightmap->probe_volume_texture = RD::get_singleton()->texture_create(format, RD::TextureView(), initial_data);
-	p_lightmap->probe_volume_size = volume_size;
 }
 
 bool LightStorage::lightmap_is_interior(RID p_lightmap) const {
@@ -3040,7 +2940,7 @@ void LightStorage::lightmap_set_adjustments_enabled(RID p_lightmap, bool p_enabl
 	_update_lightmap_color_adjustments(lm);
 }
 
-void LightStorage::lightmap_set_adjustments(RID p_lightmap, float p_energy, const Color &p_tint, float p_saturation, float p_contrast, float p_shadows, float p_midtones, float p_highlights, float p_directionality_strength) {
+void LightStorage::lightmap_set_adjustments(RID p_lightmap, float p_energy, const Color &p_tint, float p_saturation, float p_contrast, float p_shadows, float p_midtones, float p_highlights) {
 	Lightmap *lm = lightmap_owner.get_or_null(p_lightmap);
 	ERR_FAIL_NULL(lm);
 	ERR_FAIL_COND(!Math::is_finite(p_energy) || !Math::is_finite(p_saturation) || !Math::is_finite(p_contrast) || !Math::is_finite(p_shadows) || !Math::is_finite(p_midtones) || !Math::is_finite(p_highlights));
@@ -3071,6 +2971,20 @@ void LightStorage::lightmap_set_tonal_levels(RID p_lightmap, const Vector3 &p_bl
 	_update_lightmap_color_adjustments(lm);
 }
 
+void LightStorage::lightmap_set_tonal_luminance_range(RID p_lightmap, float p_min, float p_max) {
+	Lightmap *lm = lightmap_owner.get_or_null(p_lightmap);
+	ERR_FAIL_NULL(lm);
+	ERR_FAIL_COND(!Math::is_finite(p_min) || !Math::is_finite(p_max));
+	// A range with max below min means "not baked": scan the texture instead.
+	lm->tonal_range_baked = p_max >= p_min;
+	lm->tonal_range_source = RID();
+	if (lm->tonal_range_baked) {
+		lm->tonal_luminance_min = MAX(p_min, 0.0f);
+		lm->tonal_luminance_scale = p_max > lm->tonal_luminance_min ? 1.0f / (p_max - lm->tonal_luminance_min) : 0.0f;
+	}
+	lm->color_texture_dirty = true;
+}
+
 void LightStorage::lightmap_set_tonal_settings(RID p_lightmap, const Color &p_ranges, const Color &p_shadows_tint, const Color &p_midtones_tint, const Color &p_highlights_tint, const Vector3 &p_saturation, const Vector3 &p_contrast, int p_debug_mode) {
 	Lightmap *lm = lightmap_owner.get_or_null(p_lightmap);
 	ERR_FAIL_NULL(lm);
@@ -3096,14 +3010,15 @@ void LightStorage::lightmap_set_tonal_settings(RID p_lightmap, const Color &p_ra
 	_update_lightmap_color_adjustments(lm);
 }
 
-// Scan only original L0 layers, once per source/content change. Adjustment edits reuse this range.
+// Fallback for lightmaps baked before the range was stored: scan only original L0 layers,
+// once per source/content change. Adjustment edits reuse this range.
 void LightStorage::_update_lightmap_tonal_luminance_range(Lightmap *p_lightmap) {
 	TextureStorage *texture_storage = TextureStorage::get_singleton();
 	const TextureStorage::Texture *source = texture_storage->get_texture(p_lightmap->light_texture);
 	if (!source || source->rd_texture.is_null()) {
 		return;
 	}
-	if (p_lightmap->tonal_range_source == source->rd_texture && p_lightmap->tonal_range_source_version == source->lightmap_content_version) {
+	if (p_lightmap->tonal_range_baked || (p_lightmap->tonal_range_source == source->rd_texture && p_lightmap->tonal_range_source_version == source->lightmap_content_version)) {
 		return;
 	}
 	p_lightmap->tonal_range_source = source->rd_texture;

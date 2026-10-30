@@ -32,40 +32,19 @@
 
 #include "core/math/dynamic_bvh.h"
 #include "core/math/transform_3d.h"
-#include "core/templates/hash_map.h"
+#include "core/templates/local_vector.h"
 #include "core/variant/variant.h"
 
 // Shared CPU capture lookup for RD and Compatibility. Serialized captures keep
-// points/SH/tetrahedra; an empty legacy BSP selects this runtime BVH.
+// points/SH/tetrahedra, and this runtime BVH indexes the tetrahedra.
 class LightmapProbeCapture {
-	struct Key {
-		Vector3 points[4];
-		bool operator==(const Key &p_other) const {
-			for (int i = 0; i < 4; i++) {
-				if (points[i] != p_other.points[i]) {
-					return false;
-				}
-			}
-			return true;
-		}
-	};
-	struct KeyHasher {
-		static uint32_t hash(const Key &p_key) {
-			uint32_t h = HASH_MURMUR3_SEED;
-			for (const Vector3 &point : p_key.points) {
-				h = hash_murmur3_one_32(HashMapHasherDefault::hash(point), h);
-			}
-			return hash_fmix32(h);
-		}
-	};
 	struct Cell {
 		Vector3 points[4];
 		int indices[4];
-		int order = 0;
 		Basis inverse;
-		DynamicBVH::ID id;
 	};
-	HashMap<Key, Cell *, KeyHasher> cells;
+	// Cells keep the tetrahedra order. On overlap, the lowest index wins.
+	LocalVector<Cell> cells;
 	mutable DynamicBVH index;
 	AABB bounds;
 	PackedVector3Array probe_points;
@@ -81,5 +60,4 @@ public:
 	void clear();
 	void update(const PackedVector3Array &p_points, const PackedInt32Array &p_tetrahedra);
 	bool sample(const Vector3 &p_point, const PackedColorArray &p_sh, Color *r_sh) const;
-	~LightmapProbeCapture();
 };

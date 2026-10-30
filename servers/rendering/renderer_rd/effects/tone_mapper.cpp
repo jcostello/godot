@@ -30,11 +30,11 @@
 
 #include "tone_mapper.h"
 
-#include "core/os/os.h"
 #include "servers/rendering/renderer_rd/renderer_compositor_rd.h"
 #include "servers/rendering/renderer_rd/storage_rd/material_storage.h"
 #include "servers/rendering/renderer_rd/storage_rd/texture_storage.h"
 #include "servers/rendering/renderer_rd/uniform_set_cache_rd.h"
+#include "servers/rendering/storage/environment_storage.h"
 
 using namespace RendererRD;
 
@@ -96,7 +96,7 @@ RID ToneMapper::_get_forward_grading_buffer(const TonemapSettings &p_settings) {
 	data.rows[14][0] = p_settings.forward_curve_flags;
 	data.rows[14][1] = p_settings.forward_adjustment_flags;
 	data.rows[14][2] = p_settings.use_1d_color_correction;
-	if ((p_settings.forward_adjustment_flags & 512) != 0) {
+	if ((p_settings.forward_adjustment_flags & RendererEnvironmentStorage::FORWARD_ADJUSTMENT_CORRECTION_CONTRAST) != 0) {
 		const float pivot = p_settings.tonal_correction[5].w;
 		if (cached_correction_pivot != pivot) {
 			cached_correction_pivot = pivot;
@@ -170,15 +170,15 @@ ToneMapper::ToneMapper(bool p_use_mobile_version) {
 			String defines = tonemap_modes[i] + "\n#define USE_WHITE_BALANCE\n";
 			tonemap_modes.push_back(defines);
 		}
-		for (int i = 0; i < 8; i++) {
+		for (int i = 0; i < TONEMAP_MODE_FORWARD_GRADING; i++) {
 			tonemap_modes.push_back(tonemap_modes[i] + "\n#define USE_FORWARD_GRADING\n");
 		}
-		for (int i = 0; i < 16; i++) {
-			tonemap_modes.push_back(tonemap_modes[i] + "\n#define USE_FORWARD_CURVES\n" + (i < 8 ? "#define USE_FORWARD_GRADING\n" : ""));
+		for (int i = 0; i < TONEMAP_MODE_FORWARD_CURVES; i++) {
+			tonemap_modes.push_back(tonemap_modes[i] + "\n#define USE_FORWARD_CURVES\n");
 		}
 		tonemap.shader.initialize(tonemap_modes);
-		// Curves always use the grading data, so skip duplicate curves-only variants.
-		for (int i = 16; i < 24; i++) {
+		// Curves always use the grading data, so curves-only variants are never used.
+		for (int i = TONEMAP_MODE_FORWARD_CURVES; i < TONEMAP_MODE_FORWARD_CURVES + TONEMAP_MODE_FORWARD_GRADING; i++) {
 			tonemap.shader.set_variant_enabled(i, false);
 		}
 
@@ -224,42 +224,25 @@ void ToneMapper::tonemapper(RID p_source_color, RID p_dst_framebuffer, const Ton
 	MaterialStorage *material_storage = MaterialStorage::get_singleton();
 	ERR_FAIL_NULL(material_storage);
 
-	// Read diagnostics once per process. Normal runs do not print or read the environment per frame.
-	static const String test_mode = OS::get_singleton()->get_environment("GODOT_FORK_ADJUSTMENTS_TEST");
-	static const bool test_off = test_mode == "off";
-	static const bool test_no_transform = test_off || test_mode == "no_transform";
-	static const bool test_no_saturation = test_off || test_mode == "no_saturation";
-	static const bool test_no_soft_contrast = test_off || test_mode == "no_soft_contrast";
-	static const bool test_runtime_branches = test_mode == "runtime_branches";
-	const uint32_t forward_flags = test_off ? 0 : p_settings.forward_adjustment_flags;
-	const bool use_curves = (forward_flags & (64 | 128)) != 0;
+	const uint32_t forward_flags = p_settings.forward_adjustment_flags;
+	const bool use_curves = (forward_flags & (RendererEnvironmentStorage::FORWARD_ADJUSTMENT_CURVES | RendererEnvironmentStorage::FORWARD_ADJUSTMENT_LUT)) != 0;
 	const bool use_forward_grading = forward_flags != 0;
-	const bool use_transform = p_settings.use_forward_white_balance && !test_no_transform;
-	const float saturation = test_no_saturation ? 1.0f : p_settings.saturation;
+	const bool use_transform = p_settings.use_forward_white_balance;
+	const float saturation = p_settings.saturation;
 	const int color_modes = int(p_settings.color_modes.x);
-	const bool soft_contrast = !test_no_soft_contrast && (color_modes & 2) != 0 && p_settings.contrast != 1.0f;
+	const bool soft_contrast = (color_modes & 2) != 0 && p_settings.contrast != 1.0f;
 	const bool preserve_luminance = (color_modes & 1) != 0;
 	uint32_t adjustment_specializations = 0;
-	if (test_runtime_branches) {
-		adjustment_specializations = 1 << 3;
-	} else {
-		adjustment_specializations |= soft_contrast ? 1 << 0 : 0;
-		adjustment_specializations |= saturation != 1.0f ? 1 << 1 : 0;
-		adjustment_specializations |= saturation != 1.0f && preserve_luminance ? 1 << 2 : 0;
-	}
+	adjustment_specializations |= soft_contrast ? 1 << 0 : 0;
+	adjustment_specializations |= saturation != 1.0f ? 1 << 1 : 0;
+	adjustment_specializations |= saturation != 1.0f && preserve_luminance ? 1 << 2 : 0;
+	// Forward flag bit k enables specialization constant 4 + k.
 	adjustment_specializations |= forward_flags << 4;
-	static const bool print_diagnostics = OS::get_singleton()->get_environment("GODOT_FORK_ADJUSTMENTS_PROFILE") == "1" || !test_mode.is_empty();
-	static bool diagnostic_printed = false;
-	if (print_diagnostics && !diagnostic_printed) {
-		print_line(vformat("[Forward adjustments] test=%s transform=%s soft_contrast=%s saturation=%s preserve_luminance=%s runtime_branches=%s modules=%s", test_mode.is_empty() ? "normal" : test_mode, use_transform, soft_contrast, saturation, preserve_luminance, test_runtime_branches, forward_flags));
-		diagnostic_printed = true;
-	}
 
 	memset(&tonemap.push_constant, 0, sizeof(TonemapPushConstant));
 	tonemap.push_constant.saturation = saturation;
-	tonemap.push_constant.adjustment_controls[0] = test_no_soft_contrast ? 1.0f : p_settings.contrast;
+	tonemap.push_constant.adjustment_controls[0] = p_settings.contrast;
 	tonemap.push_constant.adjustment_controls[1] = p_settings.color_modes.y;
-	tonemap.push_constant.adjustment_controls[2] = p_settings.color_modes.x;
 	if (soft_contrast && p_settings.contrast > 0.0f) {
 		if (cached_soft_contrast != p_settings.contrast || cached_soft_contrast_pivot != p_settings.color_modes.y) {
 			cached_soft_contrast = p_settings.contrast;
@@ -359,10 +342,10 @@ void ToneMapper::tonemapper(RID p_source_color, RID p_dst_framebuffer, const Ton
 		}
 		// Both LUT dimensions have stable bindings; only the selected one is sampled.
 		RID lut_3d = TextureStorage::get_singleton()->texture_rd_get_default(TextureStorage::DEFAULT_RD_TEXTURE_3D_WHITE);
-		if ((forward_flags & 128) != 0 && !p_settings.use_1d_color_correction) {
+		if ((forward_flags & RendererEnvironmentStorage::FORWARD_ADJUSTMENT_LUT) != 0 && !p_settings.use_1d_color_correction) {
 			lut_3d = p_settings.color_correction_texture;
 		}
-		curve_uniforms.push_back(RD::Uniform(RD::UNIFORM_TYPE_SAMPLER_WITH_TEXTURE, 4, Vector<RID>({ default_sampler, (forward_flags & 128) != 0 && p_settings.use_1d_color_correction ? p_settings.color_correction_texture : TextureStorage::get_singleton()->texture_rd_get_default(TextureStorage::DEFAULT_RD_TEXTURE_WHITE) })));
+		curve_uniforms.push_back(RD::Uniform(RD::UNIFORM_TYPE_SAMPLER_WITH_TEXTURE, 4, Vector<RID>({ default_sampler, (forward_flags & RendererEnvironmentStorage::FORWARD_ADJUSTMENT_LUT) != 0 && p_settings.use_1d_color_correction ? p_settings.color_correction_texture : TextureStorage::get_singleton()->texture_rd_get_default(TextureStorage::DEFAULT_RD_TEXTURE_WHITE) })));
 		curve_uniforms.push_back(RD::Uniform(RD::UNIFORM_TYPE_SAMPLER_WITH_TEXTURE, 5, Vector<RID>({ default_sampler, lut_3d })));
 	}
 	RID shader = tonemap.shader.version_get_shader(tonemap.shader_version, mode);

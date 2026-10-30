@@ -43,7 +43,6 @@ struct LightmapAdjustments {
 	float shadows = 0.0f;
 	float midtones = 0.0f;
 	float highlights = 0.0f;
-	float directionality_strength = 1.0f;
 	Color tonal_ranges = Color(0.1f, 0.4f, 0.4f, 0.8f);
 	Color shadows_tint = Color(1, 1, 1);
 	Color midtones_tint = Color(1, 1, 1);

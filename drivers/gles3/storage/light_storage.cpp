@@ -1182,7 +1182,7 @@ void LightStorage::lightmap_set_probe_capture_data(RID p_lightmap, const PackedV
 	lightmap->points = p_points;
 	lightmap->point_sh = p_point_sh;
 	lightmap->tetrahedra = p_tetrahedra;
-	lightmap->probe_capture.update(p_bsp_tree.is_empty() ? p_points : PackedVector3Array(), p_bsp_tree.is_empty() ? p_tetrahedra : PackedInt32Array());
+	lightmap->probe_capture.update(p_points, p_tetrahedra);
 	lightmap->bsp_tree = p_bsp_tree;
 }
 
@@ -1237,51 +1237,8 @@ void LightStorage::lightmap_tap_sh_light(RID p_lightmap, const Vector3 &p_point,
 		r_sh[i] = Color(0, 0, 0, 0);
 	}
 
-	if (lm->bsp_tree.is_empty()) {
-		lm->probe_capture.sample(p_point, lm->point_sh, r_sh);
-		return;
-	}
-
-	if (!lm->points.size() || !lm->bsp_tree.size() || !lm->tetrahedra.size()) {
-		return;
-	}
-
-	static_assert(sizeof(Lightmap::BSP) == 24);
-
-	const Lightmap::BSP *bsp = (const Lightmap::BSP *)lm->bsp_tree.ptr();
-	int32_t node = 0;
-	while (node >= 0) {
-		if (Plane(bsp[node].plane[0], bsp[node].plane[1], bsp[node].plane[2], bsp[node].plane[3]).is_point_over(p_point)) {
-#ifdef DEBUG_ENABLED
-			ERR_FAIL_COND(bsp[node].over >= 0 && bsp[node].over < node);
-#endif
-
-			node = bsp[node].over;
-		} else {
-#ifdef DEBUG_ENABLED
-			ERR_FAIL_COND(bsp[node].under >= 0 && bsp[node].under < node);
-#endif
-			node = bsp[node].under;
-		}
-	}
-
-	if (node == Lightmap::BSP::EMPTY_LEAF) {
-		return; // Nothing could be done.
-	}
-
-	node = Math::abs(node) - 1;
-
-	uint32_t *tetrahedron = (uint32_t *)&lm->tetrahedra[node * 4];
-	Vector3 points[4] = { lm->points[tetrahedron[0]], lm->points[tetrahedron[1]], lm->points[tetrahedron[2]], lm->points[tetrahedron[3]] };
-	const Color *sh_colors[4]{ &lm->point_sh[tetrahedron[0] * 9], &lm->point_sh[tetrahedron[1] * 9], &lm->point_sh[tetrahedron[2] * 9], &lm->point_sh[tetrahedron[3] * 9] };
-	Color barycentric = Geometry3D::tetrahedron_get_barycentric_coords(points[0], points[1], points[2], points[3], p_point);
-
-	for (int i = 0; i < 4; i++) {
-		float c = CLAMP(barycentric[i], 0.0, 1.0);
-		for (int j = 0; j < 9; j++) {
-			r_sh[j] += sh_colors[i][j] * c;
-		}
-	}
+	// Legacy BSP trees are ignored: the tetrahedra alone drive the lookup.
+	lm->probe_capture.sample(p_point, lm->point_sh, r_sh);
 }
 
 bool LightStorage::lightmap_is_interior(RID p_lightmap) const {

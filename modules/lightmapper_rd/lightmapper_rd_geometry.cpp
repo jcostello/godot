@@ -351,5 +351,5 @@ void LightmapperRD::_create_raytracing_acceleration_structure(RenderingDevice *p
 		WARN_PRINT("Lightmapper: instanced TLAS setup failed; using compute tracing.");
 		return;
 	}
-	print_line(vformat("Lightmapper RT geometry: %d instances, %d unique BLAS, %d built, %d reused from previous bake; persistent=%s.", instances.size(), inputs.size(), built, reused, persistent ? "yes" : "no"));
+	print_verbose(vformat("Lightmapper RT geometry: %d instances, %d unique BLAS, %d built, %d reused from previous bake; persistent=%s.", instances.size(), inputs.size(), built, reused, persistent ? "yes" : "no"));
 }

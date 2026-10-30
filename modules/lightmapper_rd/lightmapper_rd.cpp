@@ -2776,45 +2776,67 @@ LightmapperRD::BakeError LightmapperRD::bake(BakeQuality p_quality, bool p_use_d
 	push_constant.ray_count = CLAMP(push_constant.ray_count, 16u, 8192u);
 	const uint32_t lighting_ray_count = push_constant.ray_count;
 	const int light_coefficients = p_bake_sh ? 4 : 1;
-	struct StagedLightFiles {
+	// Lightmap layers staged between passes. Kept in RAM when they fit comfortably,
+	// otherwise in the editor cache directory.
+	struct StagedLightLayers {
+		bool in_memory = false;
+		String prefix; // Files are named prefix + index.
 		Vector<String> paths;
-		Vector<String> source_paths;
-		Vector<String> direct_paths;
-		~StagedLightFiles() {
-			for (const String &path : direct_paths) {
-				DirAccess::remove_absolute(path);
+		Vector<Vector<uint8_t>> data;
+		void setup(int p_count, const String &p_prefix, bool p_in_memory) {
+			in_memory = p_in_memory;
+			prefix = p_prefix;
+			if (in_memory) {
+				data.resize(p_count);
+				return;
 			}
+			paths.resize(p_count);
+			for (int i = 0; i < p_count; i++) {
+				paths.write[i] = p_prefix + itos(i);
+			}
+		}
+		int size() const { return in_memory ? data.size() : paths.size(); }
+		bool store(int p_index, const Vector<uint8_t> &p_data) {
+			if (in_memory) {
+				data.write[p_index] = p_data;
+				return true;
+			}
+			Ref<FileAccess> file = FileAccess::open(paths[p_index], FileAccess::WRITE);
+			return file.is_valid() && file->store_buffer(p_data);
+		}
+		Vector<uint8_t> load(int p_index) const {
+			return in_memory ? data[p_index] : FileAccess::get_file_as_bytes(paths[p_index]);
+		}
+		void clear() {
 			for (const String &path : paths) {
 				DirAccess::remove_absolute(path);
 			}
-			for (const String &path : source_paths) {
-				DirAccess::remove_absolute(path);
-			}
+			paths.clear();
+			data.clear();
 		}
-	} staged_light_files;
-	staged_light_files.paths.resize(p_bake_lightmaps ? atlas_slices * light_coefficients : 0);
-	const String staged_light_prefix = EditorPaths::get_singleton()->get_cache_dir().path_join(vformat("lightmap_accum_%d_", OS::get_singleton()->get_process_id()));
-	for (int layer = 0; layer < staged_light_files.paths.size(); layer++) {
-		staged_light_files.paths.write[layer] = staged_light_prefix + itos(layer);
-	}
-	staged_light_files.source_paths.resize(atlas_slices);
-	const String staged_source_prefix = EditorPaths::get_singleton()->get_cache_dir().path_join(vformat("lightmap_source_%d_", OS::get_singleton()->get_process_id()));
-	for (int slice = 0; slice < atlas_slices; slice++) {
-		staged_light_files.source_paths.write[slice] = staged_source_prefix + itos(slice);
-	}
-	if (p_bake_ao) {
-		staged_light_files.direct_paths.resize(atlas_slices * light_coefficients);
-		for (int layer = 0; layer < staged_light_files.direct_paths.size(); layer++) {
-			staged_light_files.direct_paths.write[layer] = staged_light_prefix + "direct_" + itos(layer);
-		}
-	}
-	auto store_staged_light_layer = [&](int p_layer, const Vector<uint8_t> &p_data) -> bool {
-		Ref<FileAccess> file = FileAccess::open(staged_light_files.paths[p_layer], FileAccess::WRITE);
-		return file.is_valid() && file->store_buffer(p_data);
+		~StagedLightLayers() { clear(); }
 	};
+	StagedLightLayers staged_light, staged_source, staged_direct;
+	// Probe-only bakes that trace lights directly never read the lightmap, so skip plotting it.
+	const bool plot_direct_light = p_bake_lightmaps || p_texture_for_bounces;
+	{
+		const int light_layers = p_bake_lightmaps ? atlas_slices * light_coefficients : 0;
+		const int source_layers = plot_direct_light ? atlas_slices : 0;
+		const int direct_layers = p_bake_ao ? atlas_slices * light_coefficients : 0;
+		const int64_t layer_pixels = int64_t(atlas_size.width) * atlas_size.height;
+		// RGBA half layers, plus R11G11B10 source layers.
+		const int64_t staged_bytes = (light_layers + direct_layers) * layer_pixels * 8 + source_layers * layer_pixels * 4;
+		const int64_t available = int64_t(OS::get_singleton()->get_memory_info().get("available", -1));
+		const bool in_memory = available > 0 && staged_bytes <= available / 4;
+		const String cache_prefix = EditorPaths::get_singleton()->get_cache_dir().path_join(vformat("lightmap_%d_", OS::get_singleton()->get_process_id()));
+		// External OIDN reads and writes the light layers as files.
+		staged_light.setup(light_layers, cache_prefix + "accum_", in_memory && !(p_use_denoiser && denoiser == 1));
+		staged_source.setup(source_layers, cache_prefix + "source_", in_memory);
+		staged_direct.setup(direct_layers, cache_prefix + "direct_", in_memory);
+	}
 	auto load_staged_light_slice = [&](int p_slice, RID p_texture) -> bool {
 		for (int coefficient = 0; coefficient < light_coefficients; coefficient++) {
-			if (rd->texture_update(p_texture, coefficient, FileAccess::get_file_as_bytes(staged_light_files.paths[p_slice * light_coefficients + coefficient])) != OK) {
+			if (rd->texture_update(p_texture, coefficient, staged_light.load(p_slice * light_coefficients + coefficient)) != OK) {
 				return false;
 			}
 		}
@@ -2822,7 +2844,7 @@ LightmapperRD::BakeError LightmapperRD::bake(BakeQuality p_quality, bool p_use_d
 	};
 	auto store_staged_light_slice = [&](int p_slice, RID p_texture) -> bool {
 		for (int coefficient = 0; coefficient < light_coefficients; coefficient++) {
-			if (!store_staged_light_layer(p_slice * light_coefficients + coefficient, rd->texture_get_data(p_texture, coefficient))) {
+			if (!staged_light.store(p_slice * light_coefficients + coefficient, rd->texture_get_data(p_texture, coefficient))) {
 				return false;
 			}
 		}
@@ -2830,7 +2852,7 @@ LightmapperRD::BakeError LightmapperRD::bake(BakeQuality p_quality, bool p_use_d
 	};
 
 	/* PRIMARY (direct) LIGHT PASS */
-	{
+	if (plot_direct_light) {
 		Vector<RD::Uniform> uniforms;
 		{
 			{
@@ -2950,23 +2972,21 @@ LightmapperRD::BakeError LightmapperRD::bake(BakeQuality p_quality, bool p_use_d
 			}
 			if (p_bake_lightmaps) {
 				for (int coefficient = 0; coefficient < light_coefficients; coefficient++) {
-					if (!store_staged_light_layer(s * light_coefficients + coefficient, rd->texture_get_data(light_accum_tex, coefficient))) {
+					if (!staged_light.store(s * light_coefficients + coefficient, rd->texture_get_data(light_accum_tex, coefficient))) {
 						return BAKE_ERROR_LIGHTMAP_CANT_PRE_BAKE_MESHES;
 					}
 				}
 			}
-			// Preserve direct lighting on disk while the reusable slice accumulates bounces.
+			// Stage direct lighting while the reusable slice accumulates bounces.
 			if (p_bake_ao) {
 				for (int coefficient = 0; coefficient < light_coefficients; coefficient++) {
-					Ref<FileAccess> file = FileAccess::open(staged_light_files.direct_paths[s * light_coefficients + coefficient], FileAccess::WRITE);
-					if (file.is_null() || !file->store_buffer(rd->texture_get_data(direct_light_tex, coefficient))) {
+					if (!staged_direct.store(s * light_coefficients + coefficient, rd->texture_get_data(direct_light_tex, coefficient))) {
 						return BAKE_ERROR_LIGHTMAP_CANT_PRE_BAKE_MESHES;
 					}
 				}
 			}
 			Ref<Image> source_image = Image::create_from_data(atlas_size.width, atlas_size.height, false, Image::FORMAT_RGBAH, rd->texture_get_data(light_source_tex, 0));
-			Ref<FileAccess> source_file = FileAccess::open(staged_light_files.source_paths[s], FileAccess::WRITE);
-			if (source_file.is_null() || !source_file->store_buffer(_pack_r11g11b10f(source_image))) {
+			if (!staged_source.store(s, _pack_r11g11b10f(source_image))) {
 				return BAKE_ERROR_LIGHTMAP_CANT_PRE_BAKE_MESHES;
 			}
 		}
@@ -2986,20 +3006,20 @@ LightmapperRD::BakeError LightmapperRD::bake(BakeQuality p_quality, bool p_use_d
 		if (light_source_tex.is_null()) {
 			return BAKE_ERROR_LIGHTMAP_CANT_PRE_BAKE_MESHES;
 		}
-		for (int slice = 0; slice < atlas_slices; slice++) {
-			if (rd->texture_update(light_source_tex, slice, FileAccess::get_file_as_bytes(staged_light_files.source_paths[slice])) != OK) {
+		// Left unfilled when the direct pass was skipped: the shaders don't sample it then.
+		for (int slice = 0; slice < staged_source.size(); slice++) {
+			if (rd->texture_update(light_source_tex, slice, staged_source.load(slice)) != OK) {
 				return BAKE_ERROR_LIGHTMAP_CANT_PRE_BAKE_MESHES;
 			}
-			DirAccess::remove_absolute(staged_light_files.source_paths[slice]);
 		}
-		staged_light_files.source_paths.clear();
+		staged_source.clear();
 	}
 
 #ifdef DEBUG_TEXTURES
 
 	if (p_bake_sh) {
 		for (int i = 0; i < atlas_slices * 4; i++) {
-			Vector<uint8_t> s = FileAccess::get_file_as_bytes(staged_light_files.paths[i]);
+			Vector<uint8_t> s = staged_light.load(i);
 			Ref<Image> img = Image::create_from_data(atlas_size.width, atlas_size.height, false, Image::FORMAT_RGBAH, s);
 			img->save_exr("res://2_light_primary_accum_" + itos(i) + ".exr", false);
 		}
@@ -3118,7 +3138,7 @@ LightmapperRD::BakeError LightmapperRD::bake(BakeQuality p_quality, bool p_use_d
 		auto renderer_tracked_memory = [&]() -> uint64_t {
 			return diagnostic_main_device != nullptr && diagnostic_main_device != rd ? diagnostic_main_device->get_memory_usage(RenderingDevice::MEMORY_TOTAL) : 0;
 		};
-		print_line(vformat("Lightmapper indirect start: backend=%s, device=%s, atlas=%dx%d x %d, rays=%d, bounces=%d, passes_per_submit=%d, rays_per_dispatch=%d, active_regions=%d/%d, bake_tracked=%s, renderer_tracked=%s, gpu_budget=%s.",
+		print_verbose(vformat("Lightmapper indirect start: backend=%s, device=%s, atlas=%dx%d x %d, rays=%d, bounces=%d, passes_per_submit=%d, rays_per_dispatch=%d, active_regions=%d/%d, bake_tracked=%s, renderer_tracked=%s, gpu_budget=%s.",
 				hardware_raytracing ? "hardware_rt" : "software_compute", rd->get_device_name(), atlas_size.width, atlas_size.height, atlas_slices, push_constant.ray_count, p_bounces, passes_per_submit, MIN(rays_per_dispatch, int(push_constant.ray_count)), active_regions, atlas_slices * x_regions * y_regions,
 				String::humanize_size(rd->get_memory_usage(RenderingDevice::MEMORY_TOTAL)), String::humanize_size(renderer_tracked_memory()), String::humanize_size(rd->get_memory_budget())));
 		const uint64_t indirect_start_time = OS::get_singleton()->get_ticks_usec();
@@ -3128,7 +3148,7 @@ LightmapperRD::BakeError LightmapperRD::bake(BakeQuality p_quality, bool p_use_d
 		int submissions = 0;
 		for (int s = 0; s < atlas_slices; s++) {
 			for (int coefficient = 0; coefficient < light_coefficients; coefficient++) {
-				if (rd->texture_update(light_accum_tex, coefficient, FileAccess::get_file_as_bytes(staged_light_files.paths[s * light_coefficients + coefficient])) != OK) {
+				if (rd->texture_update(light_accum_tex, coefficient, staged_light.load(s * light_coefficients + coefficient)) != OK) {
 					return BAKE_ERROR_LIGHTMAP_CANT_PRE_BAKE_MESHES;
 				}
 			}
@@ -3193,14 +3213,14 @@ LightmapperRD::BakeError LightmapperRD::bake(BakeQuality p_quality, bool p_use_d
 				}
 			}
 			for (int coefficient = 0; coefficient < light_coefficients; coefficient++) {
-				if (!store_staged_light_layer(s * light_coefficients + coefficient, rd->texture_get_data(light_accum_tex, coefficient))) {
+				if (!staged_light.store(s * light_coefficients + coefficient, rd->texture_get_data(light_accum_tex, coefficient))) {
 					return BAKE_ERROR_LIGHTMAP_CANT_PRE_BAKE_MESHES;
 				}
 			}
 		}
 		const uint64_t indirect_total_usec = OS::get_singleton()->get_ticks_usec() - indirect_start_time;
 		const uint64_t indirect_other_usec = indirect_total_usec - indirect_dispatch_wait_usec - indirect_progress_usec;
-		print_line(vformat("Lightmapper indirect end: total=%.3fs, dispatch_wait=%.3fs, progress=%.3fs, other=%.3fs, dispatches=%d, submissions=%d, bake_tracked=%s, renderer_tracked=%s.",
+		print_verbose(vformat("Lightmapper indirect end: total=%.3fs, dispatch_wait=%.3fs, progress=%.3fs, other=%.3fs, dispatches=%d, submissions=%d, bake_tracked=%s, renderer_tracked=%s.",
 				double(indirect_total_usec) / 1e6, double(indirect_dispatch_wait_usec) / 1e6, double(indirect_progress_usec) / 1e6, double(indirect_other_usec) / 1e6, count, submissions,
 				String::humanize_size(rd->get_memory_usage(RenderingDevice::MEMORY_TOTAL)), String::humanize_size(renderer_tracked_memory())));
 	}
@@ -3370,7 +3390,7 @@ LightmapperRD::BakeError LightmapperRD::bake(BakeQuality p_quality, bool p_use_d
 				return BAKE_ERROR_LIGHTMAP_CANT_PRE_BAKE_MESHES;
 			}
 			for (int coefficient = 0; coefficient < light_coefficients; coefficient++) {
-				if (rd->texture_update(direct_light_tex, coefficient, FileAccess::get_file_as_bytes(staged_light_files.direct_paths[s * light_coefficients + coefficient])) != OK) {
+				if (rd->texture_update(direct_light_tex, coefficient, staged_direct.load(s * light_coefficients + coefficient)) != OK) {
 					return BAKE_ERROR_LIGHTMAP_CANT_PRE_BAKE_MESHES;
 				}
 			}
@@ -3497,7 +3517,7 @@ LightmapperRD::BakeError LightmapperRD::bake(BakeQuality p_quality, bool p_use_d
 				}
 				for (int coefficient = 0; coefficient < light_coefficients && error == BAKE_OK; coefficient++) {
 					for (int slice = 0; slice < atlas_slices; slice++) {
-						if (rd->texture_update(oidn_light_source_tex, slice, FileAccess::get_file_as_bytes(staged_light_files.paths[slice * light_coefficients + coefficient])) != OK) {
+						if (rd->texture_update(oidn_light_source_tex, slice, staged_light.load(slice * light_coefficients + coefficient)) != OK) {
 							error = BAKE_ERROR_LIGHTMAP_CANT_PRE_BAKE_MESHES;
 							break;
 						}
@@ -3510,7 +3530,7 @@ LightmapperRD::BakeError LightmapperRD::bake(BakeQuality p_quality, bool p_use_d
 						if (pad_error != BAKE_OK) {
 							return pad_error;
 						}
-						if (!store_staged_light_layer(p_slice * light_coefficients + coefficient, rd->texture_get_data(light_accum_tex, coefficient))) {
+						if (!staged_light.store(p_slice * light_coefficients + coefficient, rd->texture_get_data(light_accum_tex, coefficient))) {
 							return BAKE_ERROR_LIGHTMAP_CANT_PRE_BAKE_MESHES;
 						}
 						// Normal context and shadowmask are independent of SH coefficient.
@@ -3591,7 +3611,7 @@ LightmapperRD::BakeError LightmapperRD::bake(BakeQuality p_quality, bool p_use_d
 						}
 					}
 				}
-				error = _denoise_oidn(staged_light_prefix, cache_prefix + "normal_", atlas_size, atlas_slices, p_bake_sh, false, oidn_path, oidn_device_for_bake, p_step_function, p_bake_userdata, oidn_max_memory_mb);
+				error = _denoise_oidn(staged_light.prefix, cache_prefix + "normal_", atlas_size, atlas_slices, p_bake_sh, false, oidn_path, oidn_device_for_bake, p_step_function, p_bake_userdata, oidn_max_memory_mb);
 				if (error == BAKE_OK && p_bake_shadowmask) {
 					error = _denoise_oidn(cache_prefix + "shadow_", cache_prefix + "normal_", atlas_size, atlas_slices, false, true, oidn_path, oidn_device_for_bake, p_step_function, p_bake_userdata, oidn_max_memory_mb);
 				}
@@ -3720,7 +3740,7 @@ LightmapperRD::BakeError LightmapperRD::bake(BakeQuality p_quality, bool p_use_d
 #ifdef DEBUG_TEXTURES
 
 	for (int i = 0; i < atlas_slices * (p_bake_sh ? 4 : 1); i++) {
-		Vector<uint8_t> s = FileAccess::get_file_as_bytes(staged_light_files.paths[i]);
+		Vector<uint8_t> s = staged_light.load(i);
 		Ref<Image> img = Image::create_from_data(atlas_size.width, atlas_size.height, false, Image::FORMAT_RGBAH, s);
 		img->save_exr("res://4_light_secondary_" + itos(i) + ".exr", false);
 	}
@@ -3828,7 +3848,7 @@ LightmapperRD::BakeError LightmapperRD::bake(BakeQuality p_quality, bool p_use_d
 		seamed_images.resize(atlas_slices * subslices);
 		for (int k = 0; k < subslices; k++) {
 			for (int source_slice = 0; source_slice < atlas_slices; source_slice++) {
-				if (rd->texture_update(seam_source_tex, source_slice, FileAccess::get_file_as_bytes(staged_light_files.paths[source_slice * subslices + k])) != OK) {
+				if (rd->texture_update(seam_source_tex, source_slice, staged_light.load(source_slice * subslices + k)) != OK) {
 					rd->free_rid(seam_source_tex);
 					return BAKE_ERROR_LIGHTMAP_CANT_PRE_BAKE_MESHES;
 				}

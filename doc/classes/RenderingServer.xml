@@ -2366,9 +2366,8 @@
 			<param index="5" name="shadows" type="float" />
 			<param index="6" name="midtones" type="float" />
 			<param index="7" name="highlights" type="float" />
-			<param index="8" name="directionality_strength" type="float" />
 			<description>
-				Sets the runtime adjustments for a lightmap without modifying its baked textures or capture data. See the corresponding properties of [LightmapGI]. [param tint] is an sRGB color whose alpha is ignored. Shadows, midtones, and highlights are exposure offsets in stops, ranging from [code]-4.0[/code] to [code]4.0[/code]. Contrast and directionality strength range from [code]0.0[/code] to [code]4.0[/code]; energy and saturation must be nonnegative.
+				Sets the runtime adjustments for a lightmap without modifying its baked textures or capture data. See the corresponding properties of [LightmapGI]. [param tint] is an sRGB color whose alpha is ignored. Shadows, midtones, and highlights are exposure offsets in stops, ranging from [code]-4.0[/code] to [code]4.0[/code]. Contrast ranges from [code]0.0[/code] to [code]4.0[/code]; energy and saturation must be nonnegative.
 			</description>
 		</method>
 		<method name="lightmap_set_adjustments_enabled">
@@ -2429,6 +2428,15 @@
 			<param index="3" name="gamma" type="Vector3" />
 			<description>
 				Sets luminance Levels for Shadows, Midtones, and Highlights (vector components x, y, z). Defaults are black 0, white 1, and gamma 1. White refers to the original texture maximum luminance. Each white point is kept at least 0.001 above black; gamma is clamped to 0.05 through 4. RGB proportions and HDR headroom are preserved.
+			</description>
+		</method>
+		<method name="lightmap_set_tonal_luminance_range">
+			<return type="void" />
+			<param index="0" name="lightmap" type="RID" />
+			<param index="1" name="min" type="float" />
+			<param index="2" name="max" type="float" />
+			<description>
+				Sets the luminance range of the lightmap's L0 layers, used to place the tonal ranges. It is computed when baking so the texture doesn't have to be read back at runtime. If [param max] is lower than [param min], the range is computed from the texture instead.
 			</description>
 		</method>
 		<method name="lightmap_set_tonal_settings">

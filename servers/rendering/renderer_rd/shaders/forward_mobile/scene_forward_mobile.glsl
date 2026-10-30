@@ -923,7 +923,6 @@ layout(location = 13) in highp vec4 prev_screen_position;
 
 #ifdef USE_LIGHTMAP
 #include "../bicubic_filter_inc.glsl"
-#include "../lightmap_sh_inc.glsl"
 #endif //USE_LIGHTMAP
 
 #ifdef USE_MULTIVIEW
@@ -1773,12 +1772,10 @@ void main() {
 			hvec3 n = hvec3(normalize(normal_xform * indirect_normal));
 			half exposure_normalization = half(lightmaps.data[ofs].exposure_normalization);
 
-#ifdef NORMAL_USED
-			vec3 baked_n = normalize(normal_xform * vec3(geo_normal));
-#else
-			vec3 baked_n = vec3(n);
-#endif
-			hvec3 sh_light = hvec3(lightmap_sh_l1_evaluate(vec3(lm_light_l0), vec3(lm_light_l0 * lm_light_l1p1) * 4.0, vec3(lm_light_l0 * lm_light_l1n1) * 4.0, vec3(lm_light_l0 * lm_light_l1_0) * 4.0, vec3(n), baked_n));
+			hvec3 sh_light = lm_light_l0;
+			sh_light += lm_light_l1n1 * n.y * lm_light_l0 * half(4.0);
+			sh_light += lm_light_l1_0 * n.z * lm_light_l0 * half(4.0);
+			sh_light += lm_light_l1p1 * n.x * lm_light_l0 * half(4.0);
 			sh_light *= exposure_normalization;
 			ambient_light += sh_light;
 

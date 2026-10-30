@@ -2719,7 +2719,8 @@ void RenderingServer::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("lightmap_set_adjustments_enabled", "lightmap", "enabled"), &RenderingServer::lightmap_set_adjustments_enabled);
 	ClassDB::bind_method(D_METHOD("lightmap_set_tonal_settings", "lightmap", "ranges", "shadows_tint", "midtones_tint", "highlights_tint", "saturation", "contrast", "debug_mode"), &RenderingServer::lightmap_set_tonal_settings);
 	ClassDB::bind_method(D_METHOD("lightmap_set_tonal_levels", "lightmap", "black", "white", "gamma"), &RenderingServer::lightmap_set_tonal_levels);
-	ClassDB::bind_method(D_METHOD("lightmap_set_adjustments", "lightmap", "energy", "tint", "saturation", "contrast", "shadows", "midtones", "highlights", "directionality_strength"), &RenderingServer::lightmap_set_adjustments);
+	ClassDB::bind_method(D_METHOD("lightmap_set_tonal_luminance_range", "lightmap", "min", "max"), &RenderingServer::lightmap_set_tonal_luminance_range);
+	ClassDB::bind_method(D_METHOD("lightmap_set_adjustments", "lightmap", "energy", "tint", "saturation", "contrast", "shadows", "midtones", "highlights"), &RenderingServer::lightmap_set_adjustments);
 	ClassDB::bind_method(D_METHOD("lightmap_set_baked_exposure_normalization", "lightmap", "baked_exposure"), &RenderingServer::lightmap_set_baked_exposure_normalization);
 
 	ClassDB::bind_method(D_METHOD("lightmap_set_probe_capture_update_speed", "speed"), &RenderingServer::lightmap_set_probe_capture_update_speed);

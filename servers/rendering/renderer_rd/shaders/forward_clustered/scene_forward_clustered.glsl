@@ -944,7 +944,6 @@ layout(location = 10) in flat uint instance_index_interp;
 #ifdef USE_LIGHTMAP
 #include "../bicubic_filter_inc.glsl"
 #include "../lightmap_color_adjustments_inc.glsl"
-#include "../lightmap_sh_inc.glsl"
 #endif //USE_LIGHTMAP
 
 #ifdef USE_MULTIVIEW
@@ -1883,13 +1882,11 @@ void fragment_shader(in SceneData scene_data) {
 #endif
 			vec3 n = normalize(normal_xform * indirect_normal);
 			float en = lightmaps.data[ofs].exposure_normalization;
-#ifdef NORMAL_USED
-			vec3 baked_n = normalize(normal_xform * geo_normal);
-#else
-			vec3 baked_n = n;
-#endif
 
-			vec3 sh_light = lightmap_sh_l1_evaluate(lm_light_l0, lm_light_l0 * lm_light_l1p1 * 4.0, lm_light_l0 * lm_light_l1n1 * 4.0, lm_light_l0 * lm_light_l1_0 * 4.0, n, baked_n);
+			vec3 sh_light = lm_light_l0;
+			sh_light += lm_light_l0 * lm_light_l1n1 * n.y * 4.0;
+			sh_light += lm_light_l0 * lm_light_l1_0 * n.z * 4.0;
+			sh_light += lm_light_l0 * lm_light_l1p1 * n.x * 4.0;
 			sh_light *= lightmaps.data[ofs].exposure_normalization;
 			ambient_light += sh_light;
 
