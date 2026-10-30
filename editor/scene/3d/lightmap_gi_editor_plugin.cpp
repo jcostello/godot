@@ -45,7 +45,9 @@
 #include "scene/3d/mesh_instance_3d.h"
 #include "scene/gui/box_container.h"
 #include "scene/gui/label.h"
+#include "scene/gui/menu_button.h"
 #include "scene/gui/popup.h"
+#include "scene/gui/popup_menu.h"
 #include "scene/gui/spin_box.h"
 #include "scene/main/scene_tree.h"
 #include "scene/resources/material.h"
@@ -56,13 +58,18 @@
 #include "modules/modules_enabled.gen.h" // For lightmapper_rd.
 
 void LightmapGIEditorPlugin::_bake_select_file(const String &p_file) {
-	if (lightmap) {
+	LightmapGI *target = ObjectDB::get_instance<LightmapGI>(bake_target);
+	if (bake_running || !target || !get_tree()->get_edited_scene_root() || get_tree()->get_edited_scene_root()->get_instance_id() != bake_scene) {
+		return;
+	}
+	bake_running = true;
+	if (target) {
 		LightmapGI::BakeError err = LightmapGI::BAKE_ERROR_OK;
 		const uint64_t time_started = OS::get_singleton()->get_ticks_msec();
 		if (get_tree()->get_edited_scene_root()) {
-			Ref<LightmapGIData> lightmapGIData = lightmap->get_light_data();
+			Ref<LightmapGIData> lightmapGIData = target->get_light_data();
 
-			if (lightmapGIData.is_valid()) {
+			if (pending_bake_mode != LightmapGI::BAKE_MODE_PROBES_ONLY && lightmapGIData.is_valid()) {
 				String path = lightmapGIData->get_path();
 				if (!path.is_resource_file()) {
 					int srpos = path.find("::");
@@ -86,32 +93,47 @@ void LightmapGIEditorPlugin::_bake_select_file(const String &p_file) {
 			}
 
 			if (err == LightmapGI::BAKE_ERROR_OK) {
-				if (get_tree()->get_edited_scene_root() == lightmap) {
-					err = lightmap->bake(lightmap, p_file, bake_func_step);
+				if (get_tree()->get_edited_scene_root() == target) {
+					err = target->bake(target, p_file, bake_func_step, this, LightmapGI::BakeMode(pending_bake_mode));
 				} else {
-					err = lightmap->bake(lightmap->get_parent(), p_file, bake_func_step);
+					err = target->bake(target->get_parent(), p_file, bake_func_step, this, LightmapGI::BakeMode(pending_bake_mode));
 				}
 			}
 		} else {
 			err = LightmapGI::BAKE_ERROR_NO_SCENE_ROOT;
 		}
 
-		bake_func_end(time_started);
+		bake_func_end(time_started, pending_bake_mode, err == LightmapGI::BAKE_ERROR_OK);
+		if (err == LightmapGI::BAKE_ERROR_OK) {
+			EditorInterface::get_singleton()->mark_scene_as_unsaved();
+		}
 
 		switch (err) {
 			case LightmapGI::BAKE_ERROR_NO_SAVE_PATH: {
-				String scene_path = lightmap->get_scene_file_path();
-				if (scene_path.is_empty() && lightmap->get_owner()) {
-					scene_path = lightmap->get_owner()->get_scene_file_path();
+				String scene_path = target->get_scene_file_path();
+				if (scene_path.is_empty() && target->get_owner()) {
+					scene_path = target->get_owner()->get_scene_file_path();
 				}
 				if (scene_path.is_empty()) {
 					EditorNode::get_singleton()->show_warning(TTR("Can't determine a save path for lightmap images.\nSave your scene and try again."));
 					break;
 				}
-				scene_path = scene_path.get_basename() + ".lmbake";
+				file_dialog->clear_filters();
+				if (pending_bake_mode == LightmapGI::BAKE_MODE_PROBES_ONLY) {
+					scene_path = scene_path.get_basename() + "_probes.tres";
+					file_dialog->add_filter("*.tres", TTR("Light Probe Bake"));
+					file_dialog->set_title(TTR("Select probe bake file:"));
+				} else {
+					scene_path = scene_path.get_basename() + ".lmbake";
+					file_dialog->add_filter("*.lmbake", TTR("LightMap Bake"));
+					file_dialog->set_title(TTR("Select lightmap bake file:"));
+				}
 
 				file_dialog->set_current_path(scene_path);
 				file_dialog->popup_file_dialog();
+			} break;
+			case LightmapGI::BAKE_ERROR_NO_PROBE_SYSTEM: {
+				EditorNode::get_singleton()->show_warning(TTR("No LightProbeSystem belongs to this LightmapGI. Add a descendant system with probe volumes before baking probes."));
 			} break;
 			case LightmapGI::BAKE_ERROR_NO_MESHES: {
 				EditorNode::get_singleton()->show_warning(
@@ -142,10 +164,38 @@ void LightmapGIEditorPlugin::_bake_select_file(const String &p_file) {
 			} break;
 		}
 	}
+	bake_running = false;
+}
+
+bool LightmapGIEditorPlugin::can_bake() const {
+	return bake && !bake->is_disabled();
+}
+
+void LightmapGIEditorPlugin::request_bake(LightmapGI *p_target, int p_mode) {
+	if (bake_running || !p_target || !can_bake() || !get_tree()->get_edited_scene_root()) {
+		return;
+	}
+	ERR_FAIL_COND(p_mode < LightmapGI::BAKE_MODE_LIGHTMAP_AND_PROBES || p_mode > LightmapGI::BAKE_MODE_PROBES_ONLY);
+	file_dialog->hide();
+	bake_target = p_target->get_instance_id();
+	bake_scene = get_tree()->get_edited_scene_root()->get_instance_id();
+	pending_bake_mode = p_mode;
+	_bake_select_file("");
+}
+
+void LightmapGIEditorPlugin::_bake_mode_selected(int p_mode) {
+	PopupMenu *menu = bake_modes->get_popup();
+	const int selected_index = menu->get_item_index(p_mode);
+	ERR_FAIL_COND(selected_index < 0);
+	selected_bake_mode = p_mode;
+	for (int i = 0; i < menu->get_item_count(); i++) {
+		menu->set_item_checked(i, i == selected_index);
+	}
+	bake->set_text(menu->get_item_text(selected_index));
 }
 
 void LightmapGIEditorPlugin::_bake() {
-	_bake_select_file("");
+	request_bake(lightmap, selected_bake_mode);
 }
 
 void LightmapGIEditorPlugin::_preview_pressed() {
@@ -433,35 +483,45 @@ void LightmapGIEditorPlugin::make_visible(bool p_visible) {
 	plugin_visible = p_visible;
 	if (p_visible) {
 		bake->show();
+		bake_modes->show();
 	} else {
 		bake->hide();
+		bake_modes->hide();
 	}
 	_update_preview_button(preview_lightmap_id.is_valid());
 }
 
 void LightmapGIEditorPlugin::edited_scene_changed() {
+	file_dialog->hide();
+	bake_target = ObjectID();
+	bake_scene = ObjectID();
 	_clear_preview();
 	lightmap = nullptr;
 }
 
 EditorProgress *LightmapGIEditorPlugin::tmp_progress = nullptr;
 
-bool LightmapGIEditorPlugin::bake_func_step(float p_progress, const String &p_description, void *, bool p_refresh) {
+bool LightmapGIEditorPlugin::bake_func_step(float p_progress, const String &p_description, void *p_userdata, bool p_refresh) {
 	if (!tmp_progress) {
-		tmp_progress = memnew(EditorProgress("bake_lightmaps", TTR("Bake Lightmaps"), 1000, true));
+		const LightmapGIEditorPlugin *plugin = static_cast<LightmapGIEditorPlugin *>(p_userdata);
+		const String title = plugin->pending_bake_mode == LightmapGI::BAKE_MODE_PROBES_ONLY ? TTR("Bake Probes") : (plugin->pending_bake_mode == LightmapGI::BAKE_MODE_LIGHTMAP_ONLY ? TTR("Bake Lightmaps") : TTR("Bake Lightmaps and Probes"));
+		tmp_progress = memnew(EditorProgress("bake_lightmaps", title, 1000, true));
 		ERR_FAIL_NULL_V(tmp_progress, false);
 	}
 	return tmp_progress->step(p_description, p_progress * 1000, p_refresh);
 }
 
-void LightmapGIEditorPlugin::bake_func_end(uint64_t p_time_started) {
+void LightmapGIEditorPlugin::bake_func_end(uint64_t p_time_started, int p_mode, bool p_success) {
 	if (tmp_progress != nullptr) {
 		memdelete(tmp_progress);
 		tmp_progress = nullptr;
 	}
 
-	const int time_taken = OS::get_singleton()->get_ticks_msec() - p_time_started;
-	print_line(vformat("Done baking lightmaps in %02d:%02d:%02d.%02d.", time_taken / 3'600'000, (time_taken % 3'600'000) / 60'000, (time_taken % 60'000) / 1000, (time_taken % 1000) / 10));
+	if (p_success) {
+		const int time_taken = OS::get_singleton()->get_ticks_msec() - p_time_started;
+		const String target = p_mode == LightmapGI::BAKE_MODE_PROBES_ONLY ? "probes" : (p_mode == LightmapGI::BAKE_MODE_LIGHTMAP_ONLY ? "lightmaps" : "lightmaps and probes");
+		print_line(vformat("Done baking %s in %02d:%02d:%02d.%02d.", target, time_taken / 3'600'000, (time_taken % 3'600'000) / 60'000, (time_taken % 60'000) / 1000, (time_taken % 1000) / 10));
+	}
 	// Request attention in case the user was doing something else.
 	// Baking lightmaps is likely the editor task that can take the most time,
 	// so only request the attention for baking lightmaps.
@@ -478,7 +538,17 @@ LightmapGIEditorPlugin::LightmapGIEditorPlugin() {
 	// TODO: Rework this as a dedicated toolbar control so we can hook into theme changes and update it
 	// when the editor theme updates.
 	bake->set_button_icon(EditorNode::get_singleton()->get_editor_theme()->get_icon(SNAME("Bake"), EditorStringName(EditorIcons)));
-	bake->set_text(TTR("Bake Lightmaps"));
+	bake_modes = memnew(MenuButton);
+	bake_modes->set_theme_type_variation(SceneStringName(FlatButton));
+	bake_modes->set_button_icon(EditorNode::get_singleton()->get_editor_theme()->get_icon(SNAME("GuiTabMenuHl"), EditorStringName(EditorIcons)));
+	bake_modes->set_tooltip_text(TTR("Choose what to bake. Partial bakes preserve the existing lighting of the other type. Probe-only baking still prepares scene geometry and materials."));
+	PopupMenu *bake_menu = bake_modes->get_popup();
+	bake_menu->add_radio_check_item(TTR("Bake Lightmaps + Probes"), LightmapGI::BAKE_MODE_LIGHTMAP_AND_PROBES);
+	bake_menu->add_radio_check_item(TTR("Bake Lightmaps"), LightmapGI::BAKE_MODE_LIGHTMAP_ONLY);
+	bake_menu->add_radio_check_item(TTR("Bake Probes"), LightmapGI::BAKE_MODE_PROBES_ONLY);
+	bake_menu->connect(SceneStringName(id_pressed), callable_mp(this, &LightmapGIEditorPlugin::_bake_mode_selected));
+	_bake_mode_selected(LightmapGI::BAKE_MODE_LIGHTMAP_AND_PROBES);
+	bake_modes->hide();
 
 #ifdef MODULE_LIGHTMAPPER_RD_ENABLED
 	// Disable lightmap baking if not supported on the current GPU.
@@ -499,6 +569,7 @@ LightmapGIEditorPlugin::LightmapGIEditorPlugin() {
 	bake->hide();
 	bake->connect(SceneStringName(pressed), Callable(this, "_bake"));
 	add_control_to_container(CONTAINER_SPATIAL_EDITOR_MENU, bake);
+	add_control_to_container(CONTAINER_SPATIAL_EDITOR_MENU, bake_modes);
 
 	preview_shader.instantiate();
 	preview_shader->set_code(R"(

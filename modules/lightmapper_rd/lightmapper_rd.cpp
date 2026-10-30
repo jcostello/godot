@@ -1418,7 +1418,7 @@ static bool _oidn_error_is_out_of_memory(const String &p_error) {
 	return false;
 }
 
-LightmapperRD::BakeError LightmapperRD::_denoise_oidn(const String &p_light_path, const String &p_normal_path, const Size2i &p_atlas_size, int p_atlas_slices, bool p_bake_sh, bool p_shadowmask, const String &p_exe, const String &p_device, BakeStepFunc p_step_function, void *p_bake_userdata) {
+LightmapperRD::BakeError LightmapperRD::_denoise_oidn(const String &p_light_path, const String &p_normal_path, const Size2i &p_atlas_size, int p_atlas_slices, bool p_bake_sh, bool p_shadowmask, const String &p_exe, const String &p_device, BakeStepFunc p_step_function, void *p_bake_userdata, int p_max_memory_mb) {
 	Ref<DirAccess> da = DirAccess::create(DirAccess::ACCESS_FILESYSTEM);
 
 	// The command-line utility accepts only one image. Load the library from the
@@ -1437,6 +1437,7 @@ LightmapperRD::BakeError LightmapperRD::_denoise_oidn(const String &p_light_path
 		void *(*new_filter)(void *, const char *) = nullptr;
 		void (*set_filter_image)(void *, const char *, void *, int, size_t, size_t, size_t, size_t, size_t) = nullptr;
 		void (*set_filter_bool)(void *, const char *, bool) = nullptr;
+		void (*set_filter_int)(void *, const char *, int) = nullptr;
 		void (*commit_filter)(void *) = nullptr;
 		void (*execute_filter)(void *) = nullptr;
 		void (*release_filter)(void *) = nullptr;
@@ -1485,6 +1486,7 @@ LightmapperRD::BakeError LightmapperRD::_denoise_oidn(const String &p_light_path
 			load_symbol("oidnNewFilter", api.new_filter) &&
 			load_symbol("oidnSetFilterImage", api.set_filter_image) &&
 			load_symbol("oidnSetFilterBool", api.set_filter_bool) &&
+			load_symbol("oidnSetFilterInt", api.set_filter_int) &&
 			load_symbol("oidnCommitFilter", api.commit_filter) &&
 			load_symbol("oidnExecuteFilter", api.execute_filter) &&
 			load_symbol("oidnReleaseFilter", api.release_filter);
@@ -1521,6 +1523,10 @@ LightmapperRD::BakeError LightmapperRD::_denoise_oidn(const String &p_light_path
 			api.set_filter_image(filter, "normal", normal_buffer, OIDN_FORMAT_FLOAT3, p_atlas_size.width, p_atlas_size.height, 0, 0, 0);
 			api.set_filter_image(filter, "output", output_buffer, OIDN_FORMAT_FLOAT3, p_atlas_size.width, p_atlas_size.height, 0, 0, 0);
 			api.set_filter_bool(filter, "hdr", !p_shadowmask);
+			if (p_max_memory_mb > 0) {
+				// OIDN splits the image into overlapping tiles to stay under this scratch budget.
+				api.set_filter_int(filter, "maxMemoryMB", p_max_memory_mb);
+			}
 			api.commit_filter(filter);
 			const char *error_message = nullptr;
 			batch_ok = api.get_device_error(device, &error_message) == 0;
@@ -1532,6 +1538,29 @@ LightmapperRD::BakeError LightmapperRD::_denoise_oidn(const String &p_light_path
 			api.get_device_error(device, &error_message);
 			if (error_message != nullptr) {
 				batch_error = error_message;
+			}
+		}
+
+		// L1 coefficients are not radiance, OIDN has a dedicated mode for normalized directional coefficients in [-1, 1].
+		// If it can't be created, those layers fall back to the HDR filter as before.
+		void *directional_filter = nullptr;
+		if (batch_ok && p_bake_sh && !p_shadowmask) {
+			directional_filter = api.new_filter(device, "RTLightmap");
+			if (directional_filter != nullptr) {
+				constexpr int OIDN_FORMAT_FLOAT3 = 3;
+				api.set_filter_image(directional_filter, "color", color_buffer, OIDN_FORMAT_FLOAT3, p_atlas_size.width, p_atlas_size.height, 0, 0, 0);
+				api.set_filter_image(directional_filter, "output", output_buffer, OIDN_FORMAT_FLOAT3, p_atlas_size.width, p_atlas_size.height, 0, 0, 0);
+				api.set_filter_bool(directional_filter, "directional", true);
+				if (p_max_memory_mb > 0) {
+					api.set_filter_int(directional_filter, "maxMemoryMB", p_max_memory_mb);
+				}
+				api.commit_filter(directional_filter);
+				const char *error_message = nullptr;
+				if (api.get_device_error(device, &error_message) != 0) {
+					WARN_PRINT(vformat("OIDN directional lightmap filter unavailable, denoising L1 as HDR: %s", error_message != nullptr ? error_message : "unknown error"));
+					api.release_filter(directional_filter);
+					directional_filter = nullptr;
+				}
 			}
 		}
 
@@ -1579,6 +1608,7 @@ LightmapperRD::BakeError LightmapperRD::_denoise_oidn(const String &p_light_path
 
 			for (int coefficient = 0; coefficient < coefficient_count && batch_ok; coefficient++) {
 				const int index = slice * coefficient_count + coefficient;
+				const bool directional = coefficient > 0 && directional_filter != nullptr;
 				if (p_step_function && p_step_function(0.8, vformat(RTR("Denoising %s image %d/%d"), p_shadowmask ? "shadowmask" : "lightmap", index + 1, p_atlas_slices * coefficient_count), p_bake_userdata, true)) {
 					batch_aborted = true;
 					batch_ok = false;
@@ -1610,12 +1640,14 @@ LightmapperRD::BakeError LightmapperRD::_denoise_oidn(const String &p_light_path
 					const uint16_t *source = reinterpret_cast<const uint16_t *>(old_data.ptr());
 					for (int64_t pixel = 0; pixel < pixel_count; pixel++) {
 						for (int component = 0; component < 3; component++) {
-							color_data.write[pixel * 3 + component] = Math::half_to_float(source[pixel * 4 + component]);
+							const float value = Math::half_to_float(source[pixel * 4 + component]);
+							// Packed L1 is stored as 0.5 + L1 / (8 * L0), remap to [-1, 1].
+							color_data.write[pixel * 3 + component] = directional ? value * 2.0f - 1.0f : value;
 						}
 					}
 				}
 				api.write_buffer(color_buffer, 0, image_bytes, color_data.ptr());
-				api.execute_filter(filter);
+				api.execute_filter(directional ? directional_filter : filter);
 				const char *error_message = nullptr;
 				if (api.get_device_error(device, &error_message) != 0) {
 					batch_error = error_message != nullptr ? error_message : "unknown error";
@@ -1634,7 +1666,8 @@ LightmapperRD::BakeError LightmapperRD::_denoise_oidn(const String &p_light_path
 					uint16_t *destination = reinterpret_cast<uint16_t *>(old_data.ptrw());
 					for (int64_t pixel = 0; pixel < pixel_count; pixel++) {
 						for (int component = 0; component < 3; component++) {
-							destination[pixel * 4 + component] = Math::make_half_float(output_data[pixel * 3 + component]);
+							const float value = output_data[pixel * 3 + component];
+							destination[pixel * 4 + component] = Math::make_half_float(directional ? CLAMP(value * 0.5f + 0.5f, 0.0f, 1.0f) : value);
 						}
 					}
 				}
@@ -1645,6 +1678,9 @@ LightmapperRD::BakeError LightmapperRD::_denoise_oidn(const String &p_light_path
 
 		if (filter != nullptr) {
 			api.release_filter(filter);
+		}
+		if (directional_filter != nullptr) {
+			api.release_filter(directional_filter);
 		}
 		if (color_buffer != nullptr) {
 			api.release_buffer(color_buffer);
@@ -1668,6 +1704,13 @@ LightmapperRD::BakeError LightmapperRD::_denoise_oidn(const String &p_light_path
 			return BAKE_ERROR_LIGHTMAP_CANT_PRE_BAKE_MESHES;
 		}
 		if (!batch_aborted && p_device != "cpu" && _oidn_error_is_out_of_memory(batch_error)) {
+			// Tiling on the GPU is still much faster than the CPU, so shrink the budget first.
+			constexpr int MIN_GPU_MEMORY_MB = 128;
+			const int next_memory_mb = p_max_memory_mb > 0 ? p_max_memory_mb / 2 : 1024;
+			if (next_memory_mb >= MIN_GPU_MEMORY_MB) {
+				WARN_PRINT(vformat("OIDN ran out of memory on device '%s'; retrying with a %d MB tiled budget.", p_device, next_memory_mb));
+				return _denoise_oidn(p_light_path, p_normal_path, p_atlas_size, p_atlas_slices, p_bake_sh, p_shadowmask, p_exe, p_device, p_step_function, p_bake_userdata, next_memory_mb);
+			}
 			WARN_PRINT(vformat("OIDN ran out of memory on device '%s'; retrying the denoise batch on CPU.", p_device));
 			return _denoise_oidn(p_light_path, p_normal_path, p_atlas_size, p_atlas_slices, p_bake_sh, p_shadowmask, p_exe, "cpu", p_step_function, p_bake_userdata);
 		}
@@ -1702,6 +1745,7 @@ LightmapperRD::BakeError LightmapperRD::_denoise_oidn(const String &p_light_path
 				da->remove(fname_norm_in);
 				return BAKE_ERROR_LIGHTMAP_CANT_PRE_BAKE_MESHES;
 			}
+			// shortcut: the per-image CLI fallback still denoises L1 as HDR, only the library path uses directional mode.
 			auto run_oidn = [&](const String &p_run_device, String &r_output, int &r_exitcode) {
 				List<String> args;
 				args.push_back("--device");
@@ -1872,7 +1916,13 @@ LightmapperRD::BakeError LightmapperRD::_denoise_slice(RenderingDevice *p_rd, Re
 	return BAKE_OK;
 }
 
-LightmapperRD::BakeError LightmapperRD::bake(BakeQuality p_quality, bool p_use_denoiser, float p_denoiser_strength, int p_denoiser_range, int p_bounces, float p_bounce_indirect_energy, float p_bias, bool p_bake_ao, float p_ao_distance, float p_ao_strength, float p_ao_light_affect, int p_ao_samples, int p_max_texture_size, bool p_bake_sh, bool p_bake_shadowmask, bool p_texture_for_bounces, GenerateProbes p_generate_probes, const Ref<Image> &p_environment_panorama, const Basis &p_environment_transform, BakeStepFunc p_step_function, void *p_bake_userdata, float p_exposure_normalization, float p_environment_exposure_multiplier, float p_supersampling_factor) {
+LightmapperRD::BakeError LightmapperRD::bake(BakeQuality p_quality, bool p_use_denoiser, float p_denoiser_strength, int p_denoiser_range, int p_bounces, float p_bounce_indirect_energy, float p_bias, bool p_bake_ao, float p_ao_distance, float p_ao_strength, float p_ao_light_affect, int p_ao_samples, int p_max_texture_size, bool p_bake_sh, bool p_bake_shadowmask, bool p_texture_for_bounces, const Ref<Image> &p_environment_panorama, const Basis &p_environment_transform, BakeStepFunc p_step_function, void *p_bake_userdata, float p_exposure_normalization, float p_environment_exposure_multiplier, float p_supersampling_factor, bool p_bake_lightmaps, float p_indirect_sample_clamp) {
+	if (!p_bake_lightmaps) {
+		p_use_denoiser = false;
+		p_bake_ao = false;
+		p_bake_sh = false;
+		p_bake_shadowmask = false;
+	}
 	int denoiser = GLOBAL_GET("rendering/lightmapping/denoising/denoiser");
 	String oidn_path = EDITOR_GET("filesystem/tools/oidn/oidn_denoise_path");
 	static const char *oidn_devices[] = { "default", "cpu", "sycl", "cuda", "hip", "metal" };
@@ -1935,6 +1985,7 @@ LightmapperRD::BakeError LightmapperRD::bake(BakeQuality p_quality, bool p_use_d
 		}
 	}
 
+
 #ifdef DEBUG_TEXTURES
 	if (area_light_atlas.mipmap_count > 1) {
 		int64_t mip0size = 4 * area_light_atlas.size.width * area_light_atlas.size.height;
@@ -1954,11 +2005,15 @@ LightmapperRD::BakeError LightmapperRD::bake(BakeQuality p_quality, bool p_use_d
 	RID position_tex;
 	RID unocclude_tex;
 	RID invalid_samples_tex;
+	RID adaptive_stats_tex;
 	RID light_source_tex;
 	RID light_accum_tex;
 	RID light_accum_tex2;
 	RID direct_light_tex;
 	RID light_environment_tex;
+	RID env_cdf_buffer;
+	uint32_t env_cdf_width = 0;
+	uint32_t env_cdf_height = 0;
 	RID area_light_atlas_tex;
 	RID shadowmask_tex;
 	RID shadowmask_tex2;
@@ -1982,6 +2037,13 @@ LightmapperRD::BakeError LightmapperRD::bake(BakeQuality p_quality, bool p_use_d
 		mesh_tex = rd->texture_create(tf, RD::TextureView());
 		invalid_samples_tex = rd->texture_create(tf, RD::TextureView());
 		rd->texture_clear(invalid_samples_tex, Color(0, 0, 0, 0), 0, 1, 0, atlas_slices);
+
+		// Per-texel luminance statistics for adaptive sampling, staged per slice like light_accum_tex.
+		RD::TextureFormat stats_format = tf;
+		stats_format.format = RD::DATA_FORMAT_R32G32_SFLOAT;
+		stats_format.array_layers = 1;
+		stats_format.usage_bits = RD::TEXTURE_USAGE_STORAGE_BIT | RD::TEXTURE_USAGE_CAN_COPY_TO_BIT;
+		adaptive_stats_tex = rd->texture_create(stats_format, RD::TextureView());
 
 		tf.usage_bits = RD::TEXTURE_USAGE_COLOR_ATTACHMENT_BIT | RD::TEXTURE_USAGE_SAMPLING_BIT | RD::TEXTURE_USAGE_STORAGE_BIT | RD::TEXTURE_USAGE_CAN_COPY_FROM_BIT | RD::TEXTURE_USAGE_CAN_COPY_TO_BIT | RD::TEXTURE_USAGE_CAN_UPDATE_BIT;
 
@@ -2047,6 +2109,62 @@ LightmapperRD::BakeError LightmapperRD::bake(BakeQuality p_quality, bool p_use_d
 #ifdef DEBUG_TEXTURES
 			panorama_tex->save_exr("res://0_panorama.exr", false);
 #endif
+
+			// Importance sampling tables for the environment, see sample_environment() in lm_compute.glsl.
+			// Layout: per-cell pdf (w * h), marginal row CDF (h), per-row conditional CDFs (w * h).
+			const int src_w = panorama_tex->get_width();
+			const int src_h = panorama_tex->get_height();
+			const int cdf_w = MIN(src_w, 256);
+			const int cdf_h = MIN(src_h, 128);
+			Vector<float> env_cdf;
+			env_cdf.resize(cdf_w * cdf_h * 2 + cdf_h);
+			env_cdf.fill(0.0f);
+			float *cell_pdf = env_cdf.ptrw();
+			float *marginal = cell_pdf + cdf_w * cdf_h;
+			float *conditional = marginal + cdf_h;
+
+			const float *src = reinterpret_cast<const float *>(tdata[0].ptr());
+			for (int y = 0; y < src_h; y++) {
+				const int cy = y * cdf_h / src_h;
+				for (int x = 0; x < src_w; x++) {
+					const float *px = src + (y * src_w + x) * 4;
+					const float luminance = px[0] * 0.2126f + px[1] * 0.7152f + px[2] * 0.0722f;
+					if (Math::is_finite(luminance) && luminance > 0.0f) {
+						cell_pdf[cy * cdf_w + x * cdf_w / src_w] += luminance;
+					}
+				}
+			}
+
+			double total = 0.0;
+			for (int cy = 0; cy < cdf_h; cy++) {
+				// Rows near the poles cover less solid angle.
+				const float sin_theta = Math::sin(Math::PI * (cy + 0.5f) / cdf_h);
+				double row_sum = 0.0;
+				for (int cx = 0; cx < cdf_w; cx++) {
+					cell_pdf[cy * cdf_w + cx] *= sin_theta;
+					row_sum += cell_pdf[cy * cdf_w + cx];
+					conditional[cy * cdf_w + cx] = row_sum;
+				}
+				for (int cx = 0; cx < cdf_w; cx++) {
+					conditional[cy * cdf_w + cx] = row_sum > 0.0 ? conditional[cy * cdf_w + cx] / row_sum : float(cx + 1) / cdf_w;
+				}
+				conditional[cy * cdf_w + cdf_w - 1] = 1.0f;
+				total += row_sum;
+				marginal[cy] = total;
+			}
+
+			if (total > 0.0) {
+				for (int cy = 0; cy < cdf_h; cy++) {
+					marginal[cy] /= total;
+				}
+				marginal[cdf_h - 1] = 1.0f;
+				for (int i = 0; i < cdf_w * cdf_h; i++) {
+					cell_pdf[i] *= (cdf_w * cdf_h) / total;
+				}
+				env_cdf_width = cdf_w;
+				env_cdf_height = cdf_h;
+			}
+			env_cdf_buffer = rd->storage_buffer_create(env_cdf.size() * sizeof(float), env_cdf.span().reinterpret<uint8_t>());
 		}
 
 		// area lights
@@ -2203,6 +2321,10 @@ LightmapperRD::BakeError LightmapperRD::bake(BakeQuality p_quality, bool p_use_d
 	bake_parameters.ao_strength = p_ao_strength;
 	bake_parameters.ao_light_affect = p_ao_light_affect;
 	bake_parameters.environment_exposure_multiplier = p_environment_exposure_multiplier;
+	bake_parameters.indirect_sample_clamp = p_indirect_sample_clamp;
+	bake_parameters.env_cdf_width = env_cdf_width;
+	bake_parameters.env_cdf_height = env_cdf_height;
+	bake_parameters.adaptive_threshold = GLOBAL_GET("rendering/lightmapping/bake_quality/adaptive_sampling_threshold");
 
 	bake_parameters_buffer = rd->uniform_buffer_create(sizeof(BakeParameters));
 	rd->buffer_update(bake_parameters_buffer, 0, sizeof(BakeParameters), &bake_parameters);
@@ -2670,7 +2792,7 @@ LightmapperRD::BakeError LightmapperRD::bake(BakeQuality p_quality, bool p_use_d
 			}
 		}
 	} staged_light_files;
-	staged_light_files.paths.resize(atlas_slices * light_coefficients);
+	staged_light_files.paths.resize(p_bake_lightmaps ? atlas_slices * light_coefficients : 0);
 	const String staged_light_prefix = EditorPaths::get_singleton()->get_cache_dir().path_join(vformat("lightmap_accum_%d_", OS::get_singleton()->get_process_id()));
 	for (int layer = 0; layer < staged_light_files.paths.size(); layer++) {
 		staged_light_files.paths.write[layer] = staged_light_prefix + itos(layer);
@@ -2826,9 +2948,11 @@ LightmapperRD::BakeError LightmapperRD::bake(BakeQuality p_quality, bool p_use_d
 					}
 				}
 			}
-			for (int coefficient = 0; coefficient < light_coefficients; coefficient++) {
-				if (!store_staged_light_layer(s * light_coefficients + coefficient, rd->texture_get_data(light_accum_tex, coefficient))) {
-					return BAKE_ERROR_LIGHTMAP_CANT_PRE_BAKE_MESHES;
+			if (p_bake_lightmaps) {
+				for (int coefficient = 0; coefficient < light_coefficients; coefficient++) {
+					if (!store_staged_light_layer(s * light_coefficients + coefficient, rd->texture_get_data(light_accum_tex, coefficient))) {
+						return BAKE_ERROR_LIGHTMAP_CANT_PRE_BAKE_MESHES;
+					}
 				}
 			}
 			// Preserve direct lighting on disk while the reusable slice accumulates bounces.
@@ -2884,7 +3008,7 @@ LightmapperRD::BakeError LightmapperRD::bake(BakeQuality p_quality, bool p_use_d
 
 	/* SECONDARY (indirect) LIGHT PASS(ES) */
 
-	if (p_bounces > 0) {
+	if (p_bake_lightmaps && p_bounces > 0) {
 		Vector<RD::Uniform> uniforms;
 		{
 			{
@@ -2952,6 +3076,20 @@ LightmapperRD::BakeError LightmapperRD::bake(BakeQuality p_quality, bool p_use_d
 				u.append_id(unocclude_tex);
 				uniforms.push_back(u);
 			}
+			{
+				RD::Uniform u;
+				u.uniform_type = RD::UNIFORM_TYPE_STORAGE_BUFFER;
+				u.binding = 9;
+				u.append_id(env_cdf_buffer);
+				uniforms.push_back(u);
+			}
+			{
+				RD::Uniform u;
+				u.uniform_type = RD::UNIFORM_TYPE_IMAGE;
+				u.binding = 10;
+				u.append_id(adaptive_stats_tex);
+				uniforms.push_back(u);
+			}
 		}
 
 		RID secondary_uniform_set;
@@ -2996,6 +3134,7 @@ LightmapperRD::BakeError LightmapperRD::bake(BakeQuality p_quality, bool p_use_d
 			}
 			prepare_geometry_slice(s);
 			rd->texture_clear(invalid_samples_tex, Color(0, 0, 0, 0), 0, 1, s, 1);
+			rd->texture_clear(adaptive_stats_tex, Color(0, 0, 0, 0), 0, 1, 0, 1);
 			push_constant.atlas_slice = s;
 			push_constant.geometry_slice = 0;
 			push_constant.output_slice = 0;
@@ -3113,6 +3252,13 @@ LightmapperRD::BakeError LightmapperRD::bake(BakeQuality p_quality, bool p_use_d
 				u.append_id(area_light_atlas_tex);
 				uniforms.push_back(u);
 			}
+			{
+				RD::Uniform u;
+				u.uniform_type = RD::UNIFORM_TYPE_STORAGE_BUFFER;
+				u.binding = 9;
+				u.append_id(env_cdf_buffer);
+				uniforms.push_back(u);
+			}
 		}
 		RID light_probe_uniform_set = rd->uniform_set_create(uniforms, compute_shader_light_probes, 1);
 
@@ -3163,6 +3309,25 @@ LightmapperRD::BakeError LightmapperRD::bake(BakeQuality p_quality, bool p_use_d
 				}
 			}
 		}
+	}
+
+	if (probe_positions.size() > 0) {
+		probe_values.resize(probe_positions.size() * 9);
+		Vector<uint8_t> probe_data = rd->buffer_get_data(light_probe_buffer);
+		ERR_FAIL_COND_V(uint64_t(probe_data.size()) != uint64_t(probe_values.size()) * sizeof(Color), BAKE_ERROR_LIGHTMAP_CANT_PRE_BAKE_MESHES);
+		memcpy(probe_values.ptrw(), probe_data.ptr(), probe_data.size());
+		rd->free_rid(light_probe_buffer);
+
+#ifdef DEBUG_TEXTURES
+		{
+			Ref<Image> img2 = Image::create_from_data(probe_values.size(), 1, false, Image::FORMAT_RGBAF, probe_data);
+			img2->save_exr("res://6_lightprobes.exr", false);
+		}
+#endif
+	}
+
+	if (!p_bake_lightmaps) {
+		return BAKE_OK;
 	}
 
 	// Emission and direct-light lookup have no consumers after indirect lighting
@@ -3402,6 +3567,7 @@ LightmapperRD::BakeError LightmapperRD::bake(BakeQuality p_quality, bool p_use_d
 				rd->submit();
 				rd->sync();
 				String oidn_device_for_bake = oidn_device;
+				int oidn_max_memory_mb = 0;
 				if (oidn_device_for_bake != "cpu") {
 					const uint64_t gpu_budget = rd->get_memory_budget();
 					RenderingDevice *main_device = RenderingDevice::get_singleton();
@@ -3413,13 +3579,21 @@ LightmapperRD::BakeError LightmapperRD::bake(BakeQuality p_quality, bool p_use_d
 					// working set, based on observed RTLightmap behavior.
 					const uint64_t estimated_oidn_gpu = uint64_t(2) * 1024 * 1024 * 1024 + uint64_t(atlas_size.width) * uint64_t(atlas_size.height) * 64;
 					if (gpu_budget != 0 && available_gpu < estimated_oidn_gpu) {
-						oidn_device_for_bake = "cpu";
-						WARN_PRINT(vformat("OIDN switched to CPU: estimated GPU memory needed %s, available budget %s.", String::humanize_size(estimated_oidn_gpu), String::humanize_size(available_gpu)));
+						// Keep OIDN on the GPU with a tiled scratch budget: half of what is left after its three float3 images.
+						const uint64_t image_buffers = uint64_t(3) * atlas_size.width * atlas_size.height * 3 * sizeof(float);
+						const uint64_t scratch_mb = available_gpu > image_buffers ? (available_gpu - image_buffers) / 2 / (1024 * 1024) : 0;
+						if (scratch_mb >= 128) {
+							oidn_max_memory_mb = int(MIN(scratch_mb, uint64_t(1024)));
+							WARN_PRINT(vformat("OIDN limited to a %d MB tiled budget: estimated GPU memory needed %s, available budget %s.", oidn_max_memory_mb, String::humanize_size(estimated_oidn_gpu), String::humanize_size(available_gpu)));
+						} else {
+							oidn_device_for_bake = "cpu";
+							WARN_PRINT(vformat("OIDN switched to CPU: estimated GPU memory needed %s, available budget %s.", String::humanize_size(estimated_oidn_gpu), String::humanize_size(available_gpu)));
+						}
 					}
 				}
-				error = _denoise_oidn(staged_light_prefix, cache_prefix + "normal_", atlas_size, atlas_slices, p_bake_sh, false, oidn_path, oidn_device_for_bake, p_step_function, p_bake_userdata);
+				error = _denoise_oidn(staged_light_prefix, cache_prefix + "normal_", atlas_size, atlas_slices, p_bake_sh, false, oidn_path, oidn_device_for_bake, p_step_function, p_bake_userdata, oidn_max_memory_mb);
 				if (error == BAKE_OK && p_bake_shadowmask) {
-					error = _denoise_oidn(cache_prefix + "shadow_", cache_prefix + "normal_", atlas_size, atlas_slices, false, true, oidn_path, oidn_device_for_bake, p_step_function, p_bake_userdata);
+					error = _denoise_oidn(cache_prefix + "shadow_", cache_prefix + "normal_", atlas_size, atlas_slices, false, true, oidn_path, oidn_device_for_bake, p_step_function, p_bake_userdata, oidn_max_memory_mb);
 				}
 				if (error == BAKE_OK) {
 					// Restore arrays only after the external process has released its GPU memory.
@@ -3763,21 +3937,6 @@ LightmapperRD::BakeError LightmapperRD::bake(BakeQuality p_quality, bool p_use_d
 			img->convert(Image::FORMAT_R8);
 			shadowmask_textures.push_back(img);
 		}
-	}
-
-	if (probe_positions.size() > 0) {
-		probe_values.resize(probe_positions.size() * 9);
-		Vector<uint8_t> probe_data = rd->buffer_get_data(light_probe_buffer);
-		ERR_FAIL_COND_V(uint64_t(probe_data.size()) != uint64_t(probe_values.size()) * sizeof(Color), BAKE_ERROR_LIGHTMAP_CANT_PRE_BAKE_MESHES);
-		memcpy(probe_values.ptrw(), probe_data.ptr(), probe_data.size());
-		rd->free_rid(light_probe_buffer);
-
-#ifdef DEBUG_TEXTURES
-		{
-			Ref<Image> img2 = Image::create_from_data(probe_values.size(), 1, false, Image::FORMAT_RGBAF, probe_data);
-			img2->save_exr("res://6_lightprobes.exr", false);
-		}
-#endif
 	}
 
 	return BAKE_OK;

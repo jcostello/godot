@@ -1,14 +1,30 @@
 <?xml version="1.0" encoding="UTF-8" ?>
 <class name="LightmapGIData" inherits="Resource" api_type="core" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="../class.xsd">
 	<brief_description>
-		Contains baked lightmap and dynamic object probe data for [LightmapGI].
+		Contains baked texture lightmaps and mesh mappings for [LightmapGI].
 	</brief_description>
 	<description>
-		[LightmapGIData] contains baked lightmap and dynamic object probe data for [LightmapGI]. It is replaced every time lightmaps are baked in [LightmapGI].
+		[LightmapGIData] contains texture lightmaps, shadowmasks, mesh atlas mappings and texture-bake exposure. Probe lighting is stored separately in [LightProbeData] owned by [LightProbeSystem]. Probe-only bakes do not modify this resource. Legacy embedded captures are migrated automatically when probe systems are available; loading alone does not rewrite files.
 	</description>
 	<tutorials>
 	</tutorials>
 	<methods>
+		<method name="set_lightmap_bounds">
+			<return type="void" />
+			<param index="0" name="bounds" type="AABB" />
+			<description>
+				Internal serialization setter for texture-lightmap culling bounds, stored independently of probe lighting.
+			</description>
+		</method>
+		<method name="get_baked_exposure" qualifiers="const">
+			<return type="float" />
+			<description>Returns the exposure used to encode texture lightmaps, independently of probe-bake exposure.</description>
+		</method>
+		<method name="set_baked_exposure">
+			<return type="void" />
+			<param index="0" name="exposure" type="float" />
+			<description>Internal serialization setter for texture-bake exposure.</description>
+		</method>
 		<method name="add_user">
 			<return type="void" />
 			<param index="0" name="path" type="NodePath" />

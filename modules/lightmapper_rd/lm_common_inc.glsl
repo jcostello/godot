@@ -24,6 +24,11 @@ layout(set = 0, binding = 0) uniform BakeParameters {
 	float ao_strength;
 	float ao_light_affect;
 	float environment_exposure_multiplier;
+
+	float indirect_sample_clamp;
+	uint env_cdf_width; // 0 disables environment importance sampling.
+	uint env_cdf_height;
+	float adaptive_threshold; // Relative standard error to stop sampling a texel, 0 disables.
 }
 bake_params;
 

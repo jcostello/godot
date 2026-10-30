@@ -2668,7 +2668,7 @@ void main() {
 								 c3 * lightmap_captures[6].rgb * (3.0 * wnormal.z * wnormal.z - 1.0) +
 								 c2 * lightmap_captures[7].rgb * wnormal.x * wnormal.z +
 								 c4 * lightmap_captures[8].rgb * (wnormal.x * wnormal.x - wnormal.y * wnormal.y)) *
-				scene_data_block.data.IBL_exposure_normalization;
+				scene_data_block.data.emissive_exposure_normalization;
 	}
 #else
 #ifdef USE_LIGHTMAP
@@ -2682,15 +2682,13 @@ void main() {
 
 #ifdef LIGHTMAP_BICUBIC_FILTER
 		vec3 lm_light_l0 = textureArray_bicubic(lightmap_textures, uvw + vec3(0.0, 0.0, 0.0), lightmap_texture_size).rgb;
-		vec3 lm_light_l1n1 = (textureArray_bicubic(lightmap_textures, uvw + vec3(0.0, 0.0, 1.0), lightmap_texture_size).rgb - vec3(0.5)) * 2.0;
-		vec3 lm_light_l1_0 = (textureArray_bicubic(lightmap_textures, uvw + vec3(0.0, 0.0, 2.0), lightmap_texture_size).rgb - vec3(0.5)) * 2.0;
-		vec3 lm_light_l1p1 = (textureArray_bicubic(lightmap_textures, uvw + vec3(0.0, 0.0, 3.0), lightmap_texture_size).rgb - vec3(0.5)) * 2.0;
 #else
 		vec3 lm_light_l0 = textureLod(lightmap_textures, uvw + vec3(0.0, 0.0, 0.0), 0.0).rgb;
+#endif
+		// L1 is stored relative to L0 and is low frequency, so bilinear is enough.
 		vec3 lm_light_l1n1 = (textureLod(lightmap_textures, uvw + vec3(0.0, 0.0, 1.0), 0.0).rgb - vec3(0.5)) * 2.0;
 		vec3 lm_light_l1_0 = (textureLod(lightmap_textures, uvw + vec3(0.0, 0.0, 2.0), 0.0).rgb - vec3(0.5)) * 2.0;
 		vec3 lm_light_l1p1 = (textureLod(lightmap_textures, uvw + vec3(0.0, 0.0, 3.0), 0.0).rgb - vec3(0.5)) * 2.0;
-#endif
 
 		mat3 directional_lightmap_normal_xform = lightmap_normal_xform;
 #ifdef DO_SIDE_CHECK

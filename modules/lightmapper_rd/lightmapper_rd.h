@@ -67,6 +67,11 @@ class LightmapperRD : public Lightmapper {
 		float ao_strength = 0.0f;
 		float ao_light_affect = 0.0f;
 		float environment_exposure_multiplier = 1.0f;
+
+		float indirect_sample_clamp = 0.0f;
+		uint32_t env_cdf_width = 0; // 0 disables environment importance sampling.
+		uint32_t env_cdf_height = 0;
+		float adaptive_threshold = 0.0f; // Relative standard error to stop sampling a texel, 0 disables.
 	};
 
 	struct RaytracingResources {
@@ -357,7 +362,7 @@ class LightmapperRD : public Lightmapper {
 
 	Error _store_pfm(const Vector<uint8_t> &p_data, const Size2i &p_atlas_size, const String &p_name, bool p_shadowmask);
 	Ref<Image> _read_pfm(const String &p_name, bool p_shadowmask);
-	BakeError _denoise_oidn(const String &p_light_path, const String &p_normal_path, const Size2i &p_atlas_size, int p_atlas_slices, bool p_bake_sh, bool p_shadowmask, const String &p_exe, const String &p_device, BakeStepFunc p_step_function, void *p_bake_userdata);
+	BakeError _denoise_oidn(const String &p_light_path, const String &p_normal_path, const Size2i &p_atlas_size, int p_atlas_slices, bool p_bake_sh, bool p_shadowmask, const String &p_exe, const String &p_device, BakeStepFunc p_step_function, void *p_bake_userdata, int p_max_memory_mb = 0);
 
 public:
 	static RenderingDevice *take_cached_bake_device();
@@ -373,7 +378,7 @@ public:
 	virtual void add_area_light(const String &p_name, bool p_static, const Vector3 &p_position, const Vector3 &p_direction, const Color &p_color, float p_energy, float p_indirect_energy, float p_range, float p_attenuation, float p_range_fade_start, const Vector3 &p_area_width, const Vector3 &p_area_height, float p_size, float p_shadow_blur, const Rect2 &p_texture_rect, float p_max_mipmap) override;
 	virtual void add_area_light_atlas(const Vector2i &p_size, int p_mipmap_count, const PackedByteArray &p_atlas_data) override;
 	virtual void add_probe(const Vector3 &p_position) override;
-	virtual BakeError bake(BakeQuality p_quality, bool p_use_denoiser, float p_denoiser_strength, int p_denoiser_range, int p_bounces, float p_bounce_indirect_energy, float p_bias, bool p_bake_ao, float p_ao_distance, float p_ao_strength, float p_ao_light_affect, int p_ao_samples, int p_max_texture_size, bool p_bake_sh, bool p_bake_shadowmask, bool p_texture_for_bounces, GenerateProbes p_generate_probes, const Ref<Image> &p_environment_panorama, const Basis &p_environment_transform, BakeStepFunc p_step_function = nullptr, void *p_bake_userdata = nullptr, float p_exposure_normalization = 1.0, float p_environment_exposure_multiplier = 1.0, float p_supersampling_factor = 1.0f) override;
+	virtual BakeError bake(BakeQuality p_quality, bool p_use_denoiser, float p_denoiser_strength, int p_denoiser_range, int p_bounces, float p_bounce_indirect_energy, float p_bias, bool p_bake_ao, float p_ao_distance, float p_ao_strength, float p_ao_light_affect, int p_ao_samples, int p_max_texture_size, bool p_bake_sh, bool p_bake_shadowmask, bool p_texture_for_bounces, const Ref<Image> &p_environment_panorama, const Basis &p_environment_transform, BakeStepFunc p_step_function = nullptr, void *p_bake_userdata = nullptr, float p_exposure_normalization = 1.0, float p_environment_exposure_multiplier = 1.0, float p_supersampling_factor = 1.0f, bool p_bake_lightmaps = true, float p_indirect_sample_clamp = 0.0f) override;
 
 	int get_bake_texture_count() const override;
 	Ref<Image> get_bake_texture(int p_index) const override;

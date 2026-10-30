@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<class name="LightProbeData" inherits="Resource" api_type="core" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="../class.xsd">
+	<brief_description>
+		Stores baked probe lighting and interpolation data independently of lightmaps.
+	</brief_description>
+	<description>
+		Contains probe positions, nine signed RGB spherical-harmonic coefficients per probe, tetrahedra, capture bounds and its own bake exposure. Saved as a [code].tres[/code] resource and assigned automatically to [member LightProbeSystem.light_data]. Each system receives its own resource and capture, preserving interpolation across its volumes while keeping different systems independent. Texture lightmaps and mesh atlas mappings remain in [LightmapGIData]. A probe-only bake does not rewrite the lightmap resource. Renderer data is uploaded lazily when a system uses the capture, and unchanged tetrahedra can reuse their runtime BVH cells.
+	</description>
+	<tutorials>
+	</tutorials>
+	<methods>
+		<method name="clear_cache">
+			<return type="void" />
+			<description>Requests a full topology and runtime BVH rebuild on the next successful probe bake. Keeps current lighting. The request is transient and remains pending after cancellation or a failed save.</description>
+		</method>
+		<method name="get_capture_data" qualifiers="const">
+			<return type="Dictionary" />
+			<description>Returns the serialized capture snapshot: bounds, points, sh, tetrahedra, baked_exposure, interior and stale. Positions and coefficients use the capture frame stored by the systems. The snapshot shares its packed arrays until modified.</description>
+		</method>
+		<method name="get_coefficients" qualifiers="const">
+			<return type="PackedColorArray" />
+			<description>Returns nine RGB spherical-harmonic coefficients per position, in position order. Coefficients can be negative and contain HDR values.</description>
+		</method>
+		<method name="get_points" qualifiers="const">
+			<return type="PackedVector3Array" />
+			<description>Returns baked positions in capture coordinates. Editable placement is stored separately in [LightProbeVolumeData].</description>
+		</method>
+		<method name="set_capture_data">
+			<return type="int" enum="Error" />
+			<param index="0" name="data" type="Dictionary" />
+			<description>Replaces a complete capture snapshot after validating its arrays, bounds, exposure and indices. Returns [constant OK] or [constant ERR_INVALID_DATA]. Failed validation leaves the previous capture unchanged. Non-empty BSP data is not supported by this resource; it uses a runtime tetrahedron BVH.</description>
+		</method>
+	</methods>
+	<members>
+		<member name="baked_exposure" type="float" getter="get_baked_exposure" default="1.0">Read-only exposure used to encode the stored coefficients. The renderer applies current camera exposure divided by this value independently of texture-lightmap exposure.</member>
+		<member name="probe_count" type="int" getter="get_probe_count" default="0">Read-only count of baked probes.</member>
+		<member name="stale" type="bool" getter="is_stale" default="false">Whether lighting needs a refresh after a lightmap-only bake or placement changes. Systems show this as a configuration warning without a modal dialog.</member>
+	</members>
+</class>

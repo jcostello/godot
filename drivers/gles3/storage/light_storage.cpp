@@ -1129,7 +1129,7 @@ RID LightStorage::lightmap_allocate() {
 }
 
 void LightStorage::lightmap_initialize(RID p_rid) {
-	lightmap_owner.initialize_rid(p_rid, Lightmap());
+	lightmap_owner.initialize_rid(p_rid);
 }
 
 void LightStorage::lightmap_free(RID p_rid) {
@@ -1182,6 +1182,7 @@ void LightStorage::lightmap_set_probe_capture_data(RID p_lightmap, const PackedV
 	lightmap->points = p_points;
 	lightmap->point_sh = p_point_sh;
 	lightmap->tetrahedra = p_tetrahedra;
+	lightmap->probe_capture.update(p_bsp_tree.is_empty() ? p_points : PackedVector3Array(), p_bsp_tree.is_empty() ? p_tetrahedra : PackedInt32Array());
 	lightmap->bsp_tree = p_bsp_tree;
 }
 
@@ -1190,6 +1191,12 @@ void LightStorage::lightmap_set_baked_exposure_normalization(RID p_lightmap, flo
 	ERR_FAIL_NULL(lightmap);
 
 	lightmap->baked_exposure = p_exposure;
+}
+
+float LightStorage::lightmap_get_baked_exposure_normalization(RID p_lightmap) const {
+	const Lightmap *lightmap = lightmap_owner.get_or_null(p_lightmap);
+	ERR_FAIL_NULL_V(lightmap, 1.0f);
+	return lightmap->baked_exposure;
 }
 
 PackedVector3Array LightStorage::lightmap_get_probe_capture_points(RID p_lightmap) const {
@@ -1228,6 +1235,11 @@ void LightStorage::lightmap_tap_sh_light(RID p_lightmap, const Vector3 &p_point,
 
 	for (int i = 0; i < 9; i++) {
 		r_sh[i] = Color(0, 0, 0, 0);
+	}
+
+	if (lm->bsp_tree.is_empty()) {
+		lm->probe_capture.sample(p_point, lm->point_sh, r_sh);
+		return;
 	}
 
 	if (!lm->points.size() || !lm->bsp_tree.size() || !lm->tetrahedra.size()) {
