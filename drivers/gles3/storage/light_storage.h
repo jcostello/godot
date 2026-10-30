@@ -195,12 +195,6 @@ struct Lightmap {
 	LightmapProbeCapture probe_capture;
 	float specular_intensity = 0.0f;
 
-	struct BSP {
-		static const int32_t EMPTY_LEAF = INT32_MIN;
-		float plane[4];
-		int32_t over = EMPTY_LEAF, under = EMPTY_LEAF;
-	};
-
 	Dependency dependency;
 };
 

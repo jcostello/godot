@@ -129,16 +129,15 @@ validation or replaces active baked lighting. Lighting samples are still rebaked
 this does not introduce an independent or incremental lighting baker.
 
 New-system captures store tetrahedra with an empty legacy BSP. Both RenderingDevice
-and Compatibility renderers use a shared runtime BVH for this form. Its cells are
-keyed by vertex positions, retaining unchanged cells across topology/index/SH
-updates and removing/inserting only changed cells. The BVH is reconstructed from
-tetrahedra when loading a resource; no raw pointers or tree nodes are serialized.
+and Compatibility renderers use a shared runtime BVH over a flat cell array, rebuilt
+whenever the capture data changes. The BVH is reconstructed from tetrahedra when
+loading a resource; no raw pointers or tree nodes are serialized.
 Barycentric interpolation samples containing tetrahedra. Outside coverage,
 lighting extends from the closest tetrahedron surface. Captures without any
 tetrahedra blend up to four nearest probes with inverse-squared-distance weights,
 supporting rows, planes and single probes. Connectivity and lookup do not test
-geometry. Previously saved non-empty BSP captures retain their existing lookup
-behavior. These new captures require this engine branch to use their runtime BVH.
+geometry. Previously saved BSP trees are ignored; those captures use the same
+tetrahedra lookup. These captures require this engine branch to use their runtime BVH.
 
 Dynamic-object capture coefficients are divided by the LightProbeData bake
 exposure before captures are blended. Forward+, Mobile and Compatibility then

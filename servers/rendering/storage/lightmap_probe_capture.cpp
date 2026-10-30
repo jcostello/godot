@@ -44,9 +44,6 @@ void LightmapProbeCapture::clear() {
 	point_index.clear();
 	probe_points.clear();
 	point_bounds = AABB();
-	for (const KeyValue<Key, Cell *> &entry : cells) {
-		memdelete(entry.value);
-	}
 	cells.clear();
 	bounds = AABB();
 }
@@ -70,56 +67,30 @@ void LightmapProbeCapture::update(const PackedVector3Array &p_points, const Pack
 			point_bounds = AABB();
 		}
 	}
-	HashMap<Key, Cell *, KeyHasher> next;
-	next.reserve(p_tetrahedra.size() / 4);
+	index.clear();
+	cells.clear();
+	cells.reserve(p_tetrahedra.size() / 4);
 	bool first = true;
 	for (int i = 0; i + 3 < p_tetrahedra.size(); i += 4) {
-		int vertices[4];
+		Cell cell;
 		bool valid = true;
 		for (int j = 0; j < 4; j++) {
-			vertices[j] = p_tetrahedra[i + j];
-			valid &= vertices[j] >= 0 && vertices[j] < p_points.size();
+			cell.indices[j] = p_tetrahedra[i + j];
+			valid &= cell.indices[j] >= 0 && cell.indices[j] < p_points.size();
 		}
 		ERR_CONTINUE(!valid);
-		for (int j = 1; j < 4; j++) {
-			for (int k = j; k > 0 && p_points[vertices[k]] < p_points[vertices[k - 1]]; k--) {
-				SWAP(vertices[k], vertices[k - 1]);
-			}
-		}
-		Key key;
 		for (int j = 0; j < 4; j++) {
-			key.points[j] = p_points[vertices[j]];
-			valid &= key.points[j].is_finite();
+			cell.points[j] = p_points[cell.indices[j]];
+			valid &= cell.points[j].is_finite();
 		}
 		ERR_CONTINUE(!valid);
-		if (next.has(key)) {
+		const Basis basis(cell.points[1] - cell.points[0], cell.points[2] - cell.points[0], cell.points[3] - cell.points[0]);
+		if (basis.determinant() == 0) {
 			continue;
 		}
-		Cell *cell = nullptr;
-		Cell **previous = cells.getptr(key);
-		if (previous) {
-			cell = *previous;
-			cells.erase(key);
-		} else {
-			const Basis basis(key.points[1] - key.points[0], key.points[2] - key.points[0], key.points[3] - key.points[0]);
-			if (basis.determinant() == 0) {
-				continue;
-			}
-			cell = memnew(Cell);
-			cell->inverse = basis.inverse();
-			AABB box(key.points[0], Vector3());
-			for (int j = 0; j < 4; j++) {
-				cell->points[j] = key.points[j];
-				box.expand_to(key.points[j]);
-			}
-			cell->id = index.insert(box.grow(MAX(real_t(0.00001), box.size.length() * real_t(0.00001))), cell);
-		}
-		for (int j = 0; j < 4; j++) {
-			cell->indices[j] = vertices[j];
-		}
-		cell->order = i / 4;
-		next.insert(key, cell);
-		for (const Vector3 &point : key.points) {
+		cell.inverse = basis.inverse();
+		cells.push_back(cell);
+		for (const Vector3 &point : cell.points) {
 			if (first) {
 				bounds = AABB(point, Vector3());
 				first = false;
@@ -128,11 +99,13 @@ void LightmapProbeCapture::update(const PackedVector3Array &p_points, const Pack
 			}
 		}
 	}
-	for (const KeyValue<Key, Cell *> &entry : cells) {
-		index.remove(entry.value->id);
-		memdelete(entry.value);
+	for (uint32_t i = 0; i < cells.size(); i++) {
+		AABB box(cells[i].points[0], Vector3());
+		for (const Vector3 &point : cells[i].points) {
+			box.expand_to(point);
+		}
+		index.insert(box.grow(MAX(real_t(0.00001), box.size.length() * real_t(0.00001))), reinterpret_cast<void *>(uintptr_t(i + 1)));
 	}
-	cells = std::move(next);
 	if (first) {
 		bounds = AABB();
 	}
@@ -238,9 +211,9 @@ bool LightmapProbeCapture::sample(const Vector3 &p_point, const PackedColorArray
 	const Cell *selected = nullptr;
 	Color weights;
 	auto containing = [&](void *p_data) {
-		const Cell *cell = static_cast<Cell *>(p_data);
+		const Cell *cell = &cells[reinterpret_cast<uintptr_t>(p_data) - 1];
 		const Color barycentric = _weights(*cell, p_point);
-		if (MIN(MIN(barycentric.r, barycentric.g), MIN(barycentric.b, barycentric.a)) >= -0.00001 && (!selected || cell->order < selected->order)) {
+		if (MIN(MIN(barycentric.r, barycentric.g), MIN(barycentric.b, barycentric.a)) >= -0.00001 && (!selected || cell < selected)) {
 			selected = cell;
 			weights = barycentric;
 		}
@@ -254,7 +227,7 @@ bool LightmapProbeCapture::sample(const Vector3 &p_point, const PackedColorArray
 		real_t distance_squared = std::numeric_limits<real_t>::infinity();
 		real_t radius = MAX(real_t(0.00001), bounds.size.length() / 64);
 		auto closest = [&](void *p_data) {
-			const Cell *cell = static_cast<Cell *>(p_data);
+			const Cell *cell = &cells[reinterpret_cast<uintptr_t>(p_data) - 1];
 			for (int opposite = 0; opposite < 4; opposite++) {
 				Vector3 face[3];
 				int count = 0;
@@ -265,7 +238,7 @@ bool LightmapProbeCapture::sample(const Vector3 &p_point, const PackedColorArray
 				}
 				const Vector3 position = Face3(face[0], face[1], face[2]).get_closest_point_to(p_point);
 				const real_t distance = position.distance_squared_to(p_point);
-				if (distance < distance_squared || (distance == distance_squared && (!selected || cell->order < selected->order))) {
+				if (distance < distance_squared || (distance == distance_squared && (!selected || cell < selected))) {
 					distance_squared = distance;
 					selected = cell;
 					weights = _weights(*cell, position);
@@ -307,8 +280,4 @@ bool LightmapProbeCapture::sample(const Vector3 &p_point, const PackedColorArray
 		}
 	}
 	return true;
-}
-
-LightmapProbeCapture::~LightmapProbeCapture() {
-	clear();
 }

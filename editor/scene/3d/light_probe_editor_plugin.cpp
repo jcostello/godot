@@ -261,6 +261,17 @@ void LightProbeVolumeGizmoPlugin::redraw(EditorNode3DGizmo *p_gizmo) {
 	p_gizmo->add_multimesh(spheres);
 }
 
+void LightProbeVolumeGizmoPlugin::_clear_capture_lookups() {
+	for (KeyValue<ObjectID, CaptureLookup *> &entry : capture_lookups) {
+		memdelete(entry.value);
+	}
+	capture_lookups.clear();
+}
+
+LightProbeVolumeGizmoPlugin::~LightProbeVolumeGizmoPlugin() {
+	_clear_capture_lookups();
+}
+
 HashSet<int> LightProbeVolumeGizmoPlugin::_add_baked_probes(EditorNode3DGizmo *p_gizmo, LightProbeVolume *p_volume) {
 	HashSet<int> baked_ids;
 	LightProbeSystem *system = p_volume->get_system();
@@ -273,10 +284,24 @@ HashSet<int> LightProbeVolumeGizmoPlugin::_add_baked_probes(EditorNode3DGizmo *p
 	if (capture_points.is_empty() || sh.size() != capture_points.size() * 9) {
 		return baked_ids;
 	}
-	DynamicBVH lookup;
-	for (int i = 0; i < capture_points.size(); i++) {
-		lookup.insert(AABB(capture_points[i], Vector3()), reinterpret_cast<void *>(uintptr_t(i + 1)));
+	// shortcut: entries of freed LightProbeData are only dropped by this size cap; prune by ObjectID if it ever matters.
+	if (capture_lookups.size() > 32) {
+		_clear_capture_lookups();
 	}
+	CaptureLookup **cached_ptr = capture_lookups.getptr(capture->get_instance_id());
+	if (!cached_ptr) {
+		cached_ptr = &capture_lookups.insert(capture->get_instance_id(), memnew(CaptureLookup))->value;
+	}
+	CaptureLookup &cached = **cached_ptr;
+	// Unchanged copy-on-write arrays keep sharing the same buffer.
+	if (cached.points.ptr() != capture_points.ptr() || cached.points.size() != capture_points.size()) {
+		cached.bvh.clear();
+		for (int i = 0; i < capture_points.size(); i++) {
+			cached.bvh.insert(AABB(capture_points[i], Vector3()), reinterpret_cast<void *>(uintptr_t(i + 1)));
+		}
+		cached.points = capture_points;
+	}
+	DynamicBVH &lookup = cached.bvh;
 	const Transform3D to_capture = system->get_capture_global_transform().affine_inverse() * p_volume->get_global_transform();
 	const PackedVector3Array positions = p_volume->get_data()->get_positions();
 	const PackedInt32Array ids = p_volume->get_data()->get_probe_ids();

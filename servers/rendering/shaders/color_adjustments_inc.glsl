@@ -1,6 +1,9 @@
 // Optional alternatives to the legacy sRGB contrast and saturation controls.
-// Callers provide sRGB-encoded color after tonemapping.
-float adjustment_soft_contrast_channel(float value, float contrast, float pivot) {
+// The sRGB helpers expect sRGB-encoded color after tonemapping.
+
+// A pivot-centered sigmoid. p_bias is (1 - contrast) * logit(pivot), so callers can cache it.
+// Log odds avoid overflow with large contrast.
+float adjustment_sigmoid_contrast(float value, float contrast, float pivot, float bias) {
 	// Preserve HDR headroom and negative values from preceding adjustments.
 	if (contrast == 1.0 || value <= 0.0 || value >= 1.0) {
 		return value;
@@ -8,16 +11,36 @@ float adjustment_soft_contrast_channel(float value, float contrast, float pivot)
 	if (contrast <= 0.0) {
 		return pivot;
 	}
-	// A pivot-centered sigmoid. Log odds avoid overflow with large contrast.
-	float log_odds = contrast * (log(value / pivot) - log((1.0 - value) / (1.0 - pivot))) + log(pivot / (1.0 - pivot));
+	float log_odds = contrast * log(value / (1.0 - value)) + bias;
 	float e = exp(-abs(log_odds));
 	return log_odds >= 0.0 ? 1.0 / (1.0 + e) : e / (1.0 + e);
 }
 
+vec3 adjustment_sigmoid_contrast(vec3 color, float contrast, float pivot, float bias) {
+	return vec3(adjustment_sigmoid_contrast(color.r, contrast, pivot, bias),
+			adjustment_sigmoid_contrast(color.g, contrast, pivot, bias),
+			adjustment_sigmoid_contrast(color.b, contrast, pivot, bias));
+}
+
+// Scales chroma around luminance. Chroma is reduced toward the same-luminance neutral
+// axis to fit the RGB gamut, rather than clipping channels separately. HDR headroom is kept.
+vec3 adjustment_gamut_saturation(vec3 color, float saturation) {
+	float luminance = dot(color, vec3(0.2126, 0.7152, 0.0722));
+	vec3 chroma = (color - vec3(luminance)) * saturation;
+	float upper = max(1.0, max(color.r, max(color.g, color.b)));
+	float scale = 1.0;
+	for (int channel = 0; channel < 3; channel++) {
+		if (chroma[channel] > 0.0) {
+			scale = min(scale, (upper - luminance) / chroma[channel]);
+		} else if (chroma[channel] < 0.0) {
+			scale = min(scale, -luminance / chroma[channel]);
+		}
+	}
+	return max(vec3(luminance) + chroma * scale, vec3(0.0));
+}
+
 vec3 adjustment_soft_contrast(vec3 color, float contrast, float pivot) {
-	return vec3(adjustment_soft_contrast_channel(color.r, contrast, pivot),
-			adjustment_soft_contrast_channel(color.g, contrast, pivot),
-			adjustment_soft_contrast_channel(color.b, contrast, pivot));
+	return adjustment_sigmoid_contrast(color, contrast, pivot, (1.0 - contrast) * log(pivot / (1.0 - pivot)));
 }
 
 vec3 adjustment_srgb_to_linear(vec3 color) {
@@ -32,19 +55,5 @@ vec3 adjustment_luminance_saturation(vec3 color, float saturation) {
 	if (saturation == 1.0) {
 		return color;
 	}
-	vec3 linear_color = adjustment_srgb_to_linear(max(color, vec3(0.0)));
-	float luminance = dot(linear_color, vec3(0.2126, 0.7152, 0.0722));
-	vec3 chroma = (linear_color - vec3(luminance)) * max(saturation, 0.0);
-	// Preserve existing HDR headroom. Reduce chroma toward the same-luminance
-	// neutral axis to fit the RGB gamut, rather than clipping channels separately.
-	float upper = max(1.0, max(linear_color.r, max(linear_color.g, linear_color.b)));
-	float scale = 1.0;
-	for (int channel = 0; channel < 3; channel++) {
-		if (chroma[channel] > 0.0) {
-			scale = min(scale, (upper - luminance) / chroma[channel]);
-		} else if (chroma[channel] < 0.0) {
-			scale = min(scale, -luminance / chroma[channel]);
-		}
-	}
-	return adjustment_linear_to_srgb(max(vec3(luminance) + chroma * scale, vec3(0.0)));
+	return adjustment_linear_to_srgb(adjustment_gamut_saturation(adjustment_srgb_to_linear(max(color, vec3(0.0))), max(saturation, 0.0)));
 }

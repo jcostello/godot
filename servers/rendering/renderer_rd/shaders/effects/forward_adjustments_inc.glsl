@@ -28,37 +28,14 @@ layout(set = 5, binding = 4) uniform sampler2D forward_lut_1d;
 layout(set = 5, binding = 5) uniform sampler3D forward_lut_3d;
 #define COLOR_GRADING_CURVES
 #endif
-#include "../../../shaders/color_adjustments_inc.glsl"
+// color_adjustments_inc.glsl is included by tonemap.glsl.
 #include "../../../shaders/color_grading_inc.glsl"
-
-vec3 forward_luminance_saturation(vec3 color, float saturation) {
-	float luminance = dot(color, vec3(0.2126, 0.7152, 0.0722));
-	vec3 chroma = (color - vec3(luminance)) * saturation;
-	float upper = max(1.0, max(color.r, max(color.g, color.b)));
-	float scale = 1.0;
-	for (int channel = 0; channel < 3; channel++) {
-		if (chroma[channel] > 0.0) {
-			scale = min(scale, (upper - luminance) / chroma[channel]);
-		} else if (chroma[channel] < 0.0) {
-			scale = min(scale, -luminance / chroma[channel]);
-		}
-	}
-	return max(vec3(luminance) + chroma * scale, vec3(0.0));
-}
 
 vec4 forward_correction_parameters(vec3 weights) {
 	if (!use_forward_correction_weights) {
 		return forward_grading.correction[0];
 	}
 	return forward_grading.correction[0] * (vec4(1.0) + (forward_grading.correction[1] - vec4(1.0)) * weights.x + (forward_grading.correction[2] - vec4(1.0)) * weights.y + (forward_grading.correction[3] - vec4(1.0)) * weights.z);
-}
-
-float forward_correction_contrast_channel(float value, float contrast) {
-	if (contrast == 1.0 || value <= 0.0 || value >= 1.0) { return value; }
-	if (contrast <= 0.0) { return forward_grading.correction[5].w; }
-	float log_odds = contrast * log(value / (1.0 - value)) + (1.0 - contrast) * forward_grading.controls.w;
-	float e = exp(-abs(log_odds));
-	return log_odds >= 0.0 ? 1.0 / (1.0 + e) : e / (1.0 + e);
 }
 
 vec3 forward_adjustments_pre(vec3 color, vec2 uv, out vec3 correction_weights) {
@@ -77,7 +54,7 @@ vec3 forward_adjustments_pre(vec3 color, vec2 uv, out vec3 correction_weights) {
 			color *= modulation;
 		}
 		if (use_forward_correction_contrast && parameters.y != 1.0) {
-			color = vec3(forward_correction_contrast_channel(color.r, parameters.y), forward_correction_contrast_channel(color.g, parameters.y), forward_correction_contrast_channel(color.b, parameters.y));
+			color = adjustment_sigmoid_contrast(color, parameters.y, forward_grading.correction[5].w, (1.0 - parameters.y) * forward_grading.controls.w);
 		}
 		color = grading_tonal_levels(color, correction_weights, forward_grading.correction);
 		if (use_forward_correction_lgg) {
@@ -140,7 +117,7 @@ vec3 forward_adjustments_post(vec3 color, vec3 correction_weights) {
 	if (use_forward_correction_saturation) {
 		float saturation = forward_correction_parameters(correction_weights).x;
 		if (saturation != 1.0) {
-			color = forward_luminance_saturation(max(color, vec3(0.0)), saturation);
+			color = adjustment_gamut_saturation(max(color, vec3(0.0)), saturation);
 		}
 	}
 #ifdef USE_FORWARD_CURVES

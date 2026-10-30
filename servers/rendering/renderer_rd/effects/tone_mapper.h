@@ -126,7 +126,7 @@ private:
 		float luminance_multiplier; //  4 - 96
 
 		float tonemapper_params[4]; //  16 - 112
-		float adjustment_controls[4]; // 16 - 128: soft contrast, pivot, mode bits, pivot bias
+		float adjustment_controls[4]; // 16 - 128: soft contrast, pivot, unused, pivot bias
 	};
 
 	struct TonemapPushConstantMobile {

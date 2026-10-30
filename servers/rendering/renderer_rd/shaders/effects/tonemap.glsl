@@ -98,33 +98,10 @@ params;
 layout(constant_id = 0) const bool use_soft_contrast = false;
 layout(constant_id = 1) const bool use_saturation = false;
 layout(constant_id = 2) const bool preserve_saturation_luminance = false;
-// Diagnostic reference: retains the previous runtime branches for A/B comparison.
-layout(constant_id = 3) const bool adjustment_runtime_branches = false;
 
 layout(location = 0) out vec4 frag_color;
 
-// Soft contrast operates in scene-linear HDR in Forward+.
-float forward_basic_soft_contrast_channel(float value, float contrast, float pivot) {
-	// Preserve HDR headroom and negative values from preceding adjustments.
-	if (contrast == 1.0 || value <= 0.0 || value >= 1.0) {
-		return value;
-	}
-	if (contrast <= 0.0) {
-		return pivot;
-	}
-	// A pivot-centered sigmoid. Log odds avoid overflow with large contrast.
-	// Cache the pivot bias on CPU; only one logarithm per channel.
-	float log_odds = contrast * log(value / (1.0 - value)) + params.adjustment_controls.w;
-	float e = exp(-abs(log_odds));
-	return log_odds >= 0.0 ? 1.0 / (1.0 + e) : e / (1.0 + e);
-}
-
-vec3 forward_basic_soft_contrast(vec3 color, float contrast, float pivot) {
-	return vec3(forward_basic_soft_contrast_channel(color.r, contrast, pivot),
-			forward_basic_soft_contrast_channel(color.g, contrast, pivot),
-			forward_basic_soft_contrast_channel(color.b, contrast, pivot));
-}
-
+#include "../../../shaders/color_adjustments_inc.glsl"
 #include "forward_adjustments_inc.glsl"
 
 // Based on Reinhard's extended formula, see equation 4 in https://doi.org/cjbgrt
@@ -918,8 +895,8 @@ void main() {
 #ifdef USE_WHITE_BALANCE
 	color.rgb = apply_white_balance(color.rgb);
 #endif
-	if (use_soft_contrast || (adjustment_runtime_branches && (int(params.adjustment_controls.z) & 2) != 0 && params.adjustment_controls.x != 1.0)) {
-		color.rgb = forward_basic_soft_contrast(color.rgb, params.adjustment_controls.x, params.adjustment_controls.y);
+	if (use_soft_contrast) {
+		color.rgb = adjustment_sigmoid_contrast(color.rgb, params.adjustment_controls.x, params.adjustment_controls.y, params.adjustment_controls.w);
 	}
 #ifdef USE_FORWARD_GRADING
 	vec3 forward_correction_weights_main;
@@ -940,8 +917,8 @@ void main() {
 #ifdef USE_WHITE_BALANCE
 		glow = apply_white_balance(glow);
 #endif
-		if (use_soft_contrast || (adjustment_runtime_branches && (int(params.adjustment_controls.z) & 2) != 0 && params.adjustment_controls.x != 1.0)) {
-			glow = forward_basic_soft_contrast(glow, params.adjustment_controls.x, params.adjustment_controls.y);
+		if (use_soft_contrast) {
+			glow = adjustment_sigmoid_contrast(glow, params.adjustment_controls.x, params.adjustment_controls.y, params.adjustment_controls.w);
 		}
 #ifdef USE_FORWARD_GRADING
 		vec3 unused_correction_weights;
@@ -959,23 +936,13 @@ void main() {
 #endif
 
 	// Saturation follows tonemapping and soft-light glow, in display-linear RGB.
-	// The condition is uniform across the draw; neutral skips the arithmetic.
-	if (use_saturation || (adjustment_runtime_branches && params.saturation != 1.0)) {
-		float luminance = dot(color.rgb, vec3(0.2126, 0.7152, 0.0722));
-		vec3 chroma = (color.rgb - vec3(luminance)) * params.saturation;
-		float scale = 1.0;
-		if (preserve_saturation_luminance || (adjustment_runtime_branches && (int(params.adjustment_controls.z) & 1) != 0)) {
-			// Reduce chroma at gamut boundaries instead of clipping RGB independently.
-			float upper = max(1.0, max(color.r, max(color.g, color.b)));
-			for (int channel = 0; channel < 3; channel++) {
-				if (chroma[channel] > 0.0) {
-					scale = min(scale, (upper - luminance) / chroma[channel]);
-				} else if (chroma[channel] < 0.0) {
-					scale = min(scale, -luminance / chroma[channel]);
-				}
-			}
+	if (use_saturation) {
+		if (preserve_saturation_luminance) {
+			color.rgb = adjustment_gamut_saturation(color.rgb, params.saturation);
+		} else {
+			float luminance = dot(color.rgb, vec3(0.2126, 0.7152, 0.0722));
+			color.rgb = max(mix(vec3(luminance), color.rgb, params.saturation), vec3(0.0));
 		}
-		color.rgb = max(vec3(luminance) + chroma * scale, vec3(0.0));
 	}
 
 	// Additional effects.

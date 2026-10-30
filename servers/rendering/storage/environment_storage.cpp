@@ -1409,10 +1409,10 @@ void RendererEnvironmentStorage::_update_forward_adjustment_flags(Environment *p
 	}
 	if (p_env->adjustments_advance) {
 		if (p_env->adjustments_vibrance != 0.0f) {
-			p_env->forward_adjustment_flags |= 16;
+			p_env->forward_adjustment_flags |= FORWARD_ADJUSTMENT_VIBRANCE;
 		}
 		if (p_env->adjustments_vignette > 0.0f) {
-			p_env->forward_adjustment_flags |= 32;
+			p_env->forward_adjustment_flags |= FORWARD_ADJUSTMENT_VIGNETTE;
 		}
 	}
 	const Vector4 *correction = p_env->adjustments_tonal_correction;
@@ -1424,34 +1424,34 @@ void RendererEnvironmentStorage::_update_forward_adjustment_flags(Environment *p
 			pre = pre || correction[10][range] != 0.0f || correction[11][range] != 1.0f || v.y != 1.0f || v.z != 1.0f || v.w != 1.0f || correction[4][range] != 0.0f || correction[6 + range] != Vector4(1, 1, 1, 0);
 			post = post || v.x != 1.0f;
 			if (v.y != 1.0f) {
-				p_env->forward_adjustment_flags |= 512;
+				p_env->forward_adjustment_flags |= FORWARD_ADJUSTMENT_CORRECTION_CONTRAST;
 			}
 			if (v.z != 1.0f || v.w != 1.0f || correction[4][range] != 0.0f) {
-				p_env->forward_adjustment_flags |= 1024;
+				p_env->forward_adjustment_flags |= FORWARD_ADJUSTMENT_CORRECTION_LGG;
 			}
 			if (correction[6 + range] != Vector4(1, 1, 1, 0)) {
-				p_env->forward_adjustment_flags |= 2048;
+				p_env->forward_adjustment_flags |= FORWARD_ADJUSTMENT_CORRECTION_COLOR;
 			}
 		}
 		if (pre) {
-			p_env->forward_adjustment_flags |= 4;
+			p_env->forward_adjustment_flags |= FORWARD_ADJUSTMENT_CORRECTION;
 		}
 		if (post) {
-			p_env->forward_adjustment_flags |= 8;
+			p_env->forward_adjustment_flags |= FORWARD_ADJUSTMENT_CORRECTION_SATURATION;
 		}
 		bool needs_weights = correction[5].z > 1.5f;
 		for (int range = 1; range < 4; range++) {
 			needs_weights = needs_weights || correction[10][range] != 0.0f || correction[11][range] != 1.0f || correction[range] != Vector4(1, 1, 1, 1) || correction[4][range] != 0.0f || correction[6 + range] != Vector4(1, 1, 1, 0);
 		}
 		if ((pre || post) && needs_weights) {
-			p_env->forward_adjustment_flags |= 256;
+			p_env->forward_adjustment_flags |= FORWARD_ADJUSTMENT_CORRECTION_WEIGHTS;
 		}
 	}
 	if (p_env->adjustments_hue_vs_hue.is_valid()) {
-		p_env->forward_adjustment_flags |= 64;
+		p_env->forward_adjustment_flags |= FORWARD_ADJUSTMENT_CURVES;
 	}
 	if (p_env->color_correction.is_valid()) {
-		p_env->forward_adjustment_flags |= 128;
+		p_env->forward_adjustment_flags |= FORWARD_ADJUSTMENT_LUT;
 	}
 }
 uint32_t RendererEnvironmentStorage::environment_get_forward_adjustment_flags(RID p_env) const {

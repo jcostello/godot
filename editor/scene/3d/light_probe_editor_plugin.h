@@ -30,6 +30,7 @@
 
 #pragma once
 
+#include "core/math/dynamic_bvh.h"
 #include "editor/plugins/editor_plugin.h"
 #include "editor/scene/3d/node_3d_editor_gizmos.h"
 #include "scene/3d/light_probe_volume.h"
@@ -51,6 +52,14 @@ class LightProbeVolumeGizmoPlugin : public EditorNode3DGizmoPlugin {
 	Ref<Shader> baked_probe_shader;
 	bool baked_preview = true;
 	float probe_size = 0.4f;
+	// Capture point lookup per LightProbeData, rebuilt only when its points change.
+	struct CaptureLookup {
+		PackedVector3Array points; // Holding a reference keeps the buffer, and its address, unique.
+		DynamicBVH bvh;
+	};
+	// Pointers because DynamicBVH can't be copied.
+	HashMap<ObjectID, CaptureLookup *> capture_lookups;
+	void _clear_capture_lookups();
 	HashSet<int> _add_baked_probes(EditorNode3DGizmo *p_gizmo, LightProbeVolume *p_volume);
 
 public:
@@ -70,6 +79,7 @@ public:
 	void set_subgizmo_transform(const EditorNode3DGizmo *p_gizmo, int p_id, Transform3D p_transform) override;
 	void commit_subgizmos(const EditorNode3DGizmo *p_gizmo, const Vector<int> &p_ids, const Vector<Transform3D> &p_restore, bool p_cancel) override;
 	LightProbeVolumeGizmoPlugin();
+	~LightProbeVolumeGizmoPlugin();
 };
 
 class LightProbeEditorPlugin : public EditorPlugin {

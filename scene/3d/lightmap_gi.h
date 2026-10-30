@@ -73,6 +73,7 @@ private:
 	RID lightmap;
 	AABB bounds;
 	float baked_exposure = 1.0;
+	Vector2 tonal_luminance_range = Vector2(0, -1); // Max below min: not baked.
 	uint32_t lightprobe_hash = 0;
 	SafeFlag has_probe_capture_data;
 	Ref<LightProbeData> migrated_probe_data; // Session-only legacy migration, never serialized.
@@ -130,6 +131,8 @@ public:
 	float get_baked_exposure() const;
 	void set_baked_exposure(float p_exposure);
 	void set_lightmap_bounds(const AABB &p_bounds);
+	void set_tonal_luminance_range(const Vector2 &p_range);
+	Vector2 get_tonal_luminance_range() const;
 
 	void set_capture_data(const AABB &p_bounds, bool p_interior, const PackedVector3Array &p_points, const PackedColorArray &p_point_sh, const PackedInt32Array &p_tetrahedra, const PackedInt32Array &p_bsp_tree, float p_baked_exposure, uint32_t p_lightprobe_hash);
 	PackedVector3Array get_capture_points() const;
@@ -436,8 +439,6 @@ public:
 	float get_midtones() const;
 	void set_highlights(float p_value);
 	float get_highlights() const;
-	void set_directionality_strength(float p_value);
-	float get_directionality_strength() const;
 
 	float get_specular_intensity() const;
 	void set_specular_intensity(float p_strength);

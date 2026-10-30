@@ -58,6 +58,8 @@
 
 #include "modules/modules_enabled.gen.h" // IWYU pragma: keep. For lightmapper_rd.
 
+#include <cfloat>
+
 #ifdef MODULE_LIGHTMAPPER_RD_ENABLED
 #include "servers/display/display_server.h"
 #endif
@@ -78,6 +80,28 @@ void collect_probe_systems(Node *p_root, LightmapGI *p_source, Vector<LightProbe
 			collect_probe_systems(p_root->get_child(i), p_source, r_systems);
 		}
 	}
+}
+
+// Luminance range of the L0 layers, so tonal ranges don't need a texture readback at runtime.
+Vector2 compute_lightmap_luminance_range(const Ref<Lightmapper> &p_lightmapper, bool p_directional) {
+	float minimum = FLT_MAX;
+	float maximum = 0.0f;
+	const int stride = p_directional ? 4 : 1; // SH lightmaps store L0 first in each group of 4 layers.
+	for (int i = 0; i < p_lightmapper->get_bake_texture_count(); i += stride) {
+		const Ref<Image> image = p_lightmapper->get_bake_texture(i);
+		ERR_CONTINUE(image.is_null());
+		for (int y = 0; y < image->get_height(); y++) {
+			for (int x = 0; x < image->get_width(); x++) {
+				const Color color = image->get_pixel(x, y);
+				const float luminance = MAX(0.0f, color.r * 0.2126f + color.g * 0.7152f + color.b * 0.0722f);
+				if (Math::is_finite(luminance)) {
+					minimum = MIN(minimum, luminance);
+					maximum = MAX(maximum, luminance);
+				}
+			}
+		}
+	}
+	return minimum == FLT_MAX ? Vector2(0, -1) : Vector2(minimum, maximum);
 }
 
 LightmapGI::BakeError prepare_probe_capture(Lightmapper *p_lightmapper, LightProbeSystem *p_system, int p_probe_offset, int p_probe_count, const Transform3D &p_capture_transform, float p_exposure, bool p_interior, Lightmapper::BakeStepFunc p_step, void *p_userdata, Ref<LightProbeData> &r_capture) {
@@ -514,6 +538,16 @@ void LightmapGIData::set_lightmap_bounds(const AABB &p_bounds) {
 	RS::get_singleton()->lightmap_set_probe_bounds(lightmap, bounds);
 }
 
+void LightmapGIData::set_tonal_luminance_range(const Vector2 &p_range) {
+	ERR_FAIL_COND(!p_range.is_finite());
+	tonal_luminance_range = p_range;
+	RS::get_singleton()->lightmap_set_tonal_luminance_range(lightmap, p_range.x, p_range.y);
+}
+
+Vector2 LightmapGIData::get_tonal_luminance_range() const {
+	return tonal_luminance_range;
+}
+
 void LightmapGIData::_validate_property(PropertyInfo &p_property) const {
 	// Preview threads validate properties while holding the ClassDB read lock.
 	// Querying the RenderingServer here can deadlock with the main thread.
@@ -529,6 +563,9 @@ void LightmapGIData::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("set_baked_exposure", "exposure"), &LightmapGIData::set_baked_exposure);
 	ClassDB::bind_method(D_METHOD("get_baked_exposure"), &LightmapGIData::get_baked_exposure);
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "baked_exposure", PROPERTY_HINT_NONE, "", PROPERTY_USAGE_STORAGE | PROPERTY_USAGE_INTERNAL), "set_baked_exposure", "get_baked_exposure");
+	ClassDB::bind_method(D_METHOD("_set_tonal_luminance_range", "range"), &LightmapGIData::set_tonal_luminance_range);
+	ClassDB::bind_method(D_METHOD("_get_tonal_luminance_range"), &LightmapGIData::get_tonal_luminance_range);
+	ADD_PROPERTY(PropertyInfo(Variant::VECTOR2, "_tonal_luminance_range", PROPERTY_HINT_NONE, "", PROPERTY_USAGE_STORAGE | PROPERTY_USAGE_INTERNAL), "_set_tonal_luminance_range", "_get_tonal_luminance_range");
 	ClassDB::bind_method(D_METHOD("_set_user_data", "data"), &LightmapGIData::_set_user_data);
 	ClassDB::bind_method(D_METHOD("_get_user_data"), &LightmapGIData::_get_user_data);
 
@@ -1522,6 +1559,7 @@ LightmapGI::BakeError LightmapGI::bake(Node *p_from_node, String p_image_data_pa
 
 		gi_data->set_uses_spherical_harmonics(directional);
 		gi_data->_set_uses_packed_directional(directional); // New SH lightmaps are packed automatically.
+		gi_data->set_tonal_luminance_range(compute_lightmap_luminance_range(lightmapper, directional));
 
 		for (int i = 0; i < lightmapper->get_bake_mesh_count(); i++) {
 			Dictionary d = lightmapper->get_bake_mesh_userdata(i);
@@ -2294,7 +2332,7 @@ void LightmapGI::_update_color_adjustments() {
 		return;
 	}
 	const RID lightmap = light_data->get_rid();
-	RS::get_singleton()->lightmap_set_adjustments(lightmap, adjustments.energy, adjustments.tint, adjustments.saturation, adjustments.contrast, adjustments.shadows, adjustments.midtones, adjustments.highlights, 1.0f);
+	RS::get_singleton()->lightmap_set_adjustments(lightmap, adjustments.energy, adjustments.tint, adjustments.saturation, adjustments.contrast, adjustments.shadows, adjustments.midtones, adjustments.highlights);
 	RS::get_singleton()->lightmap_set_tonal_settings(lightmap, adjustments.tonal_ranges, adjustments.shadows_tint, adjustments.midtones_tint, adjustments.highlights_tint, adjustments.tonal_saturation, adjustments.tonal_contrast, adjustments.debug_mode);
 	RS::get_singleton()->lightmap_set_tonal_levels(lightmap, adjustments.tonal_black_point, adjustments.tonal_white_point, adjustments.tonal_gamma);
 	RS::get_singleton()->lightmap_set_adjustments_enabled(lightmap, adjustments.enabled);
@@ -2407,19 +2445,6 @@ void LightmapGI::set_highlights(float p_value) {
 
 float LightmapGI::get_highlights() const {
 	return adjustments.highlights;
-}
-
-void LightmapGI::set_directionality_strength(float p_value) {
-	ERR_FAIL_COND(!Math::is_finite(p_value));
-	ERR_FAIL_COND(p_value < 0.0f || p_value > 4.0f);
-	if (adjustments.directionality_strength == p_value) {
-		return;
-	}
-	adjustments.directionality_strength = p_value;
-}
-
-float LightmapGI::get_directionality_strength() const {
-	return adjustments.directionality_strength;
 }
 
 float LightmapGI::get_specular_intensity() const {
@@ -2604,8 +2629,6 @@ void LightmapGI::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("get_midtones"), &LightmapGI::get_midtones);
 	ClassDB::bind_method(D_METHOD("set_highlights", "value"), &LightmapGI::set_highlights);
 	ClassDB::bind_method(D_METHOD("get_highlights"), &LightmapGI::get_highlights);
-	ClassDB::bind_method(D_METHOD("set_directionality_strength", "value"), &LightmapGI::set_directionality_strength);
-	ClassDB::bind_method(D_METHOD("get_directionality_strength"), &LightmapGI::get_directionality_strength);
 
 	ClassDB::bind_method(D_METHOD("set_shadows_tint", "value"), &LightmapGI::set_shadows_tint);
 	ClassDB::bind_method(D_METHOD("get_shadows_tint"), &LightmapGI::get_shadows_tint);
@@ -2669,7 +2692,6 @@ void LightmapGI::_bind_methods() {
 	ADD_PROPERTY(PropertyInfo(Variant::COLOR, "tint", PROPERTY_HINT_COLOR_NO_ALPHA), "set_tint", "get_tint");
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "saturation", PROPERTY_HINT_RANGE, "0,4,0.01,or_greater"), "set_saturation", "get_saturation");
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "contrast", PROPERTY_HINT_RANGE, "0,4,0.01"), "set_contrast", "get_contrast");
-	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "directionality_strength", PROPERTY_HINT_RANGE, "0,4,0.01"), "set_directionality_strength", "get_directionality_strength");
 
 	ADD_PROPERTY(PropertyInfo(Variant::INT, "debug_mode", PROPERTY_HINT_ENUM, "Disabled,Shadows,Middletones,Highlights"), "set_debug_mode", "get_debug_mode");
 

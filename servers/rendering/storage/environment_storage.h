@@ -36,6 +36,20 @@
 
 class RendererEnvironmentStorage {
 public:
+	// Forward+ grading modules. Bit k enables tonemap specialization constant 4 + k.
+	enum ForwardAdjustmentFlags : uint32_t {
+		FORWARD_ADJUSTMENT_CORRECTION = 1 << 2,
+		FORWARD_ADJUSTMENT_CORRECTION_SATURATION = 1 << 3,
+		FORWARD_ADJUSTMENT_VIBRANCE = 1 << 4,
+		FORWARD_ADJUSTMENT_VIGNETTE = 1 << 5,
+		FORWARD_ADJUSTMENT_CURVES = 1 << 6,
+		FORWARD_ADJUSTMENT_LUT = 1 << 7,
+		FORWARD_ADJUSTMENT_CORRECTION_WEIGHTS = 1 << 8,
+		FORWARD_ADJUSTMENT_CORRECTION_CONTRAST = 1 << 9,
+		FORWARD_ADJUSTMENT_CORRECTION_LGG = 1 << 10,
+		FORWARD_ADJUSTMENT_CORRECTION_COLOR = 1 << 11,
+	};
+
 	union TonemapParameters {
 		// Shader vec4:
 		float tonemapper_params[4];
