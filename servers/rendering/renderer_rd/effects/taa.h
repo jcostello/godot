@@ -43,6 +43,17 @@ public:
 	void process(Ref<RenderSceneBuffersRD> p_render_buffers, RD::DataFormat p_format, float p_z_near, float p_z_far);
 
 private:
+	// Tracks which of the two history textures holds last frame's result, per render buffer.
+	class TAAHistory : public RenderBufferCustomDataRD {
+		GDCLASS(TAAHistory, RenderBufferCustomDataRD)
+
+	public:
+		bool flip = false;
+
+		virtual void configure(RenderSceneBuffersRD *p_render_buffers) override {}
+		virtual void free_data() override {}
+	};
+
 	struct TAAResolvePushConstant {
 		float resolution_width;
 		float resolution_height;
@@ -50,11 +61,25 @@ private:
 		float variance_dynamic;
 	};
 
+	struct TAASharpenPushConstant {
+		int32_t resolution_width;
+		int32_t resolution_height;
+		float sharpness;
+		float pad;
+	};
+
+	enum TAAMode {
+		TAA_MODE_RESOLVE,
+		TAA_MODE_SHARPEN,
+		TAA_MODE_MAX
+	};
+
 	TaaResolveShaderRD taa_shader;
 	RID shader_version;
-	RID pipeline;
+	RID pipelines[TAA_MODE_MAX];
 
 	void resolve(RID p_frame, RID p_temp, RID p_depth, RID p_velocity, RID p_prev_velocity, RID p_history, Size2 p_resolution, float p_z_near, float p_z_far);
+	void sharpen(RID p_source, RID p_dest, Size2i p_resolution);
 };
 
 } // namespace RendererRD
