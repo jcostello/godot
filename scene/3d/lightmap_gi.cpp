@@ -84,24 +84,18 @@ void collect_probe_systems(Node *p_root, LightmapGI *p_source, Vector<LightProbe
 
 // Luminance range of the L0 layers, so tonal ranges don't need a texture readback at runtime.
 Vector2 compute_lightmap_luminance_range(const Ref<Lightmapper> &p_lightmapper, bool p_directional) {
-	float minimum = FLT_MAX;
-	float maximum = 0.0f;
+	LightmapLuminanceHistogram histogram;
 	const int stride = p_directional ? 4 : 1; // SH lightmaps store L0 first in each group of 4 layers.
 	for (int i = 0; i < p_lightmapper->get_bake_texture_count(); i += stride) {
 		const Ref<Image> image = p_lightmapper->get_bake_texture(i);
 		ERR_CONTINUE(image.is_null());
 		for (int y = 0; y < image->get_height(); y++) {
 			for (int x = 0; x < image->get_width(); x++) {
-				const Color color = image->get_pixel(x, y);
-				const float luminance = MAX(0.0f, color.r * 0.2126f + color.g * 0.7152f + color.b * 0.0722f);
-				if (Math::is_finite(luminance)) {
-					minimum = MIN(minimum, luminance);
-					maximum = MAX(maximum, luminance);
-				}
+				histogram.add(image->get_pixel(x, y));
 			}
 		}
 	}
-	return minimum == FLT_MAX ? Vector2(0, -1) : Vector2(minimum, maximum);
+	return histogram.get_range();
 }
 
 LightmapGI::BakeError prepare_probe_capture(Lightmapper *p_lightmapper, LightProbeSystem *p_system, int p_probe_offset, int p_probe_count, const Transform3D &p_capture_transform, float p_exposure, bool p_interior, Lightmapper::BakeStepFunc p_step, void *p_userdata, Ref<LightProbeData> &r_capture) {

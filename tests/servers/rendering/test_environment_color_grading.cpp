@@ -28,6 +28,7 @@
 /* SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.                 */
 /**************************************************************************/
 
+#include "servers/rendering/lightmap_adjustments.h"
 #include "servers/rendering/storage/environment_color_grading.h"
 #include "tests/test_macros.h"
 
@@ -148,6 +149,23 @@ TEST_CASE("[Rendering][Environment] Vignette range stays ordered") {
 	const Vector2 high_range = EnvironmentColorGrading::clamp_vignette_range(5.0f, 5.0f);
 	CHECK(high_range.x == doctest::Approx(0.999f));
 	CHECK(high_range.y == doctest::Approx(1.0f));
+}
+
+TEST_CASE("[Rendering][Lightmap] Luminance range ignores unused texels and hot outliers") {
+	LightmapLuminanceHistogram histogram;
+	CHECK(histogram.get_range().y < histogram.get_range().x);
+	for (int i = 0; i < 1000; i++) {
+		histogram.add(Color(0, 0, 0)); // Unused texels.
+		histogram.add(Color(0.25f, 0.25f, 0.25f));
+		histogram.add(Color(1, 1, 1));
+	}
+	for (int i = 0; i < 5; i++) {
+		histogram.add(Color(1000, 1000, 1000)); // Texels next to a light.
+	}
+	const Vector2 range = histogram.get_range();
+	// One bin is 48 / 1024 stops wide.
+	CHECK(range.x == doctest::Approx(0.25f).epsilon(0.04f));
+	CHECK(range.y == doctest::Approx(1.0f).epsilon(0.04f));
 }
 
 } // namespace TestEnvironmentColorGrading

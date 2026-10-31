@@ -360,13 +360,14 @@ private:
 		uint32_t color_adjustment_flags = 0;
 		bool color_texture_dirty = true;
 		RID color_texture;
+		LocalVector<RID> color_texture_views;
 		RID color_parameters_buffer;
 		RID color_source;
 		uint64_t color_source_version = 0;
 		RID tonal_range_source;
 		uint64_t tonal_range_source_version = 0;
 		float tonal_luminance_min = 0.0f;
-		float tonal_luminance_scale = 0.0f;
+		float tonal_luminance_max = -1.0f;
 		bool tonal_range_baked = false;
 		RID light_texture;
 		RID shadow_texture;
@@ -1049,7 +1050,7 @@ public:
 	void lightmap_set_tonal_luminance_range(RID p_lightmap, float p_min, float p_max) override;
 	uint32_t lightmap_prepare_color_texture(RID p_lightmap);
 	RID lightmap_get_color_texture(RID p_lightmap) const;
-	uint32_t lightmap_get_editor_color_adjustments(RID p_lightmap, float *r_data) const;
+	uint32_t lightmap_get_color_preview(RID p_lightmap, float *r_data) const;
 
 	virtual void lightmap_set_textures(RID p_lightmap, RID p_light, bool p_uses_spherical_haromics) override;
 	virtual void lightmap_set_probe_bounds(RID p_lightmap, const AABB &p_bounds) override;

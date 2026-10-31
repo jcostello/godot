@@ -43,6 +43,21 @@ vec3 adjustment_soft_contrast(vec3 color, float contrast, float pivot) {
 	return adjustment_sigmoid_contrast(color, contrast, pivot, (1.0 - contrast) * log(pivot / (1.0 - pivot)));
 }
 
+// Scene-linear contrast in log2 space around a pivot. Continuous over the whole HDR range and never clips.
+vec3 adjustment_log_contrast(vec3 color, float contrast, float pivot) {
+	return min(pivot * pow(max(color, vec3(1e-8)) / pivot, vec3(contrast)), vec3(65504.0));
+}
+
+// Same curve driven by luminance, so hue and saturation are kept.
+vec3 adjustment_luminance_log_contrast(vec3 color, float contrast, float pivot) {
+	color = max(color, vec3(0.0));
+	float luminance = dot(color, vec3(0.2126, 0.7152, 0.0722));
+	if (luminance <= 1e-8) {
+		return color;
+	}
+	return min(color * (pivot * pow(luminance / pivot, contrast) / luminance), vec3(65504.0));
+}
+
 vec3 adjustment_srgb_to_linear(vec3 color) {
 	return mix(pow((color + vec3(0.055)) / 1.055, vec3(2.4)), color / 12.92, lessThan(color, vec3(0.04045)));
 }

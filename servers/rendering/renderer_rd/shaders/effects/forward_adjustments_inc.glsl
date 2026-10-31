@@ -1,11 +1,11 @@
-// Optional Forward+ modules. All color operations use scene-linear HDR here;
-// saturation, saturation curves and vibrance are applied after tonemapping.
+// Optional Forward+ modules. Color correction and vignette use scene-linear HDR;
+// saturation, curves, LUT and vibrance are applied after tonemapping.
 #ifdef USE_FORWARD_GRADING
 layout(set = 4, binding = 0, std140) uniform ForwardGradingData {
 	vec4 limits;
 	vec4 correction[12];
 	vec4 extra; // Vibrance, vignette strength, vignette start/end.
-	vec4 controls; // Curve flags, active module flags, LUT dimension, correction pivot logit.
+	vec4 controls; // Curve flags, active module flags, LUT dimension, scene-linear correction pivot.
 } forward_grading;
 
 layout(constant_id = 6) const bool use_forward_correction = false;
@@ -54,59 +54,25 @@ vec3 forward_adjustments_pre(vec3 color, vec2 uv, out vec3 correction_weights) {
 			color *= modulation;
 		}
 		if (use_forward_correction_contrast && parameters.y != 1.0) {
-			color = adjustment_sigmoid_contrast(color, parameters.y, forward_grading.correction[5].w, (1.0 - parameters.y) * forward_grading.controls.w);
+			color = adjustment_log_contrast(color, parameters.y, forward_grading.controls.w);
 		}
 		color = grading_tonal_levels(color, correction_weights, forward_grading.correction);
 		if (use_forward_correction_lgg) {
+			// Lift is converted to scene-linear on the CPU.
 			float lift = forward_grading.correction[4].x;
 			if (use_forward_correction_weights) {
 				lift += dot(forward_grading.correction[4].yzw, correction_weights);
 			}
 			if (parameters.z != 1.0 || parameters.w != 1.0 || lift != 0.0) {
-				color = apply_grading_lift_gamma_gain(color, vec3(lift), vec3(1.0 / parameters.z), vec3(parameters.w));
+				vec3 lifted = color * parameters.w + vec3(lift);
+				vec3 magnitude = abs(lifted);
+				float inverse_gamma = 1.0 / max(parameters.z, 0.0025);
+				// Gamma pins 0 and 1; HDR above 1 continues with the slope at 1 instead of exploding.
+				vec3 graded = mix(pow(magnitude, vec3(inverse_gamma)), vec3(1.0) + (magnitude - vec3(1.0)) * inverse_gamma, greaterThan(magnitude, vec3(1.0)));
+				color = sign(lifted) * min(graded, vec3(65504.0));
 			}
 		}
 	}
-#ifdef USE_FORWARD_CURVES
-	if (use_forward_curve_textures) {
-		int curve_flags = int(forward_grading.controls.x);
-		if ((curve_flags & 1) != 0) {
-			for (int channel = 0; channel < 3; channel++) {
-				if (color[channel] >= 0.0 && color[channel] <= 1.0) {
-					color[channel] = sample_grading_atlas(color[channel], 2)[channel];
-				}
-			}
-		}
-
-
-		if ((curve_flags & 2) != 0 || (curve_flags & 32) != 0) {
-			vec3 hsv = grading_rgb_to_hsv(max(color, vec3(0.0)));
-			float hue = hsv.x;
-			if ((curve_flags & 2) != 0) {
-				hsv.x = fract(hsv.x + sample_periodic_hue_curve(hue_vs_hue_curve, hue) - 0.5);
-				color = grading_hsv_to_rgb(hsv);
-			}
-			if ((curve_flags & 32) != 0) {
-				float multiplier = exp2((clamp(sample_grading_hue_luminance(hue), 0.0, 1.0) - 0.5) * 4.0 * smoothstep(0.0, 0.05, hsv.y));
-				color *= multiplier;
-			}
-		}
-	}
-	if (use_forward_lut) {
-		// User LUTs cover 0..1. Preserve HDR headroom beyond their domain.
-		vec3 input_color = clamp(color, vec3(0.0), vec3(1.0));
-		vec3 mapped;
-		if (forward_grading.controls.z > 0.5) {
-			float width = float(textureSize(forward_lut_1d, 0).x);
-			vec3 x = (input_color * (width - 1.0) + 0.5) / width;
-			mapped = vec3(texture(forward_lut_1d, vec2(x.r, 0.5)).r, texture(forward_lut_1d, vec2(x.g, 0.5)).g, texture(forward_lut_1d, vec2(x.b, 0.5)).b);
-		} else {
-			vec3 size = vec3(textureSize(forward_lut_3d, 0));
-			mapped = texture(forward_lut_3d, (input_color * (size - 1.0) + 0.5) / size).rgb;
-		}
-		color = mapped + (color - input_color);
-	}
-#endif
 	if (use_forward_vignette) {
 		color *= grading_vignette(uv, params.pixel_size.y / params.pixel_size.x, forward_grading.extra.y, forward_grading.extra.zw);
 	}
@@ -121,22 +87,27 @@ vec3 forward_adjustments_post(vec3 color, vec3 correction_weights) {
 		}
 	}
 #ifdef USE_FORWARD_CURVES
-	if (use_forward_curve_textures) {
-		int curve_flags = int(forward_grading.controls.x);
-
-
-		if ((curve_flags & 4) != 0 || (curve_flags & 8) != 0 || (curve_flags & 16) != 0) {
-			vec3 hsv = grading_rgb_to_hsv(max(color, vec3(0.0)));
-			float saturation = hsv.y;
-			if ((curve_flags & 4) != 0) { hsv.y *= 2.0 * sample_periodic_hue_curve(hue_vs_saturation_curve, hsv.x); }
-			if ((curve_flags & 8) != 0) { hsv.y *= 2.0 * texture(saturation_vs_saturation_curve, vec2(saturation, 0.5)).r; }
-			if ((curve_flags & 16) != 0) {
-				float luminance = dot(color, vec3(0.2126, 0.7152, 0.0722));
-				hsv.y *= 2.0 * sample_grading_atlas(luminance, 0).r;
-			}
-			hsv.y = clamp(hsv.y, 0.0, 1.0);
-			color = grading_hsv_to_rgb(hsv);
+	if (use_forward_curve_textures || use_forward_lut) {
+		// Curves and LUTs are authored on display values, like the other renderers: grade sRGB.
+		vec3 encoded = adjustment_linear_to_srgb(max(color, vec3(0.0)));
+		if (use_forward_curve_textures) {
+			encoded = apply_color_grading_curves(encoded);
 		}
+		if (use_forward_lut) {
+			// User LUTs cover 0..1. Values above 1 keep their offset, so the result stays continuous.
+			vec3 input_color = clamp(encoded, vec3(0.0), vec3(1.0));
+			vec3 mapped;
+			if (forward_grading.controls.z > 0.5) {
+				float width = float(textureSize(forward_lut_1d, 0).x);
+				vec3 x = (input_color * (width - 1.0) + 0.5) / width;
+				mapped = vec3(texture(forward_lut_1d, vec2(x.r, 0.5)).r, texture(forward_lut_1d, vec2(x.g, 0.5)).g, texture(forward_lut_1d, vec2(x.b, 0.5)).b);
+			} else {
+				vec3 size = vec3(textureSize(forward_lut_3d, 0));
+				mapped = texture(forward_lut_3d, (input_color * (size - 1.0) + 0.5) / size).rgb;
+			}
+			encoded = mapped + (encoded - input_color);
+		}
+		color = adjustment_srgb_to_linear(max(encoded, vec3(0.0)));
 	}
 #endif
 	if (use_forward_vibrance) {

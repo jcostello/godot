@@ -184,12 +184,11 @@ vec3 apply_grading_rgb_curves(vec3 color) {
 	vec3 black = texelFetch(luminance_vs_saturation_curve, ivec2(0, 3), 0).rgb;
 	vec3 leveled = (color - black) / max(white.rgb - black, vec3(0.0001));
 	vec3 curved = leveled;
-	// RGB curves cover display values 0..1. Preserve HDR and negative headroom
-	// outside that interval rather than clamping it at the texture boundary.
+	// RGB curves cover display values 0..1. HDR and negative headroom keep their offset
+	// from the curve endpoint, so edited endpoints do not create a step at 0 or 1.
 	for (int channel = 0; channel < 3; channel++) {
-		if (leveled[channel] >= 0.0 && leveled[channel] <= 1.0) {
-			curved[channel] = sample_grading_atlas(leveled[channel], 2)[channel];
-		}
+		float clamped = clamp(leveled[channel], 0.0, 1.0);
+		curved[channel] = sample_grading_atlas(clamped, 2)[channel] + (leveled[channel] - clamped);
 	}
 	return curved;
 }

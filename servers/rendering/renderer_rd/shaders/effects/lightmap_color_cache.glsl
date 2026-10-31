@@ -6,7 +6,7 @@
 
 layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 layout(set = 0, binding = 0) uniform sampler2DArray source_texture;
-layout(set = 0, binding = 1, r11f_g11f_b10f) uniform writeonly image2DArray target_texture;
+layout(set = 0, binding = 1, rgba16f) uniform writeonly image2DArray target_texture;
 layout(set = 0, binding = 2, std140) uniform ColorParameters {
 	vec4 data[14];
 } grading;
@@ -29,6 +29,5 @@ void main() {
 	if (params.directional == 0u || position.z % 4 == 0) {
 		color = lightmap_grade_color(color, grading.data);
 	}
-	// B10 has the lowest maximum finite value of the packed RGB channels.
 	imageStore(target_texture, position, vec4(clamp(color, vec3(0.0), vec3(64512.0)), 1.0));
 }

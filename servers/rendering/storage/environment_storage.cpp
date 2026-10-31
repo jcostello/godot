@@ -1176,7 +1176,7 @@ float RendererEnvironmentStorage::environment_get_adjustment_tint(RID p_env) con
 bool RendererEnvironmentStorage::environment_get_adjustment_white_balance_enabled(RID p_env) const {
 	const Environment *env = environment_owner.get_or_null(p_env);
 	ERR_FAIL_NULL_V(env, false);
-	return env->adjustments_white_balance_enabled || env->adjustment_levels_enabled || (env->adjustments_enabled && (env->adjustments_brightness != 1.0f || env->adjustments_contrast != 1.0f));
+	return env->adjustments_white_balance_enabled || env->adjustment_levels_enabled || (env->adjustments_enabled && env->adjustments_brightness != 1.0f);
 }
 
 Basis RendererEnvironmentStorage::environment_get_adjustment_white_balance_matrix(RID p_env) const {
@@ -1361,14 +1361,9 @@ void RendererEnvironmentStorage::_update_forward_adjustment_transform(Environmen
 		p_env->forward_adjustment_offset = adaptation.xform(p_env->adjustment_levels_offset);
 	}
 	if (p_env->adjustments_enabled) {
-		// Brightness, then scene-linear contrast around 18% middle gray.
-		const bool soft_contrast = (int(p_env->adjustments_color_modes.x) & 2) != 0;
-		const float contrast = soft_contrast ? 1.0f : p_env->adjustments_contrast;
-		const float scale = p_env->adjustments_brightness * contrast;
-		for (int row = 0; row < 3; row++) {
-			p_env->forward_adjustment_matrix[row] *= scale;
-			p_env->forward_adjustment_offset[row] = p_env->forward_adjustment_offset[row] * scale + 0.18f * (1.0f - contrast);
-		}
+		// Brightness only: contrast is a log2 curve in the tonemap shader, an affine one would clip shadows.
+		p_env->forward_adjustment_matrix *= p_env->adjustments_brightness;
+		p_env->forward_adjustment_offset *= p_env->adjustments_brightness;
 	}
 }
 

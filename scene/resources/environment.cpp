@@ -2968,7 +2968,7 @@ void Environment::_bind_methods() {
 	ADD_PROPERTY(PropertyInfo(Variant::COLOR, "adjustment_white_level", PROPERTY_HINT_COLOR_NO_ALPHA), "set_adjustment_white_level", "get_adjustment_white_level");
 	ADD_SUBGROUP("Color Grading", "adjustment_");
 	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "adjustment_color_grading_enabled", PROPERTY_HINT_GROUP_ENABLE), "set_adjustment_color_grading_enabled", "is_adjustment_color_grading_enabled");
-	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "adjustment_temperature", PROPERTY_HINT_RANGE, "1000,15000,1,suffix:K"), "set_tonemap_temperature", "get_tonemap_temperature");
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "adjustment_temperature", PROPERTY_HINT_RANGE, "1000,15000,1,exp,suffix:K"), "set_tonemap_temperature", "get_tonemap_temperature");
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "adjustment_tint", PROPERTY_HINT_RANGE, "-1,1,0.01"), "set_adjustment_tint", "get_adjustment_tint");
 	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "adjustment_advanced", PROPERTY_HINT_NONE, "", PROPERTY_USAGE_STORAGE | PROPERTY_USAGE_INTERNAL), "set_adjustment_advanced", "is_adjustment_advanced");
 	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "adjustment_advance", PROPERTY_HINT_NONE, "", PROPERTY_USAGE_STORAGE | PROPERTY_USAGE_INTERNAL), "set_adjustment_advance", "is_adjustment_advance");

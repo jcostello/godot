@@ -15,7 +15,8 @@ vec3 lightmap_grade_color(vec3 light, vec4 data[14]) {
 	if (basic.z != 0.0 || basic.w != 0.0) {
 		vec4 ranges = data[5];
 		// Use the original texture range so edits never change their own selection.
-		float level = clamp((source_luminance - data[3].w) * data[10].w, 0.0, 1.0);
+		// The axis is log2 luminance between the lightmap's 1st and 99th percentiles.
+		float level = clamp((log2(max(source_luminance, 1e-8)) - data[3].w) * data[10].w, 0.0, 1.0);
 		float shadows = 1.0 - smoothstep(ranges.x, ranges.y, level);
 		float highlights = smoothstep(ranges.z, ranges.w, level);
 		weights = max(vec3(shadows, 1.0 - shadows - highlights, highlights), vec3(0.0));
@@ -42,7 +43,9 @@ vec3 lightmap_grade_color(vec3 light, vec4 data[14]) {
 		}
 	}
 	if (contrast != 1.0 && luminance > 0.00001) {
-		light *= 0.18 * pow(luminance / 0.18, contrast) / luminance;
+		// Pivot at the lightmap's geometric middle luminance; a fixed value would also change brightness.
+		float pivot = data[11].w;
+		light *= pivot * pow(luminance / pivot, contrast) / luminance;
 	}
 	if (basic.z != 0.0) {
 		float black = dot(data[11].xyz, weights);
@@ -51,9 +54,14 @@ vec3 lightmap_grade_color(vec3 light, vec4 data[14]) {
 		if (black != 0.0 || white != 1.0 || gamma != 1.0) {
 			float current_luminance = dot(light, luminance_weights);
 			if (current_luminance > 0.0) {
-				float reference = max(data[11].w, 0.00001);
-				float leveled = max((current_luminance / reference - black) / max(white - black, 0.001), 0.0);
-				float target = min(reference * pow(leveled, 1.0 / max(gamma, 0.05)), 64512.0);
+				// Levels act on the same log2 axis as the tonal ranges. Outside black..white the
+				// mapping stays linear in stops, so nothing is crushed to zero or clipped.
+				float level = (log2(current_luminance) - data[3].w) * data[10].w;
+				float leveled = (level - black) / max(white - black, 0.001);
+				if (leveled > 0.0 && leveled < 1.0) {
+					leveled = pow(leveled, 1.0 / max(gamma, 0.05));
+				}
+				float target = min(exp2(leveled / data[10].w + data[3].w), 64512.0);
 				light = min((light / current_luminance) * target, vec3(64512.0));
 			}
 		}

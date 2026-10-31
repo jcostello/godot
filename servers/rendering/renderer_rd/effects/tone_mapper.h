@@ -126,7 +126,7 @@ private:
 		float luminance_multiplier; //  4 - 96
 
 		float tonemapper_params[4]; //  16 - 112
-		float adjustment_controls[4]; // 16 - 128: soft contrast, pivot, unused, pivot bias
+		float adjustment_controls[4]; // 16 - 128: contrast, scene-linear pivot, unused, unused
 	};
 
 	struct TonemapPushConstantMobile {
@@ -171,11 +171,6 @@ private:
 		float rows[15][4] = {};
 	};
 	static_assert(sizeof(ForwardGradingData) == 240, "Forward grading UBO must match the shader layout.");
-	float cached_correction_pivot = -1.0f;
-	float cached_correction_logit = 0.0f;
-	float cached_soft_contrast = -1.0f;
-	float cached_soft_contrast_pivot = -1.0f;
-	float cached_soft_contrast_bias = 0.0f;
 	RID forward_grading_buffer;
 	ForwardGradingData uploaded_forward_grading;
 	RID _get_forward_grading_buffer(const TonemapSettings &p_settings);

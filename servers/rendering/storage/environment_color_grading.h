@@ -182,7 +182,7 @@ inline Basis white_balance_matrix(float p_temperature, float p_tint) {
 				(1.0f + 8.42420235e-4f * temperature + 7.08145163e-7f * temperature_squared);
 		const float v = (0.317398726f + 4.22806245e-5f * temperature + 4.20481691e-8f * temperature_squared) /
 						(1.0f - 2.89741816e-5f * temperature + 1.61456053e-7f * temperature_squared) -
-				CLAMP(p_tint_value, -1.0f, 1.0f) * 0.05f;
+				CLAMP(p_tint_value, -1.0f, 1.0f) * 0.02f; // Duv 0.02 at the ends is already a strong tint.
 		const float d = 1.0f / MAX(2.0f * u - 8.0f * v + 4.0f, 1e-5f);
 		const float x = 3.0f * u * d;
 		const float y = MAX(2.0f * v * d, 1e-5f);
