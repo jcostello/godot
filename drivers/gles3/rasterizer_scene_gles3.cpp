@@ -2546,33 +2546,31 @@ void RasterizerSceneGLES3::render_scene(const Ref<RenderSceneBuffers> &p_render_
 		tonemap_ubo.brightness = environment_get_adjustments_brightness(render_data.environment);
 		tonemap_ubo.contrast = environment_get_adjustments_contrast(render_data.environment);
 		tonemap_ubo.saturation = environment_get_adjustments_saturation(render_data.environment);
-		const Basis white_balance = environment_get_adjustment_white_balance_matrix(render_data.environment);
+		const EnvironmentColorGrading::Resolved &grading = environment_get_color_grading(render_data.environment);
 		for (int row = 0; row < 3; row++) {
 			for (int column = 0; column < 3; column++) {
-				tonemap_ubo.white_balance[row * 4 + column] = white_balance[row][column];
+				tonemap_ubo.white_balance[row * 4 + column] = grading.white_balance_matrix[row][column];
 			}
 		}
-		tonemap_ubo.white_balance[3] = environment_get_adjustment_white_balance_enabled(render_data.environment);
-		for (int range = 0; range < 12; range++) {
-			const Vector4 correction = environment_get_adjustment_tonal_correction(render_data.environment, range);
+		tonemap_ubo.white_balance[3] = grading.white_balance_enabled;
+		for (int range = 0; range < 14; range++) {
 			for (int parameter = 0; parameter < 4; parameter++) {
-				tonemap_ubo.tonal_correction[range][parameter] = correction[parameter];
+				tonemap_ubo.tonal_correction[range][parameter] = grading.tonal_correction[range][parameter];
 			}
 		}
-		tonemap_ubo.tint_midtones_range[0] = environment_get_adjustment_tint(render_data.environment);
-		tonemap_ubo.tint_midtones_range[1] = environment_get_adjustment_midtones_start(render_data.environment);
-		tonemap_ubo.tint_midtones_range[2] = environment_get_adjustment_midtones_end(render_data.environment);
-		tonemap_ubo.tonal_softness[0] = environment_get_adjustment_shadows_start(render_data.environment);
-		tonemap_ubo.tonal_softness[1] = environment_get_adjustment_shadows_end(render_data.environment);
-		tonemap_ubo.tonal_softness[2] = environment_get_adjustment_highlights_start(render_data.environment);
-		tonemap_ubo.tonal_softness[3] = environment_get_adjustment_highlights_end(render_data.environment);
-		tonemap_ubo.grading_effects[0] = environment_get_adjustment_vibrance(render_data.environment);
-		tonemap_ubo.grading_effects[1] = environment_get_adjustment_color_modes(render_data.environment).x;
-		tonemap_ubo.grading_effects[2] = environment_get_adjustment_color_modes(render_data.environment).y;
-		tonemap_ubo.grading_effects[3] = environment_get_adjustment_vignette(render_data.environment);
-		tonemap_ubo.vignette_range[0] = environment_get_adjustment_vignette_start(render_data.environment);
-		tonemap_ubo.vignette_range[1] = environment_get_adjustment_vignette_end(render_data.environment);
-		if (environment_get_adjustments_enabled(render_data.environment) && environment_get_adjustment_advance(render_data.environment) && !environment_get_adjustment_white_balance_enabled(render_data.environment)) {
+		tonemap_ubo.tint_midtones_range[0] = grading.tint;
+		tonemap_ubo.tint_midtones_range[1] = grading.midtones_range.x;
+		tonemap_ubo.tint_midtones_range[2] = grading.midtones_range.y;
+		for (int i = 0; i < 4; i++) {
+			tonemap_ubo.tonal_limits[i] = grading.tonal_limits[i];
+		}
+		tonemap_ubo.grading_effects[0] = grading.vibrance;
+		tonemap_ubo.grading_effects[1] = grading.color_modes.x;
+		tonemap_ubo.grading_effects[2] = grading.color_modes.y;
+		tonemap_ubo.grading_effects[3] = grading.vignette;
+		tonemap_ubo.vignette_range[0] = grading.vignette_range.x;
+		tonemap_ubo.vignette_range[1] = grading.vignette_range.y;
+		if (environment_get_adjustments_enabled(render_data.environment) && grading.advance && !grading.white_balance_enabled) {
 			const Vector3 temperature = EnvironmentColorGrading::temperature_balance(environment_get_tonemap_temperature(render_data.environment));
 			tonemap_ubo.tonemap_temperature[0] = temperature.x;
 			tonemap_ubo.tonemap_temperature[1] = temperature.y;
@@ -3088,7 +3086,8 @@ void RasterizerSceneGLES3::_render_post_processing(const RenderDataGLES3 *p_rend
 	uint64_t bcs_spec_constants = 0;
 	if (p_render_data->environment.is_valid()) {
 		bool use_bcs = environment_get_adjustments_enabled(p_render_data->environment);
-		bool use_advanced_adjustments = use_bcs && environment_get_adjustment_advance(p_render_data->environment);
+		const EnvironmentColorGrading::Resolved &grading = environment_get_color_grading(p_render_data->environment);
+		bool use_advanced_adjustments = use_bcs && grading.advance;
 		RID color_correction_texture = environment_get_color_correction(p_render_data->environment);
 		if (use_bcs) {
 			bcs_spec_constants |= PostShaderGLES3::USE_BCS;
@@ -3096,12 +3095,7 @@ void RasterizerSceneGLES3::_render_post_processing(const RenderDataGLES3 *p_rend
 				bcs_spec_constants |= PostShaderGLES3::USE_COLOR_GRADING;
 			}
 
-			RID curve_textures[4] = {
-				environment_get_adjustments_hue_vs_hue(p_render_data->environment),
-				environment_get_adjustments_hue_vs_saturation(p_render_data->environment),
-				environment_get_adjustments_saturation_vs_saturation(p_render_data->environment),
-				environment_get_adjustments_luminance_vs_saturation(p_render_data->environment)
-			};
+			const RID *curve_textures = grading.curves;
 			if (use_advanced_adjustments && curve_textures[0].is_valid() && curve_textures[1].is_valid() && curve_textures[2].is_valid() && curve_textures[3].is_valid()) {
 				bcs_spec_constants |= PostShaderGLES3::USE_COLOR_GRADING_CURVES;
 				for (int i = 0; i < 4; i++) {

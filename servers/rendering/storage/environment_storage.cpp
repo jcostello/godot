@@ -40,6 +40,7 @@ RendererEnvironmentStorage *RendererEnvironmentStorage::singleton = nullptr;
 
 RendererEnvironmentStorage::RendererEnvironmentStorage() {
 	singleton = this;
+	forward_plus = OS::get_singleton()->get_current_rendering_method() == "forward_plus";
 }
 
 RendererEnvironmentStorage::~RendererEnvironmentStorage() {
@@ -262,7 +263,7 @@ float RendererEnvironmentStorage::environment_get_white(RID p_env, bool p_limit_
 }
 
 void RendererEnvironmentStorage::environment_set_tonemap_temperature(RID p_env, float p_temperature) {
-	if (OS::get_singleton()->get_current_rendering_method() == "forward_plus") {
+	if (forward_plus) {
 		return;
 	}
 
@@ -912,24 +913,7 @@ RSE::EnvironmentSDFGIYScale RendererEnvironmentStorage::environment_get_sdfgi_y_
 
 // Adjustments
 
-void RendererEnvironmentStorage::environment_set_adjustment(RID p_env, bool p_enable, float p_brightness, float p_contrast, float p_saturation, bool p_use_1d_color_correction, RID p_color_correction, const Color &p_shadows_color, float p_shadows_luminance, const Color &p_midtones_color, float p_midtones_luminance, const Color &p_highlights_color, float p_highlights_luminance) {
-	if (OS::get_singleton()->get_current_rendering_method() == "forward_plus") {
-		Environment *env = environment_owner.get_or_null(p_env);
-		ERR_FAIL_NULL(env);
-		ERR_FAIL_COND(!Math::is_finite(p_brightness) || !Math::is_finite(p_contrast) || !Math::is_finite(p_saturation));
-		env->adjustments_enabled = p_enable;
-		// Preserve the existing perceptual brightness response; derive it only on change.
-		const float brightness = MAX(p_brightness, 0.0f);
-		env->adjustments_brightness = brightness < 0.04045f ? brightness / 12.92f : Math::pow((brightness + 0.055f) / 1.055f, 2.4f);
-		env->adjustments_contrast = MAX(p_contrast, 0.0f);
-		env->adjustments_saturation = MAX(p_saturation, 0.0f);
-		env->use_1d_color_correction = p_use_1d_color_correction;
-		env->color_correction = p_color_correction;
-		_update_forward_adjustment_flags(env);
-		_update_forward_adjustment_transform(env);
-		return;
-	}
-
+void RendererEnvironmentStorage::environment_set_adjustment(RID p_env, bool p_enable, float p_brightness, float p_contrast, float p_saturation, bool p_use_1d_color_correction, RID p_color_correction) {
 	Environment *env = environment_owner.get_or_null(p_env);
 	ERR_FAIL_NULL(env);
 
@@ -939,202 +923,17 @@ void RendererEnvironmentStorage::environment_set_adjustment(RID p_env, bool p_en
 	env->adjustments_brightness = p_brightness < 0.04045f ? p_brightness * (1.0f / 12.92f) : Math::pow(float((p_brightness + 0.055f) * (1.0f / (1.055f))), 2.4f);
 	env->adjustments_contrast = p_contrast;
 	env->adjustments_saturation = p_saturation;
-	env->adjustments_shadows_luminance = 1.0f;
-	env->adjustments_midtones_luminance = 1.0f;
-	env->adjustments_highlights_luminance = 1.0f;
 	env->use_1d_color_correction = p_use_1d_color_correction;
 	env->color_correction = p_color_correction;
+	// Brightness and the LUT feed the Forward+ transform and grading flags.
+	_resolve_color_grading(env);
 }
 
-void RendererEnvironmentStorage::environment_set_adjustment_offset(RID p_env, const Color &p_color, float p_luminance) {
-	// Legacy duplicate controls no longer contribute to rendering.
-}
-
-void RendererEnvironmentStorage::environment_set_adjustment_lift_gamma_gain(RID p_env, const Color &p_lift_color, float p_lift_intensity, const Color &p_gamma_color, float p_gamma_intensity, const Color &p_gain_color, float p_gain_intensity) {
-	// Legacy duplicate controls no longer contribute to rendering.
-}
-
-void RendererEnvironmentStorage::environment_set_adjustment_tint(RID p_env, float p_tint) {
-	if (OS::get_singleton()->get_current_rendering_method() == "forward_plus") {
-		return;
-	}
-
+void RendererEnvironmentStorage::environment_set_color_grading(RID p_env, const EnvironmentColorGrading::Settings &p_settings) {
 	Environment *env = environment_owner.get_or_null(p_env);
 	ERR_FAIL_NULL(env);
-	env->adjustments_tint = CLAMP(p_tint, -1.0f, 1.0f);
-}
-
-void RendererEnvironmentStorage::environment_set_adjustment_white_balance(RID p_env, bool p_chromatic_adaptation, float p_temperature, float p_tint) {
-	Environment *env = environment_owner.get_or_null(p_env);
-	ERR_FAIL_NULL(env);
-	if (OS::get_singleton()->get_current_rendering_method() == "forward_plus") {
-		ERR_FAIL_COND(!Math::is_finite(p_temperature) || !Math::is_finite(p_tint));
-		const float temperature = CLAMP(p_temperature, 1000.0f, 15000.0f);
-		const float tint = CLAMP(p_tint, -1.0f, 1.0f);
-		const bool active = p_chromatic_adaptation && (temperature != 6500.0f || tint != 0.0f);
-		env->adjustments_white_balance_enabled = active;
-		if (!active) {
-			_update_forward_adjustment_transform(env);
-			return; // Disabled and neutral values use the shader variant without WB resources.
-		}
-		if (!env->white_balance_cache_valid || env->white_balance_cached_temperature != temperature || env->white_balance_cached_tint != tint) {
-			env->adjustments_white_balance_matrix = EnvironmentColorGrading::white_balance_matrix(temperature, tint);
-			env->white_balance_cached_temperature = temperature;
-			env->white_balance_cached_tint = tint;
-			env->white_balance_cache_valid = true;
-		}
-		_update_forward_adjustment_transform(env);
-		return;
-	}
-	env->adjustments_white_balance_enabled = p_chromatic_adaptation;
-	env->adjustments_white_balance_matrix = p_chromatic_adaptation ? EnvironmentColorGrading::white_balance_matrix(p_temperature, p_tint) : Basis();
-}
-
-void RendererEnvironmentStorage::environment_set_adjustment_tonal_softness(RID p_env, float p_shadows_softness, float p_highlights_softness) {
-	Environment *env = environment_owner.get_or_null(p_env);
-	ERR_FAIL_NULL(env);
-	env->adjustments_tonal_softness = Vector2(CLAMP(p_shadows_softness, 0.0f, 1.0f), CLAMP(p_highlights_softness, 0.0f, 1.0f));
-	if (OS::get_singleton()->get_current_rendering_method() == "forward_plus") {
-		_update_forward_adjustment_flags(env);
-	}
-}
-
-Vector2 RendererEnvironmentStorage::environment_get_adjustment_tonal_softness(RID p_env) const {
-	const Environment *env = environment_owner.get_or_null(p_env);
-	ERR_FAIL_NULL_V(env, Vector2(0.1f, 0.1f));
-	return env->adjustments_tonal_softness;
-}
-
-void RendererEnvironmentStorage::environment_set_adjustment_midtones_range(RID p_env, float p_shadows_start, float p_shadows_end, float p_midtones_start, float p_midtones_end, float p_highlights_start, float p_highlights_end) {
-	Environment *env = environment_owner.get_or_null(p_env);
-	ERR_FAIL_NULL(env);
-
-	const EnvironmentColorGrading::TonalRanges ranges = EnvironmentColorGrading::clamp_tonal_ranges(
-			p_shadows_start,
-			p_shadows_end,
-			p_midtones_start,
-			p_midtones_end,
-			p_highlights_start,
-			p_highlights_end);
-
-	env->adjustments_shadows_start = ranges.shadows_start;
-	env->adjustments_shadows_end = ranges.shadows_end;
-	env->adjustments_midtones_start = ranges.midtones_start;
-	env->adjustments_midtones_end = ranges.midtones_end;
-	env->adjustments_highlights_start = ranges.highlights_start;
-	env->adjustments_highlights_end = ranges.highlights_end;
-	if (OS::get_singleton()->get_current_rendering_method() == "forward_plus") {
-		_update_forward_adjustment_flags(env);
-	}
-}
-
-void RendererEnvironmentStorage::environment_set_adjustment_advance(RID p_env, bool p_enable) {
-	Environment *env = environment_owner.get_or_null(p_env);
-	ERR_FAIL_NULL(env);
-	env->adjustments_advance = p_enable;
-	if (OS::get_singleton()->get_current_rendering_method() == "forward_plus") {
-		_update_forward_adjustment_flags(env);
-	}
-}
-
-void RendererEnvironmentStorage::environment_set_adjustment_tonal_levels(RID p_env, const Vector4 &p_black, const Vector4 &p_white) {
-	Environment *env = environment_owner.get_or_null(p_env);
-	ERR_FAIL_NULL(env);
-	for (int i = 0; i < 4; i++) {
-		ERR_FAIL_COND(!Math::is_finite(p_black[i]) || !Math::is_finite(p_white[i]));
-	}
-	for (int i = 0; i < 4; i++) {
-		const float black = CLAMP(p_black[i], 0.0f, 0.999f);
-		env->adjustments_tonal_correction[10][i] = black;
-		env->adjustments_tonal_correction[11][i] = CLAMP(p_white[i], black + 0.001f, 1.0f);
-	}
-	if (OS::get_singleton()->get_current_rendering_method() == "forward_plus") {
-		_update_forward_adjustment_flags(env);
-	}
-}
-
-void RendererEnvironmentStorage::environment_set_adjustment_tonal_correction_colors(RID p_env, const Color &p_master, const Color &p_shadows, const Color &p_midtones, const Color &p_highlights) {
-	Environment *env = environment_owner.get_or_null(p_env);
-	ERR_FAIL_NULL(env);
-	const Color colors[] = { p_master, p_shadows, p_midtones, p_highlights };
-	for (int i = 0; i < 4; i++) {
-		const Color linear = colors[i].clamp().srgb_to_linear();
-		env->adjustments_tonal_correction[6 + i] = Vector4(linear.r, linear.g, linear.b, 0);
-	}
-	if (OS::get_singleton()->get_current_rendering_method() == "forward_plus") {
-		_update_forward_adjustment_flags(env);
-	}
-}
-
-void RendererEnvironmentStorage::environment_set_adjustment_tonal_correction(RID p_env, const Vector4 &p_master, const Vector4 &p_shadows, const Vector4 &p_midtones, const Vector4 &p_highlights, const Vector4 &p_lift, const Vector4 &p_controls) {
-	Environment *env = environment_owner.get_or_null(p_env);
-	ERR_FAIL_NULL(env);
-	const Vector4 parameters[] = { p_master, p_shadows, p_midtones, p_highlights };
-	for (int i = 0; i < 4; i++) {
-		env->adjustments_tonal_correction[i] = EnvironmentColorGrading::clamp_tonal_correction_parameters(parameters[i]);
-		env->adjustments_tonal_correction[4][i] = EnvironmentColorGrading::clamp_tonal_correction_parameter(4, p_lift[i]);
-	}
-	const bool enabled = p_controls.y > 0.5;
-	env->adjustments_tonal_correction[5] = Vector4(0.0f, enabled, enabled ? CLAMP(int(p_controls.z), 0, 4) : 0, CLAMP(p_controls.w, 0.01f, 0.99f));
-	if (OS::get_singleton()->get_current_rendering_method() == "forward_plus") {
-		_update_forward_adjustment_flags(env);
-	}
-}
-
-Vector4 RendererEnvironmentStorage::environment_get_adjustment_tonal_correction(RID p_env, int p_index) const {
-	Environment *env = environment_owner.get_or_null(p_env);
-	ERR_FAIL_NULL_V(env, Vector4());
-	ERR_FAIL_INDEX_V(p_index, 12, Vector4());
-	return env->adjustments_tonal_correction[p_index];
-}
-
-void RendererEnvironmentStorage::environment_set_adjustment_curves(RID p_env, RID p_hue_vs_hue, RID p_hue_vs_saturation, RID p_saturation_vs_saturation, RID p_luminance_vs_saturation, uint32_t p_flags) {
-	Environment *env = environment_owner.get_or_null(p_env);
-	ERR_FAIL_NULL(env);
-	env->forward_curve_flags = p_flags;
-	env->adjustments_hue_vs_hue = p_hue_vs_hue;
-	env->adjustments_hue_vs_saturation = p_hue_vs_saturation;
-	env->adjustments_saturation_vs_saturation = p_saturation_vs_saturation;
-	env->adjustments_luminance_vs_saturation = p_luminance_vs_saturation;
-	if (OS::get_singleton()->get_current_rendering_method() == "forward_plus") {
-		_update_forward_adjustment_flags(env);
-	}
-}
-
-void RendererEnvironmentStorage::environment_set_adjustment_color_modes(RID p_env, bool p_preserve_luminance, bool p_soft_contrast, float p_pivot) {
-	Environment *env = environment_owner.get_or_null(p_env);
-	ERR_FAIL_NULL(env);
-	env->adjustments_color_modes = Vector2((p_preserve_luminance ? 1 : 0) + (p_soft_contrast ? 2 : 0), CLAMP(p_pivot, 0.01f, 0.99f));
-	if (OS::get_singleton()->get_current_rendering_method() == "forward_plus") {
-		_update_forward_adjustment_transform(env);
-	}
-}
-
-Vector2 RendererEnvironmentStorage::environment_get_adjustment_color_modes(RID p_env) const {
-	const Environment *env = environment_owner.get_or_null(p_env);
-	ERR_FAIL_NULL_V(env, Vector2(0.0f, 0.5f));
-	return env->adjustments_color_modes;
-}
-
-void RendererEnvironmentStorage::environment_set_adjustment_vibrance(RID p_env, float p_vibrance) {
-	Environment *env = environment_owner.get_or_null(p_env);
-	ERR_FAIL_NULL(env);
-	env->adjustments_vibrance = CLAMP(p_vibrance, -1.0f, 1.0f);
-	if (OS::get_singleton()->get_current_rendering_method() == "forward_plus") {
-		_update_forward_adjustment_flags(env);
-	}
-}
-
-void RendererEnvironmentStorage::environment_set_adjustment_vignette(RID p_env, float p_vignette, float p_start, float p_end) {
-	Environment *env = environment_owner.get_or_null(p_env);
-	ERR_FAIL_NULL(env);
-	env->adjustments_vignette = CLAMP(p_vignette, 0.0f, 2.0f);
-	const Vector2 range = EnvironmentColorGrading::clamp_vignette_range(p_start, p_end);
-	env->adjustments_vignette_start = range.x;
-	env->adjustments_vignette_end = range.y;
-	if (OS::get_singleton()->get_current_rendering_method() == "forward_plus") {
-		_update_forward_adjustment_flags(env);
-	}
+	env->grading = p_settings;
+	_resolve_color_grading(env);
 }
 
 bool RendererEnvironmentStorage::environment_get_adjustments_enabled(RID p_env) const {
@@ -1161,156 +960,6 @@ float RendererEnvironmentStorage::environment_get_adjustments_saturation(RID p_e
 	return env->adjustments_saturation;
 }
 
-bool RendererEnvironmentStorage::environment_get_adjustment_advance(RID p_env) const {
-	Environment *env = environment_owner.get_or_null(p_env);
-	ERR_FAIL_NULL_V(env, true);
-	return env->adjustments_advance;
-}
-
-float RendererEnvironmentStorage::environment_get_adjustment_tint(RID p_env) const {
-	Environment *env = environment_owner.get_or_null(p_env);
-	ERR_FAIL_NULL_V(env, 0.0f);
-	return env->adjustments_tint;
-}
-
-bool RendererEnvironmentStorage::environment_get_adjustment_white_balance_enabled(RID p_env) const {
-	const Environment *env = environment_owner.get_or_null(p_env);
-	ERR_FAIL_NULL_V(env, false);
-	return env->adjustments_white_balance_enabled || env->adjustment_levels_enabled || (env->adjustments_enabled && env->adjustments_brightness != 1.0f);
-}
-
-Basis RendererEnvironmentStorage::environment_get_adjustment_white_balance_matrix(RID p_env) const {
-	const Environment *env = environment_owner.get_or_null(p_env);
-	ERR_FAIL_NULL_V(env, Basis());
-	return OS::get_singleton()->get_current_rendering_method() == "forward_plus" ? env->forward_adjustment_matrix : env->adjustments_white_balance_matrix;
-}
-
-float RendererEnvironmentStorage::environment_get_adjustment_shadows_start(RID p_env) const {
-	Environment *env = environment_owner.get_or_null(p_env);
-	ERR_FAIL_NULL_V(env, 0.0f);
-	return env->adjustments_shadows_start;
-}
-
-float RendererEnvironmentStorage::environment_get_adjustment_shadows_end(RID p_env) const {
-	Environment *env = environment_owner.get_or_null(p_env);
-	ERR_FAIL_NULL_V(env, 0.3f);
-	return env->adjustments_shadows_end;
-}
-
-float RendererEnvironmentStorage::environment_get_adjustment_midtones_start(RID p_env) const {
-	Environment *env = environment_owner.get_or_null(p_env);
-	ERR_FAIL_NULL_V(env, 0.3f);
-	return env->adjustments_midtones_start;
-}
-
-float RendererEnvironmentStorage::environment_get_adjustment_midtones_end(RID p_env) const {
-	Environment *env = environment_owner.get_or_null(p_env);
-	ERR_FAIL_NULL_V(env, 0.55f);
-	return env->adjustments_midtones_end;
-}
-
-float RendererEnvironmentStorage::environment_get_adjustment_highlights_start(RID p_env) const {
-	Environment *env = environment_owner.get_or_null(p_env);
-	ERR_FAIL_NULL_V(env, 0.55f);
-	return env->adjustments_highlights_start;
-}
-
-float RendererEnvironmentStorage::environment_get_adjustment_highlights_end(RID p_env) const {
-	Environment *env = environment_owner.get_or_null(p_env);
-	ERR_FAIL_NULL_V(env, 1.0f);
-	return env->adjustments_highlights_end;
-}
-
-Color RendererEnvironmentStorage::environment_get_adjustments_offset_color(RID p_env) const {
-	Environment *env = environment_owner.get_or_null(p_env);
-	ERR_FAIL_NULL_V(env, Color(1, 1, 1));
-	return env->adjustments_offset_color;
-}
-
-float RendererEnvironmentStorage::environment_get_adjustments_offset_luminance(RID p_env) const {
-	Environment *env = environment_owner.get_or_null(p_env);
-	ERR_FAIL_NULL_V(env, 1.0);
-	return env->adjustments_offset_luminance;
-}
-
-Color RendererEnvironmentStorage::environment_get_adjustments_lift(RID p_env) const {
-	Environment *env = environment_owner.get_or_null(p_env);
-	ERR_FAIL_NULL_V(env, Color(0, 0, 0));
-	return env->adjustments_lift;
-}
-
-Color RendererEnvironmentStorage::environment_get_adjustments_gamma(RID p_env) const {
-	Environment *env = environment_owner.get_or_null(p_env);
-	ERR_FAIL_NULL_V(env, Color(1, 1, 1));
-	return env->adjustments_gamma;
-}
-
-Color RendererEnvironmentStorage::environment_get_adjustments_gain(RID p_env) const {
-	Environment *env = environment_owner.get_or_null(p_env);
-	ERR_FAIL_NULL_V(env, Color(1, 1, 1));
-	return env->adjustments_gain;
-}
-
-Color RendererEnvironmentStorage::environment_get_adjustments_shadows_color(RID p_env) const {
-	Environment *env = environment_owner.get_or_null(p_env);
-	ERR_FAIL_NULL_V(env, Color(1, 1, 1));
-	return env->adjustments_shadows_color;
-}
-
-float RendererEnvironmentStorage::environment_get_adjustments_shadows_luminance(RID p_env) const {
-	Environment *env = environment_owner.get_or_null(p_env);
-	ERR_FAIL_NULL_V(env, 1.0);
-	return env->adjustments_shadows_luminance;
-}
-
-Color RendererEnvironmentStorage::environment_get_adjustments_midtones_color(RID p_env) const {
-	Environment *env = environment_owner.get_or_null(p_env);
-	ERR_FAIL_NULL_V(env, Color(1, 1, 1));
-	return env->adjustments_midtones_color;
-}
-
-float RendererEnvironmentStorage::environment_get_adjustments_midtones_luminance(RID p_env) const {
-	Environment *env = environment_owner.get_or_null(p_env);
-	ERR_FAIL_NULL_V(env, 1.0);
-	return env->adjustments_midtones_luminance;
-}
-
-Color RendererEnvironmentStorage::environment_get_adjustments_highlights_color(RID p_env) const {
-	Environment *env = environment_owner.get_or_null(p_env);
-	ERR_FAIL_NULL_V(env, Color(1, 1, 1));
-	return env->adjustments_highlights_color;
-}
-
-float RendererEnvironmentStorage::environment_get_adjustments_highlights_luminance(RID p_env) const {
-	Environment *env = environment_owner.get_or_null(p_env);
-	ERR_FAIL_NULL_V(env, 1.0);
-	return env->adjustments_highlights_luminance;
-}
-
-RID RendererEnvironmentStorage::environment_get_adjustments_hue_vs_hue(RID p_env) const {
-	Environment *env = environment_owner.get_or_null(p_env);
-	ERR_FAIL_NULL_V(env, RID());
-	return env->adjustments_hue_vs_hue;
-}
-
-RID RendererEnvironmentStorage::environment_get_adjustments_hue_vs_saturation(RID p_env) const {
-	Environment *env = environment_owner.get_or_null(p_env);
-	ERR_FAIL_NULL_V(env, RID());
-	return env->adjustments_hue_vs_saturation;
-}
-
-RID RendererEnvironmentStorage::environment_get_adjustments_saturation_vs_saturation(RID p_env) const {
-	Environment *env = environment_owner.get_or_null(p_env);
-	ERR_FAIL_NULL_V(env, RID());
-	return env->adjustments_saturation_vs_saturation;
-}
-
-RID RendererEnvironmentStorage::environment_get_adjustments_luminance_vs_saturation(RID p_env) const {
-	Environment *env = environment_owner.get_or_null(p_env);
-	ERR_FAIL_NULL_V(env, RID());
-	return env->adjustments_luminance_vs_saturation;
-}
-
 bool RendererEnvironmentStorage::environment_get_use_1d_color_correction(RID p_env) const {
 	Environment *env = environment_owner.get_or_null(p_env);
 	ERR_FAIL_NULL_V(env, false);
@@ -1323,140 +972,154 @@ RID RendererEnvironmentStorage::environment_get_color_correction(RID p_env) cons
 	return env->color_correction;
 }
 
-float RendererEnvironmentStorage::environment_get_adjustment_vibrance(RID p_env) const {
-	Environment *env = environment_owner.get_or_null(p_env);
-	ERR_FAIL_NULL_V(env, 0.0f);
-	return env->adjustments_vibrance;
-}
-
-float RendererEnvironmentStorage::environment_get_adjustment_vignette(RID p_env) const {
-	Environment *env = environment_owner.get_or_null(p_env);
-	ERR_FAIL_NULL_V(env, 0.0f);
-	return env->adjustments_vignette;
-}
-
-float RendererEnvironmentStorage::environment_get_adjustment_vignette_start(RID p_env) const {
-	Environment *env = environment_owner.get_or_null(p_env);
-	ERR_FAIL_NULL_V(env, 0.2f);
-	return env->adjustments_vignette_start;
-}
-
-float RendererEnvironmentStorage::environment_get_adjustment_vignette_end(RID p_env) const {
-	Environment *env = environment_owner.get_or_null(p_env);
-	ERR_FAIL_NULL_V(env, 1.2f);
-	return env->adjustments_vignette_end;
-}
-
-void RendererEnvironmentStorage::_update_forward_adjustment_transform(Environment *p_env) {
-	const Basis adaptation = p_env->adjustments_white_balance_enabled ? p_env->adjustments_white_balance_matrix : Basis();
-	p_env->forward_adjustment_matrix = adaptation;
-	p_env->forward_adjustment_offset = Vector3();
-	if (p_env->adjustment_levels_enabled) {
-		// Levels first, then chromatic adaptation; combine only when settings change.
-		for (int row = 0; row < 3; row++) {
-			for (int column = 0; column < 3; column++) {
-				p_env->forward_adjustment_matrix[row][column] *= p_env->adjustment_levels_scale[column];
-			}
-		}
-		p_env->forward_adjustment_offset = adaptation.xform(p_env->adjustment_levels_offset);
-	}
-	if (p_env->adjustments_enabled) {
-		// Brightness only: contrast is a log2 curve in the tonemap shader, an affine one would clip shadows.
-		p_env->forward_adjustment_matrix *= p_env->adjustments_brightness;
-		p_env->forward_adjustment_offset *= p_env->adjustments_brightness;
-	}
-}
-
-void RendererEnvironmentStorage::environment_set_adjustment_levels(RID p_env, bool p_enabled, const Color &p_black, const Color &p_white) {
-	if (OS::get_singleton()->get_current_rendering_method() != "forward_plus") {
-		return;
-	}
-	Environment *env = environment_owner.get_or_null(p_env);
-	ERR_FAIL_NULL(env);
-	bool neutral = true;
-	for (int channel = 0; channel < 3; channel++) {
-		ERR_FAIL_COND(!Math::is_finite(p_black[channel]) || !Math::is_finite(p_white[channel]));
-		neutral = neutral && p_black[channel] == 0.0f && p_white[channel] == 1.0f;
-	}
-	env->adjustment_levels_enabled = p_enabled && !neutral;
-	if (env->adjustment_levels_enabled) {
-		// Color controls are sRGB; perform the mapping in scene-linear HDR.
-		const Color black = p_black.srgb_to_linear();
-		const Color white = p_white.srgb_to_linear();
-		for (int channel = 0; channel < 3; channel++) {
-			const float scale = 1.0f / MAX(white[channel] - black[channel], 1e-5f);
-			env->adjustment_levels_scale[channel] = scale;
-			env->adjustment_levels_offset[channel] = -black[channel] * scale;
-		}
-	}
-	_update_forward_adjustment_transform(env);
-}
-Vector3 RendererEnvironmentStorage::environment_get_adjustment_white_balance_offset(RID p_env) const {
+const EnvironmentColorGrading::Resolved &RendererEnvironmentStorage::environment_get_color_grading(RID p_env) const {
+	static const EnvironmentColorGrading::Resolved neutral;
 	const Environment *env = environment_owner.get_or_null(p_env);
-	ERR_FAIL_NULL_V(env, Vector3());
-	return env->forward_adjustment_offset;
+	ERR_FAIL_NULL_V(env, neutral);
+	return env->grading_resolved;
 }
 
-void RendererEnvironmentStorage::_update_forward_adjustment_flags(Environment *p_env) {
-	p_env->forward_adjustment_flags = 0;
-	if (!p_env->adjustments_enabled) {
+void RendererEnvironmentStorage::_resolve_color_grading(Environment *p_env) {
+	const EnvironmentColorGrading::Settings &g = p_env->grading;
+	EnvironmentColorGrading::Resolved &r = p_env->grading_resolved;
+	r.advance = g.advance;
+	// Forward+ applies tint through chromatic adaptation only.
+	const float tint = CLAMP(g.tint, -1.0f, 1.0f);
+	r.tint = forward_plus ? 0.0f : tint;
+
+	// White balance. Forward+ skips neutral adaptation and folds levels and brightness into one transform.
+	const float temperature = CLAMP(g.temperature, 1000.0f, 15000.0f);
+	const bool adaptation = g.chromatic_adaptation && (!forward_plus || temperature != 6500.0f || tint != 0.0f);
+	if (adaptation && (!p_env->white_balance_cache_valid || p_env->white_balance_cached_temperature != temperature || p_env->white_balance_cached_tint != tint)) {
+		p_env->white_balance_cached_matrix = EnvironmentColorGrading::white_balance_matrix(temperature, tint);
+		p_env->white_balance_cached_temperature = temperature;
+		p_env->white_balance_cached_tint = tint;
+		p_env->white_balance_cache_valid = true;
+	}
+	const Basis adaptation_matrix = adaptation ? p_env->white_balance_cached_matrix : Basis();
+	r.white_balance_matrix = adaptation_matrix;
+	r.white_balance_offset = Vector3();
+	bool levels = false;
+	if (forward_plus) {
+		levels = g.levels_enabled && (g.black_level != Color(0, 0, 0) || g.white_level != Color(1, 1, 1));
+		if (levels) {
+			// Color controls are sRGB; perform the mapping in scene-linear HDR, before adaptation.
+			const Color black = g.black_level.srgb_to_linear();
+			const Color white = g.white_level.srgb_to_linear();
+			Vector3 offset;
+			for (int channel = 0; channel < 3; channel++) {
+				const float scale = 1.0f / MAX(white[channel] - black[channel], 1e-5f);
+				for (int row = 0; row < 3; row++) {
+					r.white_balance_matrix[row][channel] *= scale;
+				}
+				offset[channel] = -black[channel] * scale;
+			}
+			r.white_balance_offset = adaptation_matrix.xform(offset);
+		}
+		if (p_env->adjustments_enabled) {
+			// Brightness only: contrast is a log2 curve in the tonemap shader, an affine one would clip shadows.
+			r.white_balance_matrix *= p_env->adjustments_brightness;
+			r.white_balance_offset *= p_env->adjustments_brightness;
+		}
+	}
+	r.white_balance_enabled = adaptation || levels || (p_env->adjustments_enabled && p_env->adjustments_brightness != 1.0f);
+
+	// Tonal ranges.
+	const EnvironmentColorGrading::TonalRanges ranges = EnvironmentColorGrading::clamp_tonal_ranges(g.ranges.shadows_start, g.ranges.shadows_end, g.ranges.midtones_start, g.ranges.midtones_end, g.ranges.highlights_start, g.ranges.highlights_end);
+	const Vector2 softness(CLAMP(g.tonal_softness.x, 0.0f, 8.0f), CLAMP(g.tonal_softness.y, 0.0f, 8.0f));
+	const float bottom = CLAMP(g.tonal_range.x, -16.0f, 15.99f);
+	const float top = CLAMP(g.tonal_range.y, bottom + 0.01f, 16.0f);
+	r.tonal_limits = EnvironmentColorGrading::place_tonal_limits(Vector2(ranges.shadows_start, ranges.shadows_end), Vector2(ranges.highlights_start, ranges.highlights_end), Vector2(bottom, top), softness);
+	r.midtones_range = Vector2(ranges.midtones_start, ranges.midtones_end);
+
+	// Tonal correction.
+	Vector4 *correction = r.tonal_correction;
+	for (int i = 0; i < 4; i++) {
+		correction[i] = EnvironmentColorGrading::clamp_tonal_correction_parameters(g.correction[i]);
+		correction[4][i] = EnvironmentColorGrading::clamp_tonal_correction_parameter(4, g.correction_lift[i]);
+		const Color linear = g.correction_colors[i].clamp().srgb_to_linear();
+		correction[6 + i] = Vector4(linear.r, linear.g, linear.b, 0);
+		const float black = CLAMP(g.correction_black_point[i], 0.0f, 0.999f);
+		correction[10][i] = black;
+		correction[11][i] = CLAMP(g.correction_white_point[i], black + 0.001f, 1.0f);
+	}
+	// The range ends let shaders place each pixel inside its range for Lower and Upper.
+	correction[12] = Vector4(bottom, 0, 0, 0);
+	correction[13] = Vector4(top, 0, 0, 0);
+	for (int i = 1; i < 4; i++) {
+		correction[12][i] = CLAMP(g.correction_lower[i], -4.0f, 4.0f);
+		correction[13][i] = CLAMP(g.correction_upper[i], -4.0f, 4.0f);
+	}
+	const bool split = correction[12].y != 0.0f || correction[12].z != 0.0f || correction[12].w != 0.0f || correction[13].y != 0.0f || correction[13].z != 0.0f || correction[13].w != 0.0f;
+	const bool correction_enabled = g.correction_controls.y > 0.5f;
+	correction[5] = Vector4(0.0f, correction_enabled, correction_enabled ? CLAMP(int(g.correction_controls.z), 0, 4) : 0, CLAMP(g.correction_controls.w, 0.01f, 0.99f));
+
+	for (int i = 0; i < 4; i++) {
+		r.curves[i] = g.curves[i];
+	}
+	r.curve_flags = g.curve_flags;
+	r.color_modes = Vector2((g.preserve_luminance ? 1 : 0) + (g.soft_contrast ? 2 : 0), CLAMP(g.contrast_pivot, 0.01f, 0.99f));
+	r.vibrance = CLAMP(g.vibrance, -1.0f, 1.0f);
+	r.vignette = CLAMP(g.vignette, 0.0f, 2.0f);
+	r.vignette_range = EnvironmentColorGrading::clamp_vignette_range(g.vignette_start, g.vignette_end);
+
+	// Forward+ grading modules.
+	r.forward_flags = 0;
+	if (!forward_plus || !p_env->adjustments_enabled) {
 		return;
 	}
-	if (p_env->adjustments_advance) {
-		if (p_env->adjustments_vibrance != 0.0f) {
-			p_env->forward_adjustment_flags |= FORWARD_ADJUSTMENT_VIBRANCE;
+	if (r.advance) {
+		if (r.vibrance != 0.0f) {
+			r.forward_flags |= FORWARD_ADJUSTMENT_VIBRANCE;
 		}
-		if (p_env->adjustments_vignette > 0.0f) {
-			p_env->forward_adjustment_flags |= FORWARD_ADJUSTMENT_VIGNETTE;
+		if (r.vignette > 0.0f) {
+			r.forward_flags |= FORWARD_ADJUSTMENT_VIGNETTE;
 		}
 	}
-	const Vector4 *correction = p_env->adjustments_tonal_correction;
 	if (correction[5].y > 0.5f) {
-		bool pre = correction[5].z > 0.0f;
+		bool pre = correction[5].z > 0.0f || split;
 		bool post = false;
 		for (int range = 0; range < 4; range++) {
 			const Vector4 &v = correction[range];
 			pre = pre || correction[10][range] != 0.0f || correction[11][range] != 1.0f || v.y != 1.0f || v.z != 1.0f || v.w != 1.0f || correction[4][range] != 0.0f || correction[6 + range] != Vector4(1, 1, 1, 0);
 			post = post || v.x != 1.0f;
 			if (v.y != 1.0f) {
-				p_env->forward_adjustment_flags |= FORWARD_ADJUSTMENT_CORRECTION_CONTRAST;
+				r.forward_flags |= FORWARD_ADJUSTMENT_CORRECTION_CONTRAST;
 			}
 			if (v.z != 1.0f || v.w != 1.0f || correction[4][range] != 0.0f) {
-				p_env->forward_adjustment_flags |= FORWARD_ADJUSTMENT_CORRECTION_LGG;
+				r.forward_flags |= FORWARD_ADJUSTMENT_CORRECTION_LGG;
 			}
 			if (correction[6 + range] != Vector4(1, 1, 1, 0)) {
-				p_env->forward_adjustment_flags |= FORWARD_ADJUSTMENT_CORRECTION_COLOR;
+				r.forward_flags |= FORWARD_ADJUSTMENT_CORRECTION_COLOR;
 			}
 		}
 		if (pre) {
-			p_env->forward_adjustment_flags |= FORWARD_ADJUSTMENT_CORRECTION;
+			r.forward_flags |= FORWARD_ADJUSTMENT_CORRECTION;
+		}
+		if (correction[10] != Vector4() || correction[11] != Vector4(1, 1, 1, 1)) {
+			r.forward_flags |= FORWARD_ADJUSTMENT_CORRECTION_LEVELS;
+		}
+		if (correction[5].z > 0.5f) {
+			r.forward_flags |= FORWARD_ADJUSTMENT_CORRECTION_PREVIEW;
 		}
 		if (post) {
-			p_env->forward_adjustment_flags |= FORWARD_ADJUSTMENT_CORRECTION_SATURATION;
+			r.forward_flags |= FORWARD_ADJUSTMENT_CORRECTION_SATURATION;
 		}
-		bool needs_weights = correction[5].z > 1.5f;
+		bool needs_weights = correction[5].z > 1.5f || split;
 		for (int range = 1; range < 4; range++) {
 			needs_weights = needs_weights || correction[10][range] != 0.0f || correction[11][range] != 1.0f || correction[range] != Vector4(1, 1, 1, 1) || correction[4][range] != 0.0f || correction[6 + range] != Vector4(1, 1, 1, 0);
 		}
 		if ((pre || post) && needs_weights) {
-			p_env->forward_adjustment_flags |= FORWARD_ADJUSTMENT_CORRECTION_WEIGHTS;
+			r.forward_flags |= FORWARD_ADJUSTMENT_CORRECTION_WEIGHTS;
+			if (split || correction[5].z > 1.5f) {
+				r.forward_flags |= FORWARD_ADJUSTMENT_CORRECTION_POSITIONS;
+			}
 		}
 	}
-	if (p_env->adjustments_hue_vs_hue.is_valid()) {
-		p_env->forward_adjustment_flags |= FORWARD_ADJUSTMENT_CURVES;
+	if (r.curves[0].is_valid()) {
+		r.forward_flags |= FORWARD_ADJUSTMENT_CURVES | ((r.curve_flags & 63u) << FORWARD_ADJUSTMENT_CURVE_SHIFT);
 	}
 	if (p_env->color_correction.is_valid()) {
-		p_env->forward_adjustment_flags |= FORWARD_ADJUSTMENT_LUT;
+		r.forward_flags |= FORWARD_ADJUSTMENT_LUT;
 	}
-}
-uint32_t RendererEnvironmentStorage::environment_get_forward_adjustment_flags(RID p_env) const {
-	const Environment *env = environment_owner.get_or_null(p_env);
-	ERR_FAIL_NULL_V(env, 0);
-	return env->forward_adjustment_flags;
-}
-
-uint32_t RendererEnvironmentStorage::environment_get_forward_curve_flags(RID p_env) const {
-	const Environment *env = environment_owner.get_or_null(p_env);
-	ERR_FAIL_NULL_V(env, 0);
-	return env->forward_curve_flags;
 }

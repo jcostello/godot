@@ -30,6 +30,7 @@
 
 #include "render_forward_clustered.h"
 
+#include "core/config/engine.h"
 #include "core/config/project_settings.h"
 #include "servers/rendering/renderer_rd/environment/fog.h"
 #include "servers/rendering/renderer_rd/framebuffer_cache_rd.h"
@@ -5330,6 +5331,11 @@ RenderForwardClustered::RenderForwardClustered() {
 			scene_state.max_lightmaps = MAX_LIGHTMAPS;
 			defines += "\n#define MAX_LIGHTMAP_TEXTURES " + itos(scene_state.max_lightmaps) + "\n";
 			defines += "\n#define MAX_LIGHTMAPS " + itos(scene_state.max_lightmaps) + "\n";
+			// The per-pixel tonal preview is editor-only; games always sample the graded cache.
+			// Leaving it out keeps its code from raising register use of every lit fragment.
+			if (Engine::get_singleton()->is_editor_hint()) {
+				defines += "\n#define LIGHTMAP_COLOR_PREVIEW\n";
+			}
 
 			scene_state.lightmap_buffer = RD::get_singleton()->storage_buffer_create(sizeof(LightmapData) * scene_state.max_lightmaps);
 		}

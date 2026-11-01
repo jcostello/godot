@@ -144,7 +144,7 @@ private:
 		float tonemapper_params[4]; //  16 - 64
 		float padding_offset[4]; // 16 - 80
 		float tint_midtones_range[4]; // 16 - 96
-		float tonal_softness[4]; // 16 - 112
+		float tonal_limits[4]; // 16 - 112
 		float tonemap_temperature[3]; // 12 - 124
 		float output_max_value; // 4 - 128
 		float vibrance;
@@ -158,19 +158,19 @@ public:
 	struct TonemapSettings;
 	struct MobileGradingData {
 		float white_balance[3][4]; // Three rows; first row alpha enables chromatic adaptation.
-		float tonal_correction[12][4]; // Four ranges, lift, controls, four linear RGB colors, and black/white points.
+		float tonal_correction[14][4]; // Four ranges, lift, controls, four linear RGB colors, black/white points, lower/upper.
 	};
 
 private:
-	static_assert(sizeof(MobileGradingData) == 240, "MobileGradingData must match the shader layout.");
+	static_assert(sizeof(MobileGradingData) == 272, "MobileGradingData must match the shader layout.");
 	static_assert(sizeof(TonemapPushConstant) == 128, "TonemapPushConstant must match the shader layout.");
 	static_assert(sizeof(TonemapPushConstantMobile) == 152, "TonemapPushConstantMobile must match the shader layout.");
 	// Mobile and Forward+ use separate grading buffers.
 	MultiUmaBuffer<1, 8> mobile_grading_buffers = MultiUmaBuffer<1, 8>("ToneMapper::mobile_grading_buffers");
 	struct ForwardGradingData {
-		float rows[15][4] = {};
+		float rows[17][4] = {};
 	};
-	static_assert(sizeof(ForwardGradingData) == 240, "Forward grading UBO must match the shader layout.");
+	static_assert(sizeof(ForwardGradingData) == 272, "Forward grading UBO must match the shader layout.");
 	RID forward_grading_buffer;
 	ForwardGradingData uploaded_forward_grading;
 	RID _get_forward_grading_buffer(const TonemapSettings &p_settings);
@@ -234,7 +234,6 @@ public:
 		float tint = 0.0;
 		float shadows_start = 0.0;
 		float shadows_end = 0.3;
-		Vector2 tonal_softness = Vector2(0.1f, 0.1f);
 		float midtones_start = 0.3;
 		float midtones_end = 0.55;
 		float highlights_start = 0.55;
@@ -245,7 +244,7 @@ public:
 		Vector3 forward_white_balance_offset;
 		bool use_chromatic_adaptation = false;
 		Basis white_balance_matrix;
-		Vector4 tonal_correction[12] = { Vector4(1, 1, 1, 1), Vector4(1, 1, 1, 1), Vector4(1, 1, 1, 1), Vector4(1, 1, 1, 1), Vector4(), Vector4(0, 0, 0, 0.5), Vector4(1, 1, 1, 0), Vector4(1, 1, 1, 0), Vector4(1, 1, 1, 0), Vector4(1, 1, 1, 0), Vector4(), Vector4(1, 1, 1, 1) };
+		Vector4 tonal_correction[14] = { Vector4(1, 1, 1, 1), Vector4(1, 1, 1, 1), Vector4(1, 1, 1, 1), Vector4(1, 1, 1, 1), Vector4(), Vector4(0, 0, 0, 0.5), Vector4(1, 1, 1, 0), Vector4(1, 1, 1, 0), Vector4(1, 1, 1, 0), Vector4(1, 1, 1, 0), Vector4(), Vector4(1, 1, 1, 1), Vector4(-6, 0, 0, 0), Vector4(2, 0, 0, 0) };
 		bool use_color_grading_curves = false;
 		RID hue_vs_hue_texture;
 		RID hue_vs_saturation_texture;

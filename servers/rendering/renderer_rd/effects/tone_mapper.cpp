@@ -53,7 +53,7 @@ RID ToneMapper::_upload_mobile_grading_buffer(const TonemapSettings &p_settings)
 		}
 	}
 	data.white_balance[0][3] = p_settings.use_chromatic_adaptation;
-	for (int range = 0; range < 12; range++) {
+	for (int range = 0; range < 14; range++) {
 		for (int parameter = 0; parameter < 4; parameter++) {
 			data.tonal_correction[range][parameter] = p_settings.tonal_correction[range][parameter];
 		}
@@ -91,7 +91,7 @@ RID ToneMapper::_get_forward_grading_buffer(const TonemapSettings &p_settings) {
 	data.rows[0][1] = p_settings.shadows_end;
 	data.rows[0][2] = p_settings.highlights_start;
 	data.rows[0][3] = p_settings.highlights_end;
-	for (int range = 0; range < 12; range++) {
+	for (int range = 0; range < 14; range++) {
 		for (int channel = 0; channel < 4; channel++) {
 			data.rows[1 + range][channel] = p_settings.tonal_correction[range][channel];
 		}
@@ -99,14 +99,14 @@ RID ToneMapper::_get_forward_grading_buffer(const TonemapSettings &p_settings) {
 	for (int channel = 0; channel < 4; channel++) {
 		data.rows[1 + 4][channel] = _display_to_scene_linear(p_settings.tonal_correction[4][channel]);
 	}
-	data.rows[13][0] = p_settings.vibrance;
-	data.rows[13][1] = p_settings.vignette;
-	data.rows[13][2] = p_settings.vignette_start;
-	data.rows[13][3] = p_settings.vignette_end;
-	data.rows[14][0] = p_settings.forward_curve_flags;
-	data.rows[14][1] = p_settings.forward_adjustment_flags;
-	data.rows[14][2] = p_settings.use_1d_color_correction;
-	data.rows[14][3] = _display_to_scene_linear(p_settings.tonal_correction[5].w);
+	data.rows[15][0] = p_settings.vibrance;
+	data.rows[15][1] = p_settings.vignette;
+	data.rows[15][2] = p_settings.vignette_start;
+	data.rows[15][3] = p_settings.vignette_end;
+	data.rows[16][0] = p_settings.forward_curve_flags;
+	data.rows[16][1] = p_settings.forward_adjustment_flags;
+	data.rows[16][2] = p_settings.use_1d_color_correction;
+	data.rows[16][3] = _display_to_scene_linear(p_settings.tonal_correction[5].w);
 
 	if (forward_grading_buffer.is_valid() && memcmp(&data, &uploaded_forward_grading, sizeof(data)) == 0) {
 		return forward_grading_buffer;
@@ -243,6 +243,9 @@ void ToneMapper::tonemapper(RID p_source_color, RID p_dst_framebuffer, const Ton
 	adjustment_specializations |= use_contrast && !soft_contrast ? 1 << 3 : 0;
 	// Forward flag bit k enables specialization constant 4 + k.
 	adjustment_specializations |= forward_flags << 4;
+	if ((forward_flags & RendererEnvironmentStorage::FORWARD_ADJUSTMENT_LUT) != 0 && p_settings.use_1d_color_correction) {
+		adjustment_specializations |= RendererEnvironmentStorage::FORWARD_ADJUSTMENT_LUT_1D << 4;
+	}
 
 	memset(&tonemap.push_constant, 0, sizeof(TonemapPushConstant));
 	tonemap.push_constant.saturation = saturation;
@@ -410,10 +413,10 @@ void ToneMapper::tonemapper_mobile(RID p_source_color, RID p_dst_framebuffer, co
 	tonemap_mobile.push_constant.tint_midtones_range[0] = p_settings.tint;
 	tonemap_mobile.push_constant.tint_midtones_range[1] = p_settings.midtones_start;
 	tonemap_mobile.push_constant.tint_midtones_range[2] = p_settings.midtones_end;
-	tonemap_mobile.push_constant.tonal_softness[0] = p_settings.shadows_start;
-	tonemap_mobile.push_constant.tonal_softness[1] = p_settings.shadows_end;
-	tonemap_mobile.push_constant.tonal_softness[2] = p_settings.highlights_start;
-	tonemap_mobile.push_constant.tonal_softness[3] = p_settings.highlights_end;
+	tonemap_mobile.push_constant.tonal_limits[0] = p_settings.shadows_start;
+	tonemap_mobile.push_constant.tonal_limits[1] = p_settings.shadows_end;
+	tonemap_mobile.push_constant.tonal_limits[2] = p_settings.highlights_start;
+	tonemap_mobile.push_constant.tonal_limits[3] = p_settings.highlights_end;
 
 	uint32_t spec_constant = 0;
 	spec_constant |= p_settings.use_bcs ? TONEMAP_MOBILE_FLAG_USE_BCS : 0;
@@ -525,10 +528,10 @@ void ToneMapper::tonemapper_subpass(RD::DrawListID p_subpass_draw_list, RID p_so
 	tonemap_mobile.push_constant.tint_midtones_range[0] = p_settings.tint;
 	tonemap_mobile.push_constant.tint_midtones_range[1] = p_settings.midtones_start;
 	tonemap_mobile.push_constant.tint_midtones_range[2] = p_settings.midtones_end;
-	tonemap_mobile.push_constant.tonal_softness[0] = p_settings.shadows_start;
-	tonemap_mobile.push_constant.tonal_softness[1] = p_settings.shadows_end;
-	tonemap_mobile.push_constant.tonal_softness[2] = p_settings.highlights_start;
-	tonemap_mobile.push_constant.tonal_softness[3] = p_settings.highlights_end;
+	tonemap_mobile.push_constant.tonal_limits[0] = p_settings.shadows_start;
+	tonemap_mobile.push_constant.tonal_limits[1] = p_settings.shadows_end;
+	tonemap_mobile.push_constant.tonal_limits[2] = p_settings.highlights_start;
+	tonemap_mobile.push_constant.tonal_limits[3] = p_settings.highlights_end;
 
 	uint32_t spec_constant = TONEMAP_MOBILE_ADRENO_BUG;
 	spec_constant |= p_settings.use_bcs ? TONEMAP_MOBILE_FLAG_USE_BCS : 0;

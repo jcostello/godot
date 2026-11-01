@@ -1310,48 +1310,6 @@
 				Sets the values to be used with the "adjustments" post-process effect. See [Environment] for more details.
 			</description>
 		</method>
-		<method name="environment_set_adjustment_tonal_correction">
-			<return type="void" />
-			<param index="0" name="env" type="RID" />
-			<param index="1" name="master" type="Vector4" />
-			<param index="2" name="shadows" type="Vector4" />
-			<param index="3" name="midtones" type="Vector4" />
-			<param index="4" name="highlights" type="Vector4" />
-			<param index="5" name="lift" type="Vector4" />
-			<param index="6" name="controls" type="Vector4" />
-			<description>
-				Sets the tonal color correction parameters. Each of [param master], [param shadows], [param midtones] and [param highlights] contains saturation, contrast, gamma and gain, respectively; [code]Vector4(1, 1, 1, 1)[/code] is neutral. [param lift] contains lift for Master, Shadows, Midtones and Highlights; zero is neutral. [param controls] contains an unused component (set to zero), enabled (0 or 1), mask preview (0 disabled, 1 Master, 2 Shadows, 3 Midtones, 4 Highlights) and soft contrast pivot (0.01–0.99). See [member Environment.adjustment_correction_enabled] for processing order and required settings.
-			</description>
-		</method>
-		<method name="environment_set_adjustment_tonal_correction_colors">
-			<return type="void" />
-			<param index="0" name="env" type="RID" />
-			<param index="1" name="master" type="Color" />
-			<param index="2" name="shadows" type="Color" />
-			<param index="3" name="midtones" type="Color" />
-			<param index="4" name="highlights" type="Color" />
-			<description>
-				Sets sRGB tonal modulation colors; white is neutral and alpha is ignored. RGB is clamped to 0–1 and converted to linear light. Uses the masks and enabled state set by [method environment_set_adjustment_tonal_correction]. See [member Environment.adjustment_correction_master_color].
-			</description>
-		</method>
-		<method name="environment_set_adjustment_tonal_levels">
-			<return type="void" />
-			<param index="0" name="env" type="RID" />
-			<param index="1" name="black" type="Vector4" />
-			<param index="2" name="white" type="Vector4" />
-			<description>
-				Sets luminance black and white input points for Master, Shadows, Midtones, and Highlights (vector components x, y, z, w). Defaults are black 0 and white 1. Each white point is kept at least 0.001 above black. Gamma is supplied by the existing tonal correction parameters. RGB proportions and HDR headroom are preserved.
-			</description>
-		</method>
-		<method name="environment_set_adjustment_tonal_softness">
-			<return type="void" />
-			<param index="0" name="env" type="RID" />
-			<param index="1" name="shadows_softness" type="float" />
-			<param index="2" name="highlights_softness" type="float" />
-			<description>
-				Sets the independent widths of the shadows-to-midtones and midtones-to-highlights transitions. Widths are clamped to [code]0.0[/code] through [code]1.0[/code]; zero produces an exact cutoff. See [member Environment.adjustment_shadows_softness] and [member Environment.adjustment_highlights_softness].
-			</description>
-		</method>
 		<method name="environment_set_ambient_light">
 			<return type="void" />
 			<param index="0" name="env" type="RID" />
@@ -2356,28 +2314,6 @@
 				Returns the tetrahedralization data used for interpolating between lightmap probe capture points. Each tetrahedron is specified as a series of 4 numbers, each being an index into the probe capture points array returned by [method lightmap_get_probe_capture_points]. See also [method lightmap_set_probe_capture_data].
 			</description>
 		</method>
-		<method name="lightmap_set_adjustments">
-			<return type="void" />
-			<param index="0" name="lightmap" type="RID" />
-			<param index="1" name="energy" type="float" />
-			<param index="2" name="tint" type="Color" />
-			<param index="3" name="saturation" type="float" />
-			<param index="4" name="contrast" type="float" />
-			<param index="5" name="shadows" type="float" />
-			<param index="6" name="midtones" type="float" />
-			<param index="7" name="highlights" type="float" />
-			<description>
-				Sets the runtime adjustments for a lightmap without modifying its baked textures or capture data. See the corresponding properties of [LightmapGI]. [param tint] is an sRGB color whose alpha is ignored. Shadows, midtones, and highlights are exposure offsets in stops, ranging from [code]-4.0[/code] to [code]4.0[/code]. Contrast ranges from [code]0.0[/code] to [code]4.0[/code]; energy and saturation must be nonnegative.
-			</description>
-		</method>
-		<method name="lightmap_set_adjustments_enabled">
-			<return type="void" />
-			<param index="0" name="lightmap" type="RID" />
-			<param index="1" name="enabled" type="bool" />
-			<description>
-				Enables or bypasses all runtime lightmap adjustments and tonal range debugging. See [member LightmapGI.adjustments_enabled].
-			</description>
-		</method>
 		<method name="lightmap_set_baked_exposure_normalization">
 			<return type="void" />
 			<param index="0" name="lightmap" type="RID" />
@@ -2420,16 +2356,6 @@
 				Sets whether the lightmap instance should be considered as interior (when [param interior] is [code]true[/code]). If the lightmap is marked as interior, environment lighting is ignored when baking lightmaps.
 			</description>
 		</method>
-		<method name="lightmap_set_tonal_levels">
-			<return type="void" />
-			<param index="0" name="lightmap" type="RID" />
-			<param index="1" name="black" type="Vector3" />
-			<param index="2" name="white" type="Vector3" />
-			<param index="3" name="gamma" type="Vector3" />
-			<description>
-				Sets luminance Levels for Shadows, Midtones, and Highlights (vector components x, y, z). Defaults are black 0, white 1, and gamma 1. White refers to the original texture maximum luminance. Each white point is kept at least 0.001 above black; gamma is clamped to 0.05 through 4. RGB proportions and HDR headroom are preserved.
-			</description>
-		</method>
 		<method name="lightmap_set_tonal_luminance_range">
 			<return type="void" />
 			<param index="0" name="lightmap" type="RID" />
@@ -2437,20 +2363,6 @@
 			<param index="2" name="max" type="float" />
 			<description>
 				Sets the luminance range of the lightmap's L0 layers, used to place the tonal ranges. It is computed when baking so the texture doesn't have to be read back at runtime. If [param max] is lower than [param min], the range is computed from the texture instead.
-			</description>
-		</method>
-		<method name="lightmap_set_tonal_settings">
-			<return type="void" />
-			<param index="0" name="lightmap" type="RID" />
-			<param index="1" name="ranges" type="Color" />
-			<param index="2" name="shadows_tint" type="Color" />
-			<param index="3" name="midtones_tint" type="Color" />
-			<param index="4" name="highlights_tint" type="Color" />
-			<param index="5" name="saturation" type="Vector3" />
-			<param index="6" name="contrast" type="Vector3" />
-			<param index="7" name="debug_mode" type="int" />
-			<description>
-				Sets the tonal boundaries, range tints, saturation and contrast, and diagnostic mode. [param ranges] packs the midtones start, shadows end, highlights start, and midtones end into its r, g, b and a components. All boundaries must be finite and in [code]0.0[/code] to [code]1.0[/code], with [code]r &lt; g &lt;= b &lt; a[/code]. Range tints are sRGB multipliers with ignored alpha. The x, y and z components of [param saturation] and [param contrast] correspond to shadows, midtones and highlights, and must be in [code]0.0[/code] to [code]4.0[/code]. [param debug_mode] accepts [constant LightmapGI.DEBUG_DISABLED], [constant LightmapGI.DEBUG_SHADOWS], [constant LightmapGI.DEBUG_MIDDLETONES], or [constant LightmapGI.DEBUG_HIGHLIGHTS].
 			</description>
 		</method>
 		<method name="lightmap_set_textures">

@@ -594,76 +594,12 @@ RSE::EnvironmentSDFGIYScale RendererSceneRender::environment_get_sdfgi_y_scale(R
 
 // Adjustments
 
-void RendererSceneRender::environment_set_adjustment(RID p_env, bool p_enable, float p_brightness, float p_contrast, float p_saturation, bool p_use_1d_color_correction, RID p_color_correction, const Color &p_shadows_color, float p_shadows_luminance, const Color &p_midtones_color, float p_midtones_luminance, const Color &p_highlights_color, float p_highlights_luminance) {
-	environment_storage.environment_set_adjustment(p_env, p_enable, p_brightness, p_contrast, p_saturation, p_use_1d_color_correction, p_color_correction, p_shadows_color, p_shadows_luminance, p_midtones_color, p_midtones_luminance, p_highlights_color, p_highlights_luminance);
+void RendererSceneRender::environment_set_adjustment(RID p_env, bool p_enable, float p_brightness, float p_contrast, float p_saturation, bool p_use_1d_color_correction, RID p_color_correction) {
+	environment_storage.environment_set_adjustment(p_env, p_enable, p_brightness, p_contrast, p_saturation, p_use_1d_color_correction, p_color_correction);
 }
 
-void RendererSceneRender::environment_set_adjustment_offset(RID p_env, const Color &p_color, float p_luminance) {
-	environment_storage.environment_set_adjustment_offset(p_env, p_color, p_luminance);
-}
-
-void RendererSceneRender::environment_set_adjustment_lift_gamma_gain(RID p_env, const Color &p_lift_color, float p_lift_intensity, const Color &p_gamma_color, float p_gamma_intensity, const Color &p_gain_color, float p_gain_intensity) {
-	environment_storage.environment_set_adjustment_lift_gamma_gain(p_env, p_lift_color, p_lift_intensity, p_gamma_color, p_gamma_intensity, p_gain_color, p_gain_intensity);
-}
-
-void RendererSceneRender::environment_set_adjustment_tint(RID p_env, float p_tint) {
-	environment_storage.environment_set_adjustment_tint(p_env, p_tint);
-}
-
-void RendererSceneRender::environment_set_adjustment_white_balance(RID p_env, bool p_chromatic_adaptation, float p_temperature, float p_tint) {
-	environment_storage.environment_set_adjustment_white_balance(p_env, p_chromatic_adaptation, p_temperature, p_tint);
-}
-
-void RendererSceneRender::environment_set_adjustment_tonal_softness(RID p_env, float p_shadows_softness, float p_highlights_softness) {
-	environment_storage.environment_set_adjustment_tonal_softness(p_env, p_shadows_softness, p_highlights_softness);
-}
-
-Vector2 RendererSceneRender::environment_get_adjustment_tonal_softness(RID p_env) const {
-	return environment_storage.environment_get_adjustment_tonal_softness(p_env);
-}
-
-void RendererSceneRender::environment_set_adjustment_midtones_range(RID p_env, float p_shadows_start, float p_shadows_end, float p_midtones_start, float p_midtones_end, float p_highlights_start, float p_highlights_end) {
-	environment_storage.environment_set_adjustment_midtones_range(p_env, p_shadows_start, p_shadows_end, p_midtones_start, p_midtones_end, p_highlights_start, p_highlights_end);
-}
-
-void RendererSceneRender::environment_set_adjustment_advance(RID p_env, bool p_enable) {
-	environment_storage.environment_set_adjustment_advance(p_env, p_enable);
-}
-
-void RendererSceneRender::environment_set_adjustment_tonal_levels(RID p_env, const Vector4 &p_black, const Vector4 &p_white) {
-	environment_storage.environment_set_adjustment_tonal_levels(p_env, p_black, p_white);
-}
-
-void RendererSceneRender::environment_set_adjustment_tonal_correction_colors(RID p_env, const Color &p_master, const Color &p_shadows, const Color &p_midtones, const Color &p_highlights) {
-	environment_storage.environment_set_adjustment_tonal_correction_colors(p_env, p_master, p_shadows, p_midtones, p_highlights);
-}
-
-void RendererSceneRender::environment_set_adjustment_tonal_correction(RID p_env, const Vector4 &p_master, const Vector4 &p_shadows, const Vector4 &p_midtones, const Vector4 &p_highlights, const Vector4 &p_lift, const Vector4 &p_controls) {
-	environment_storage.environment_set_adjustment_tonal_correction(p_env, p_master, p_shadows, p_midtones, p_highlights, p_lift, p_controls);
-}
-
-Vector4 RendererSceneRender::environment_get_adjustment_tonal_correction(RID p_env, int p_index) const {
-	return environment_storage.environment_get_adjustment_tonal_correction(p_env, p_index);
-}
-
-void RendererSceneRender::environment_set_adjustment_curves(RID p_env, RID p_hue_vs_hue, RID p_hue_vs_saturation, RID p_saturation_vs_saturation, RID p_luminance_vs_saturation, uint32_t p_flags) {
-	environment_storage.environment_set_adjustment_curves(p_env, p_hue_vs_hue, p_hue_vs_saturation, p_saturation_vs_saturation, p_luminance_vs_saturation, p_flags);
-}
-
-void RendererSceneRender::environment_set_adjustment_color_modes(RID p_env, bool p_preserve_luminance, bool p_soft_contrast, float p_pivot) {
-	environment_storage.environment_set_adjustment_color_modes(p_env, p_preserve_luminance, p_soft_contrast, p_pivot);
-}
-
-Vector2 RendererSceneRender::environment_get_adjustment_color_modes(RID p_env) const {
-	return environment_storage.environment_get_adjustment_color_modes(p_env);
-}
-
-void RendererSceneRender::environment_set_adjustment_vibrance(RID p_env, float p_vibrance) {
-	environment_storage.environment_set_adjustment_vibrance(p_env, p_vibrance);
-}
-
-void RendererSceneRender::environment_set_adjustment_vignette(RID p_env, float p_vignette, float p_start, float p_end) {
-	environment_storage.environment_set_adjustment_vignette(p_env, p_vignette, p_start, p_end);
+void RendererSceneRender::environment_set_color_grading(RID p_env, const EnvironmentColorGrading::Settings &p_settings) {
+	environment_storage.environment_set_color_grading(p_env, p_settings);
 }
 
 bool RendererSceneRender::environment_get_adjustments_enabled(RID p_env) const {
@@ -682,106 +618,6 @@ float RendererSceneRender::environment_get_adjustments_saturation(RID p_env) con
 	return environment_storage.environment_get_adjustments_saturation(p_env);
 }
 
-bool RendererSceneRender::environment_get_adjustment_advance(RID p_env) const {
-	return environment_storage.environment_get_adjustment_advance(p_env);
-}
-
-float RendererSceneRender::environment_get_adjustment_tint(RID p_env) const {
-	return environment_storage.environment_get_adjustment_tint(p_env);
-}
-
-bool RendererSceneRender::environment_get_adjustment_white_balance_enabled(RID p_env) const {
-	return environment_storage.environment_get_adjustment_white_balance_enabled(p_env);
-}
-
-Basis RendererSceneRender::environment_get_adjustment_white_balance_matrix(RID p_env) const {
-	return environment_storage.environment_get_adjustment_white_balance_matrix(p_env);
-}
-
-float RendererSceneRender::environment_get_adjustment_shadows_start(RID p_env) const {
-	return environment_storage.environment_get_adjustment_shadows_start(p_env);
-}
-
-float RendererSceneRender::environment_get_adjustment_shadows_end(RID p_env) const {
-	return environment_storage.environment_get_adjustment_shadows_end(p_env);
-}
-
-float RendererSceneRender::environment_get_adjustment_midtones_start(RID p_env) const {
-	return environment_storage.environment_get_adjustment_midtones_start(p_env);
-}
-
-float RendererSceneRender::environment_get_adjustment_midtones_end(RID p_env) const {
-	return environment_storage.environment_get_adjustment_midtones_end(p_env);
-}
-
-float RendererSceneRender::environment_get_adjustment_highlights_start(RID p_env) const {
-	return environment_storage.environment_get_adjustment_highlights_start(p_env);
-}
-
-float RendererSceneRender::environment_get_adjustment_highlights_end(RID p_env) const {
-	return environment_storage.environment_get_adjustment_highlights_end(p_env);
-}
-
-Color RendererSceneRender::environment_get_adjustments_offset_color(RID p_env) const {
-	return environment_storage.environment_get_adjustments_offset_color(p_env);
-}
-
-float RendererSceneRender::environment_get_adjustments_offset_luminance(RID p_env) const {
-	return environment_storage.environment_get_adjustments_offset_luminance(p_env);
-}
-
-Color RendererSceneRender::environment_get_adjustments_lift(RID p_env) const {
-	return environment_storage.environment_get_adjustments_lift(p_env);
-}
-
-Color RendererSceneRender::environment_get_adjustments_gamma(RID p_env) const {
-	return environment_storage.environment_get_adjustments_gamma(p_env);
-}
-
-Color RendererSceneRender::environment_get_adjustments_gain(RID p_env) const {
-	return environment_storage.environment_get_adjustments_gain(p_env);
-}
-
-Color RendererSceneRender::environment_get_adjustments_shadows_color(RID p_env) const {
-	return environment_storage.environment_get_adjustments_shadows_color(p_env);
-}
-
-float RendererSceneRender::environment_get_adjustments_shadows_luminance(RID p_env) const {
-	return environment_storage.environment_get_adjustments_shadows_luminance(p_env);
-}
-
-Color RendererSceneRender::environment_get_adjustments_midtones_color(RID p_env) const {
-	return environment_storage.environment_get_adjustments_midtones_color(p_env);
-}
-
-float RendererSceneRender::environment_get_adjustments_midtones_luminance(RID p_env) const {
-	return environment_storage.environment_get_adjustments_midtones_luminance(p_env);
-}
-
-Color RendererSceneRender::environment_get_adjustments_highlights_color(RID p_env) const {
-	return environment_storage.environment_get_adjustments_highlights_color(p_env);
-}
-
-float RendererSceneRender::environment_get_adjustments_highlights_luminance(RID p_env) const {
-	return environment_storage.environment_get_adjustments_highlights_luminance(p_env);
-}
-
-RID RendererSceneRender::environment_get_adjustments_hue_vs_hue(RID p_env) const {
-	return environment_storage.environment_get_adjustments_hue_vs_hue(p_env);
-}
-
-RID RendererSceneRender::environment_get_adjustments_hue_vs_saturation(RID p_env) const {
-	return environment_storage.environment_get_adjustments_hue_vs_saturation(p_env);
-}
-
-RID RendererSceneRender::environment_get_adjustments_saturation_vs_saturation(RID p_env) const {
-	return environment_storage.environment_get_adjustments_saturation_vs_saturation(p_env);
-}
-
-RID RendererSceneRender::environment_get_adjustments_luminance_vs_saturation(RID p_env) const {
-	return environment_storage.environment_get_adjustments_luminance_vs_saturation(p_env);
-}
-
 bool RendererSceneRender::environment_get_use_1d_color_correction(RID p_env) const {
 	return environment_storage.environment_get_use_1d_color_correction(p_env);
 }
@@ -790,33 +626,7 @@ RID RendererSceneRender::environment_get_color_correction(RID p_env) const {
 	return environment_storage.environment_get_color_correction(p_env);
 }
 
-float RendererSceneRender::environment_get_adjustment_vibrance(RID p_env) const {
-	return environment_storage.environment_get_adjustment_vibrance(p_env);
+const EnvironmentColorGrading::Resolved &RendererSceneRender::environment_get_color_grading(RID p_env) const {
+	return environment_storage.environment_get_color_grading(p_env);
 }
 
-float RendererSceneRender::environment_get_adjustment_vignette(RID p_env) const {
-	return environment_storage.environment_get_adjustment_vignette(p_env);
-}
-
-float RendererSceneRender::environment_get_adjustment_vignette_start(RID p_env) const {
-	return environment_storage.environment_get_adjustment_vignette_start(p_env);
-}
-
-float RendererSceneRender::environment_get_adjustment_vignette_end(RID p_env) const {
-	return environment_storage.environment_get_adjustment_vignette_end(p_env);
-}
-
-void RendererSceneRender::environment_set_adjustment_levels(RID p_env, bool p_enabled, const Color &p_black, const Color &p_white) {
-	environment_storage.environment_set_adjustment_levels(p_env, p_enabled, p_black, p_white);
-}
-Vector3 RendererSceneRender::environment_get_adjustment_white_balance_offset(RID p_env) const {
-	return environment_storage.environment_get_adjustment_white_balance_offset(p_env);
-}
-
-uint32_t RendererSceneRender::environment_get_forward_adjustment_flags(RID p_env) const {
-	return environment_storage.environment_get_forward_adjustment_flags(p_env);
-}
-
-uint32_t RendererSceneRender::environment_get_forward_curve_flags(RID p_env) const {
-	return environment_storage.environment_get_forward_curve_flags(p_env);
-}

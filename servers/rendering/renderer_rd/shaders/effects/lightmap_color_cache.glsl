@@ -8,7 +8,7 @@ layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 layout(set = 0, binding = 0) uniform sampler2DArray source_texture;
 layout(set = 0, binding = 1, rgba16f) uniform writeonly image2DArray target_texture;
 layout(set = 0, binding = 2, std140) uniform ColorParameters {
-	vec4 data[14];
+	vec4 data[16];
 } grading;
 layout(push_constant, std430) uniform Params {
 	uint directional;

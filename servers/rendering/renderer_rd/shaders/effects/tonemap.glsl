@@ -910,8 +910,18 @@ void main() {
 	}
 #ifdef USE_FORWARD_GRADING
 	vec3 forward_correction_weights_main;
-	color.rgb = forward_adjustments_pre(color.rgb, uv_interp, forward_correction_weights_main);
+	vec3 forward_correction_positions_main;
+	color.rgb = forward_adjustments_pre(color.rgb, uv_interp, exposure, forward_correction_weights_main, forward_correction_positions_main);
 #endif
+	// Saturation runs in scene-linear HDR before tonemapping, like Unity's HDR grading and Blender's compositor.
+	if (use_saturation) {
+		if (preserve_saturation_luminance) {
+			color.rgb = adjustment_gamut_saturation(max(color.rgb, vec3(0.0)), params.saturation);
+		} else {
+			float luminance = dot(color.rgb, vec3(0.2126, 0.7152, 0.0722));
+			color.rgb = max(mix(vec3(luminance), color.rgb, params.saturation), vec3(0.0));
+		}
+	}
 	color.rgb = apply_tonemapping(color.rgb);
 
 	// Post-tonemap glow.
@@ -932,21 +942,11 @@ void main() {
 	}
 
 #ifdef USE_FORWARD_GRADING
-	color.rgb = forward_adjustments_post(color.rgb, forward_correction_weights_main);
-	if (forward_grading.correction[5].z > 0.5) {
-		color.rgb = vec3(grading_tonal_correction_mask(forward_correction_weights_main, int(forward_grading.correction[5].z)));
+	color.rgb = forward_adjustments_post(color.rgb);
+	if (use_forward_correction_preview) {
+		color.rgb = grading_tonal_correction_mask(forward_correction_weights_main, forward_correction_positions_main, int(forward_grading.correction[5].z));
 	}
 #endif
-
-	// Saturation follows tonemapping and soft-light glow, in display-linear RGB.
-	if (use_saturation) {
-		if (preserve_saturation_luminance) {
-			color.rgb = adjustment_gamut_saturation(color.rgb, params.saturation);
-		} else {
-			float luminance = dot(color.rgb, vec3(0.2126, 0.7152, 0.0722));
-			color.rgb = max(mix(vec3(luminance), color.rgb, params.saturation), vec3(0.0));
-		}
-	}
 
 	// Additional effects.
 

@@ -2911,7 +2911,7 @@ void LightStorage::_update_lightmap_color_adjustments(Lightmap *p_lightmap) {
 	}
 	const Color tint = a.tint.srgb_to_linear();
 	const Color colors[] = { a.shadows_tint.srgb_to_linear(), a.midtones_tint.srgb_to_linear(), a.highlights_tint.srgb_to_linear() };
-	const bool tonal = a.tonal_black_point != Vector3() || a.tonal_white_point != Vector3(1, 1, 1) || a.tonal_gamma != Vector3(1, 1, 1) || a.shadows != 0.0f || a.midtones != 0.0f || a.highlights != 0.0f || a.tonal_saturation != Vector3(1, 1, 1) || a.tonal_contrast != Vector3(1, 1, 1) || colors[0].r != 1.0f || colors[0].g != 1.0f || colors[0].b != 1.0f || colors[1].r != 1.0f || colors[1].g != 1.0f || colors[1].b != 1.0f || colors[2].r != 1.0f || colors[2].g != 1.0f || colors[2].b != 1.0f;
+	const bool tonal = a.tonal_black_point != Vector3() || a.tonal_white_point != Vector3(1, 1, 1) || a.tonal_gamma != Vector3(1, 1, 1) || a.shadows != 0.0f || a.midtones != 0.0f || a.highlights != 0.0f || a.tonal_saturation != Vector3(1, 1, 1) || a.tonal_contrast != Vector3(1, 1, 1) || colors[0].r != 1.0f || colors[0].g != 1.0f || colors[0].b != 1.0f || colors[1].r != 1.0f || colors[1].g != 1.0f || colors[1].b != 1.0f || colors[2].r != 1.0f || colors[2].g != 1.0f || colors[2].b != 1.0f || a.tonal_lower != Vector3() || a.tonal_upper != Vector3();
 	const bool basic = a.energy != 1.0f || a.tint.r != 1.0f || a.tint.g != 1.0f || a.tint.b != 1.0f || a.saturation != 1.0f;
 	if (!basic && !tonal && a.contrast == 1.0f && a.debug_mode == 0) {
 		return;
@@ -2932,6 +2932,8 @@ void LightStorage::_update_lightmap_color_adjustments(Lightmap *p_lightmap) {
 		data[11][row] = a.tonal_black_point[row];
 		data[12][row] = a.tonal_white_point[row];
 		data[13][row] = a.tonal_gamma[row];
+		data[14][row] = a.tonal_lower[row];
+		data[15][row] = a.tonal_upper[row];
 		for (int channel = 0; channel < 3; channel++) {
 			data[7 + row][channel] = colors[row][channel];
 		}
@@ -2944,43 +2946,39 @@ void LightStorage::_update_lightmap_color_adjustments(Lightmap *p_lightmap) {
 	for (int channel = 0; channel < 4; channel++) {
 		data[5][channel] = a.tonal_ranges[channel];
 	}
+	data[6][3] = a.tonal_softness;
 }
 
-void LightStorage::lightmap_set_adjustments_enabled(RID p_lightmap, bool p_enabled) {
+void LightStorage::lightmap_set_color_adjustments(RID p_lightmap, const LightmapAdjustments &p_adjustments) {
 	Lightmap *lm = lightmap_owner.get_or_null(p_lightmap);
 	ERR_FAIL_NULL(lm);
-	lm->color_adjustments.enabled = p_enabled;
-	_update_lightmap_color_adjustments(lm);
-}
-
-void LightStorage::lightmap_set_adjustments(RID p_lightmap, float p_energy, const Color &p_tint, float p_saturation, float p_contrast, float p_shadows, float p_midtones, float p_highlights) {
-	Lightmap *lm = lightmap_owner.get_or_null(p_lightmap);
-	ERR_FAIL_NULL(lm);
-	ERR_FAIL_COND(!Math::is_finite(p_energy) || !Math::is_finite(p_saturation) || !Math::is_finite(p_contrast) || !Math::is_finite(p_shadows) || !Math::is_finite(p_midtones) || !Math::is_finite(p_highlights));
-	ERR_FAIL_COND(!Math::is_finite(p_tint.r) || !Math::is_finite(p_tint.g) || !Math::is_finite(p_tint.b));
+	// LightmapGI validates its properties; these clamps only keep the shader data in range.
 	LightmapAdjustments &a = lm->color_adjustments;
-	a.energy = MAX(p_energy, 0.0f);
-	a.tint = p_tint;
-	a.saturation = MAX(p_saturation, 0.0f);
-	a.contrast = CLAMP(p_contrast, 0.0f, 4.0f);
-	a.shadows = CLAMP(p_shadows, -4.0f, 4.0f);
-	a.midtones = CLAMP(p_midtones, -4.0f, 4.0f);
-	a.highlights = CLAMP(p_highlights, -4.0f, 4.0f);
-	_update_lightmap_color_adjustments(lm);
-}
-
-void LightStorage::lightmap_set_tonal_levels(RID p_lightmap, const Vector3 &p_black, const Vector3 &p_white, const Vector3 &p_gamma) {
-	Lightmap *lm = lightmap_owner.get_or_null(p_lightmap);
-	ERR_FAIL_NULL(lm);
+	a = p_adjustments;
+	a.energy = MAX(a.energy, 0.0f);
+	a.saturation = MAX(a.saturation, 0.0f);
+	a.contrast = CLAMP(a.contrast, 0.0f, 4.0f);
+	a.shadows = CLAMP(a.shadows, -4.0f, 4.0f);
+	a.midtones = CLAMP(a.midtones, -4.0f, 4.0f);
+	a.highlights = CLAMP(a.highlights, -4.0f, 4.0f);
+	a.tonal_ranges[0] = CLAMP(a.tonal_ranges[0], 0.0f, 0.9998f);
+	a.tonal_ranges[1] = CLAMP(a.tonal_ranges[1], a.tonal_ranges[0] + 0.0001f, 0.9999f);
+	a.tonal_ranges[2] = CLAMP(a.tonal_ranges[2], a.tonal_ranges[1], 0.9999f);
+	a.tonal_ranges[3] = CLAMP(a.tonal_ranges[3], a.tonal_ranges[2] + 0.0001f, 1.0f);
 	for (int i = 0; i < 3; i++) {
-		ERR_FAIL_COND(!Math::is_finite(p_black[i]) || !Math::is_finite(p_white[i]) || !Math::is_finite(p_gamma[i]));
+		a.tonal_saturation[i] = CLAMP(a.tonal_saturation[i], 0.0f, 4.0f);
+		a.tonal_contrast[i] = CLAMP(a.tonal_contrast[i], 0.0f, 4.0f);
+		a.tonal_black_point[i] = CLAMP(a.tonal_black_point[i], 0.0f, 0.999f);
+		a.tonal_white_point[i] = CLAMP(a.tonal_white_point[i], a.tonal_black_point[i] + 0.001f, 1.0f);
+		a.tonal_gamma[i] = CLAMP(a.tonal_gamma[i], 0.05f, 4.0f);
 	}
+	a.tonal_range_offsets = Vector2(CLAMP(a.tonal_range_offsets.x, -12.0f, 12.0f), CLAMP(a.tonal_range_offsets.y, -12.0f, 12.0f));
+	a.tonal_softness = CLAMP(a.tonal_softness, 0.0f, 8.0f);
 	for (int i = 0; i < 3; i++) {
-		const float black = CLAMP(p_black[i], 0.0f, 0.999f);
-		lm->color_adjustments.tonal_black_point[i] = black;
-		lm->color_adjustments.tonal_white_point[i] = CLAMP(p_white[i], black + 0.001f, 1.0f);
-		lm->color_adjustments.tonal_gamma[i] = CLAMP(p_gamma[i], 0.05f, 4.0f);
+		a.tonal_lower[i] = CLAMP(a.tonal_lower[i], -4.0f, 4.0f);
+		a.tonal_upper[i] = CLAMP(a.tonal_upper[i], -4.0f, 4.0f);
 	}
+	a.debug_mode = CLAMP(a.debug_mode, 0, 3);
 	_update_lightmap_color_adjustments(lm);
 }
 
@@ -2996,31 +2994,6 @@ void LightStorage::lightmap_set_tonal_luminance_range(RID p_lightmap, float p_mi
 		lm->tonal_luminance_max = p_max;
 	}
 	lm->color_texture_dirty = true;
-}
-
-void LightStorage::lightmap_set_tonal_settings(RID p_lightmap, const Color &p_ranges, const Color &p_shadows_tint, const Color &p_midtones_tint, const Color &p_highlights_tint, const Vector3 &p_saturation, const Vector3 &p_contrast, int p_debug_mode) {
-	Lightmap *lm = lightmap_owner.get_or_null(p_lightmap);
-	ERR_FAIL_NULL(lm);
-	for (int i = 0; i < 4; i++) {
-		ERR_FAIL_COND(!Math::is_finite(p_ranges[i]) || !Math::is_finite(p_shadows_tint[i]) || !Math::is_finite(p_midtones_tint[i]) || !Math::is_finite(p_highlights_tint[i]));
-	}
-	for (int i = 0; i < 3; i++) {
-		ERR_FAIL_COND(!Math::is_finite(p_saturation[i]) || !Math::is_finite(p_contrast[i]));
-	}
-	LightmapAdjustments &a = lm->color_adjustments;
-	a.tonal_ranges[0] = CLAMP(p_ranges[0], 0.0f, 0.9998f);
-	a.tonal_ranges[1] = CLAMP(p_ranges[1], a.tonal_ranges[0] + 0.0001f, 0.9999f);
-	a.tonal_ranges[2] = CLAMP(p_ranges[2], a.tonal_ranges[1], 0.9999f);
-	a.tonal_ranges[3] = CLAMP(p_ranges[3], a.tonal_ranges[2] + 0.0001f, 1.0f);
-	a.shadows_tint = p_shadows_tint;
-	a.midtones_tint = p_midtones_tint;
-	a.highlights_tint = p_highlights_tint;
-	for (int i = 0; i < 3; i++) {
-		a.tonal_saturation[i] = CLAMP(p_saturation[i], 0.0f, 4.0f);
-		a.tonal_contrast[i] = CLAMP(p_contrast[i], 0.0f, 4.0f);
-	}
-	a.debug_mode = CLAMP(p_debug_mode, 0, 3);
-	_update_lightmap_color_adjustments(lm);
 }
 
 // Fallback for lightmaps baked before the range was stored: scan only original L0 layers,
@@ -3068,8 +3041,10 @@ uint32_t LightStorage::lightmap_prepare_color_texture(RID p_lightmap) {
 			// Ranges baked before percentiles start at zero: limit them to 12 stops below the maximum.
 			log_max = Math::log2(lm->tonal_luminance_max);
 			log_min = Math::log2(MAX(lm->tonal_luminance_min, lm->tonal_luminance_max * (1.0f / 4096.0f)));
-			log_max = MAX(log_max, log_min + 0.001f);
 		}
+		// Manual range: dark scenes with a few hot texels can pull the top in to spread their own surfaces.
+		log_min += lm->color_adjustments.tonal_range_offsets.x;
+		log_max = MAX(log_max + lm->color_adjustments.tonal_range_offsets.y, log_min + 0.001f);
 		const float old_log_min = lm->color_adjustment_data[3][3];
 		const float old_log_scale = lm->color_adjustment_data[10][3];
 		lm->color_adjustment_data[3][3] = log_min;

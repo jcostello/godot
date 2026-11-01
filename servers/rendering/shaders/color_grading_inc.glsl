@@ -25,9 +25,14 @@ vec3 apply_grading_vibrance(vec3 color, float vibrance) {
 	return grading_hsv_to_rgb(hsv);
 }
 
-vec3 grading_tonal_weights(float luminance, vec4 limits) {
-	float shadows_transition = limits.y > limits.x ? smoothstep(limits.x, limits.y, luminance) : step(limits.x, luminance);
-	float highlights_transition = limits.w > limits.z ? smoothstep(limits.z, limits.w, luminance) : step(limits.z, luminance);
+// Limits and level are log2 luminance (EV), like the LightmapGI tonal ranges.
+float grading_tonal_level(float luminance) {
+	return log2(max(luminance, 1e-6));
+}
+
+vec3 grading_tonal_weights(float level, vec4 limits) {
+	float shadows_transition = limits.y > limits.x ? smoothstep(limits.x, limits.y, level) : step(limits.x, level);
+	float highlights_transition = limits.w > limits.z ? smoothstep(limits.z, limits.w, level) : step(limits.z, level);
 	float shadows = 1.0 - shadows_transition;
 	float highlights = highlights_transition;
 	return vec3(shadows, 1.0 - shadows - highlights, highlights);
@@ -60,11 +65,13 @@ vec3 grading_normalized_tonal_weights(vec3 weights) {
 	return weights / max(dot(weights, vec3(1.0)), 0.00001);
 }
 
-float grading_tonal_correction_mask(vec3 weights, int preview) {
+vec3 grading_tonal_correction_mask(vec3 weights, vec3 positions, int preview) {
 	if (preview == 1) { // Master covers the whole image.
-		return 1.0;
+		return vec3(1.0);
 	}
-	return weights[clamp(preview - 2, 0, 2)];
+	int range = clamp(preview - 2, 0, 2);
+	// Blue marks the part Lower affects, orange the part Upper affects.
+	return weights[range] * mix(vec3(0.4, 0.65, 1.0), vec3(1.0, 0.7, 0.35), positions[range]);
 }
 
 vec3 grading_luminance_levels(vec3 color, float black, float white) {
@@ -79,30 +86,50 @@ vec3 grading_luminance_levels(vec3 color, float black, float white) {
 	return min((max(color, vec3(0.0)) / luminance) * min(target, 65504.0), vec3(65504.0));
 }
 
-vec3 grading_tonal_levels(vec3 color, vec3 weights, vec4 correction[12]) {
+vec3 grading_tonal_levels(vec3 color, vec3 weights, vec4 correction[14]) {
 	color = grading_luminance_levels(color, correction[10].x, correction[11].x);
 	return grading_luminance_levels(color, dot(correction[10].yzw, weights), dot(correction[11].yzw, weights));
 }
 
 // Uniform checks avoid masks for disabled correction and Master-only changes.
-bool grading_correction_needs_weights(vec4 correction[12]) {
+bool grading_correction_needs_weights(vec4 correction[14]) {
 	if (correction[5].y < 0.5) {
 		return false;
 	}
 	if (correction[5].z > 1.5) {
 		return true;
 	}
-	return (any(notEqual(correction[10].yzw, vec3(0.0))) || any(notEqual(correction[11].yzw, vec3(1.0))) || any(notEqual(correction[1], vec4(1.0))) || any(notEqual(correction[2], vec4(1.0))) || any(notEqual(correction[3], vec4(1.0))) || any(notEqual(correction[4].yzw, vec3(0.0))) || any(notEqual(correction[7].rgb, vec3(1.0))) || any(notEqual(correction[8].rgb, vec3(1.0))) || any(notEqual(correction[9].rgb, vec3(1.0))));
+	return (any(notEqual(correction[10].yzw, vec3(0.0))) || any(notEqual(correction[11].yzw, vec3(1.0))) || any(notEqual(correction[1], vec4(1.0))) || any(notEqual(correction[2], vec4(1.0))) || any(notEqual(correction[3], vec4(1.0))) || any(notEqual(correction[4].yzw, vec3(0.0))) || any(notEqual(correction[7].rgb, vec3(1.0))) || any(notEqual(correction[8].rgb, vec3(1.0))) || any(notEqual(correction[9].rgb, vec3(1.0))) || any(notEqual(correction[12].yzw, vec3(0.0))) || any(notEqual(correction[13].yzw, vec3(0.0))));
 }
 
-vec3 grading_correction_weights(vec3 color, vec4 limits, vec4 correction[12]) {
+// Position inside each range in EV: 0 at its dark end, 1 at its bright end.
+// Shadows span from the range bottom, highlights to its top, midtones across both transitions.
+vec3 grading_tonal_positions(float level, vec4 limits, vec4 correction[14]) {
+	vec3 dark_end = vec3(correction[12].x, limits.x, limits.z);
+	vec3 bright_end = vec3(limits.y, limits.w, correction[13].x);
+	return clamp((vec3(level) - dark_end) / max(bright_end - dark_end, vec3(0.0001)), 0.0, 1.0);
+}
+
+// Stops from each range's Lower and Upper controls, split by the position inside the range.
+float grading_tonal_split_stops(vec3 weights, vec3 positions, vec4 correction[14]) {
+	if (correction[5].y < 0.5) {
+		return 0.0;
+	}
+	return dot(correction[12].yzw, weights * (1.0 - positions)) + dot(correction[13].yzw, weights * positions);
+}
+
+vec3 grading_correction_weights(vec3 color, vec4 limits, vec4 correction[14], out vec3 positions) {
+	positions = vec3(0.5);
 	if (!grading_correction_needs_weights(correction)) {
 		return vec3(0.0, 1.0, 0.0);
 	}
-	return grading_normalized_tonal_weights(grading_tonal_weights(dot(color, vec3(0.2126729, 0.7151522, 0.0721750)), limits));
+	float luminance = dot(color, vec3(0.2126729, 0.7151522, 0.0721750));
+	float level = grading_tonal_level(luminance);
+	positions = grading_tonal_positions(level, limits, correction);
+	return grading_normalized_tonal_weights(grading_tonal_weights(level, limits));
 }
 
-vec3 apply_grading_tonal_correction(vec3 color, vec3 weights, vec4 correction[12]) {
+vec3 apply_grading_tonal_correction(vec3 color, vec3 weights, vec4 correction[14]) {
 	vec4 controls = correction[5];
 	if (controls.y < 0.5) {
 		return color;
@@ -176,21 +203,24 @@ float sample_grading_hue_luminance(float hue) {
 	return value;
 }
 
+// RGB curves cover display values 0..1. HDR and negative headroom keep their offset
+// from the curve endpoint, so edited endpoints do not create a step at 0 or 1.
+vec3 apply_grading_rgb_curve_atlas(vec3 color) {
+	vec3 curved = color;
+	for (int channel = 0; channel < 3; channel++) {
+		float clamped = clamp(color[channel], 0.0, 1.0);
+		curved[channel] = sample_grading_atlas(clamped, 2)[channel] + (color[channel] - clamped);
+	}
+	return curved;
+}
+
 vec3 apply_grading_rgb_curves(vec3 color) {
 	vec4 white = texelFetch(luminance_vs_saturation_curve, ivec2(0, 4), 0);
 	if (white.a == 0.0) {
 		return color;
 	}
 	vec3 black = texelFetch(luminance_vs_saturation_curve, ivec2(0, 3), 0).rgb;
-	vec3 leveled = (color - black) / max(white.rgb - black, vec3(0.0001));
-	vec3 curved = leveled;
-	// RGB curves cover display values 0..1. HDR and negative headroom keep their offset
-	// from the curve endpoint, so edited endpoints do not create a step at 0 or 1.
-	for (int channel = 0; channel < 3; channel++) {
-		float clamped = clamp(leveled[channel], 0.0, 1.0);
-		curved[channel] = sample_grading_atlas(clamped, 2)[channel] + (leveled[channel] - clamped);
-	}
-	return curved;
+	return apply_grading_rgb_curve_atlas((color - black) / max(white.rgb - black, vec3(0.0001)));
 }
 
 vec3 apply_grading_hue_luminance(vec3 color, float hue, float saturation) {
@@ -217,6 +247,36 @@ vec3 apply_grading_hue_luminance(vec3 color, float hue, float saturation) {
 	return adjustment_linear_to_srgb(max(vec3(target) + chroma * scale, vec3(0.0)));
 }
 
+// Hue and saturation curves. Input is sRGB-encoded and may exceed 1 before tonemapping.
+// Extended atlases pack luminance vs saturation and hue vs luminance into the fourth binding.
+vec3 apply_grading_selective_curves(vec3 color, bool extended_curves, bool hue_vs_hue, bool hue_vs_saturation, bool saturation_vs_saturation, bool luminance_vs_saturation, bool hue_vs_luminance) {
+	if (!(hue_vs_hue || hue_vs_saturation || saturation_vs_saturation || luminance_vs_saturation || hue_vs_luminance)) {
+		return color;
+	}
+	// Use perceptual sRGB luma for the existing luminance vs saturation curve.
+	float luminance = dot(color, vec3(0.2126, 0.7152, 0.0722));
+	vec3 hsv = grading_rgb_to_hsv(max(color, vec3(0.0)));
+	float input_hue = hsv.x;
+	float input_saturation = hsv.y;
+	if (hue_vs_hue) {
+		hsv.x = fract(hsv.x + sample_periodic_hue_curve(hue_vs_hue_curve, input_hue) - 0.5);
+	}
+	if (hue_vs_saturation) {
+		hsv.y *= 2.0 * sample_periodic_hue_curve(hue_vs_saturation_curve, input_hue);
+	}
+	if (saturation_vs_saturation) {
+		hsv.y *= 2.0 * texture(saturation_vs_saturation_curve, vec2(input_saturation, 0.5)).r;
+	}
+	if (luminance_vs_saturation) {
+		float saturation_factor = extended_curves ? sample_grading_atlas(luminance, 0).r : texture(luminance_vs_saturation_curve, vec2(clamp(luminance, 0.0, 1.0), 0.5)).r;
+		hsv.y *= 2.0 * saturation_factor;
+	}
+	hsv.y = clamp(hsv.y, 0.0, 1.0);
+	color = grading_hsv_to_rgb(hsv);
+	return hue_vs_luminance ? apply_grading_hue_luminance(color, input_hue, input_saturation) : color;
+}
+
+// Mobile and Compatibility read the curve flags from the atlas; a one-row texture applies every legacy curve.
 vec3 apply_color_grading_curves(vec3 color) {
 	bool extended_curves = textureSize(luminance_vs_saturation_curve, 0).y == 5;
 	vec4 selective_flags = vec4(1.0);
@@ -225,31 +285,8 @@ vec3 apply_color_grading_curves(vec3 color) {
 		color = apply_grading_rgb_curves(color);
 		selective_flags = texelFetch(luminance_vs_saturation_curve, ivec2(0, 0), 0);
 		luminance_flags = texelFetch(luminance_vs_saturation_curve, ivec2(0, 1), 0);
-		if (all(equal(selective_flags.yzw, vec3(0.0))) && all(equal(luminance_flags.yz, vec2(0.0)))) {
-			return color;
-		}
 	}
-	// Use perceptual sRGB luma for the existing luminance vs saturation curve.
-	float luminance = dot(color, vec3(0.2126, 0.7152, 0.0722));
-	vec3 hsv = grading_rgb_to_hsv(max(color, vec3(0.0)));
-	float input_hue = hsv.x;
-	float input_saturation = hsv.y;
-	if (selective_flags.y > 0.5) {
-		hsv.x = fract(hsv.x + sample_periodic_hue_curve(hue_vs_hue_curve, input_hue) - 0.5);
-	}
-	if (selective_flags.z > 0.5) {
-		hsv.y *= 2.0 * sample_periodic_hue_curve(hue_vs_saturation_curve, input_hue);
-	}
-	if (selective_flags.w > 0.5) {
-		hsv.y *= 2.0 * texture(saturation_vs_saturation_curve, vec2(input_saturation, 0.5)).r;
-	}
-	if (luminance_flags.y > 0.5) {
-		float saturation_factor = extended_curves ? sample_grading_atlas(luminance, 0).r : texture(luminance_vs_saturation_curve, vec2(clamp(luminance, 0.0, 1.0), 0.5)).r;
-		hsv.y *= 2.0 * saturation_factor;
-	}
-	hsv.y = clamp(hsv.y, 0.0, 1.0);
-	color = grading_hsv_to_rgb(hsv);
-	return extended_curves && luminance_flags.z > 0.5 ? apply_grading_hue_luminance(color, input_hue, input_saturation) : color;
+	return apply_grading_selective_curves(color, extended_curves, selective_flags.y > 0.5, selective_flags.z > 0.5, selective_flags.w > 0.5, luminance_flags.y > 0.5, extended_curves && luminance_flags.z > 0.5);
 }
 
 #endif // COLOR_GRADING_CURVES

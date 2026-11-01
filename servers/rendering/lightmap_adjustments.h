@@ -53,6 +53,13 @@ struct LightmapAdjustments {
 	Vector3 tonal_black_point;
 	Vector3 tonal_white_point = Vector3(1, 1, 1);
 	Vector3 tonal_gamma = Vector3(1, 1, 1);
+	// Stops added to the bottom (x) and top (y) of the baked luminance range that places the tonal ranges.
+	Vector2 tonal_range_offsets;
+	// Stops added to each tonal range transition, independent of how wide the luminance range is.
+	float tonal_softness = 0.0f;
+	// Stops added to the dark (lower) and bright (upper) end of each range: shadows, midtones, highlights.
+	Vector3 tonal_lower;
+	Vector3 tonal_upper;
 	int debug_mode = 0;
 };
 

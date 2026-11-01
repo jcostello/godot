@@ -14,10 +14,22 @@ The cache uses a 224-byte parameter buffer uploaded only at regeneration. Shared
 
 Validation uses source review, XML parsing and structural checks; no compilation or runtime test performed.
 
-Tonal slider values now map linearly from the original L0 minimum luminance (0) to maximum luminance (1), across all L0 layers at base resolution. The range is computed when baking and stored in `LightmapGIData`, so no texture is read back at runtime. Lightmaps baked before this was stored fall back to reading back and scanning the texture once per source identity/content version. Uniform textures map to level 0. Both preview and cache use this same range, before global saturation. Existing scenes retain their slider values with the new range interpretation. Editor debug masks bypass material shading, directional modulation and fog; camera tonemapping and screen effects still apply.
+Tonal slider values now map linearly from the original L0 minimum luminance (0) to maximum luminance (1), across all L0 layers at base resolution. The range is computed when baking and stored in `LightmapGIData`, so no texture is read back at runtime. Lightmaps baked before this was stored fall back to reading back and scanning the texture once per source identity/content version. Uniform textures map to level 0. Both preview and cache use this same range, before global saturation. Existing scenes retain their slider values with the new range interpretation. Editor debug masks bypass material shading, directional modulation and fog, and cancel camera and auto exposure like editor gizmos; tonemapping and screen effects still apply.
+
+The per-pixel grading in the scene shader serves only the editor's tonal preview, so it is compiled only when `Engine::is_editor_hint()` (`LIGHTMAP_COLOR_PREVIEW`). Games never carry that code, which would otherwise raise the register use of every lit fragment even with the branch never taken.
 
 ## Levels per tonal range
 
 Lightmap Shadows, Midtones, and Highlights provide Black Point (0), White Point (1), and Gamma (1). Raise Black Point to deepen the darkest values, lower White Point to strengthen the bright values, and raise Gamma to brighten intermediate values. Black and white are normalized against the maximum luminance of the original L0 texture. The original texture also determines the masks, so adjustments do not move their own tonal selection. Levels scale RGB by the luminance change and retain HDR values above white. They apply after tonal exposure and contrast, before global tint and energy, in both editor preview and the runtime texture cache.
 
 Environment Color Correction adds Black Point and White Point to Master, Shadows, Midtones, and Highlights and reuses their Gamma controls. Levels use luminance in the correction working space: scene-linear HDR in Forward+, and the existing post-tonemap correction space in Mobile and Compatibility. Master levels apply first, then the levels blended with the original pre-tonemap tonal masks, then existing lift/gamma/gain. Neutral points skip the remap and preserve existing scenes.
+
+## Range and softness
+
+`tonal_range_bottom` and `tonal_range_top` add stops to the baked 1st and 99th percentiles that place the tonal ranges, levels axis and contrast pivot; in dark scenes with a few hot lamps, lower the top. `tonal_softness` widens both transitions by stops, so narrowing the range doesn't sharpen them. No rebake is needed.
+
+`LightmapGI` sends its controls as one `LightmapAdjustments` through `RenderingServer::lightmap_set_color_adjustments()` (C++ only, not bound); the baked luminance range still arrives separately from `LightmapGIData`.
+
+## Lower and Upper per range
+
+Each range has Lower and Upper in EV (-4..4). Inside a range, the pixel's position on the log axis goes from 0 at the range's dark end to 1 at its bright end (shadows start at the range bottom, highlights end at its top, midtones span both transitions, all widened by softness). Lower adds `weight * (1 - position)` of its stops and Upper `weight * position`, together with the range's Exposure, so only the darker or brighter part of the range moves and nothing clips. The debug view tints the range blue where Lower acts and orange where Upper acts. The grading record grew to 16 rows (rows 14 and 15 hold Lower and Upper), so the Forward+ lightmap record is now 320 bytes.

@@ -943,8 +943,22 @@ layout(location = 10) in flat uint instance_index_interp;
 
 #ifdef USE_LIGHTMAP
 #include "../bicubic_filter_inc.glsl"
+#ifdef LIGHTMAP_COLOR_PREVIEW
 #include "../lightmap_color_adjustments_inc.glsl"
+#endif
 #endif //USE_LIGHTMAP
+
+#ifndef MODE_RENDER_DEPTH
+// Undoes this camera's manual or auto exposure, for output that must keep its value on screen.
+float editor_gizmo_exposure_compensation() {
+	float exposure = scene_data_block.data.editor_gizmo_exposure;
+	if (scene_data_block.data.editor_gizmo_auto_exposure_scale > 0.0) {
+		float luminance = texelFetch(sampler2D(editor_gizmo_exposure_texture, SAMPLER_LINEAR_CLAMP), ivec2(0), 0).r;
+		exposure *= luminance * scene_data_block.data.editor_gizmo_auto_exposure_scale;
+	}
+	return exposure;
+}
+#endif
 
 #ifdef USE_MULTIVIEW
 #extension GL_EXT_multiview : enable
@@ -1682,7 +1696,9 @@ void fragment_shader(in SceneData scene_data) {
 	vec3 indirect_specular_light = vec3(0.0, 0.0, 0.0);
 	vec3 diffuse_light = vec3(0.0, 0.0, 0.0);
 	vec3 ambient_light = vec3(0.0, 0.0, 0.0);
-	float lightmap_preview_mask = -1.0;
+#ifdef LIGHTMAP_COLOR_PREVIEW
+	vec3 lightmap_preview = vec3(-1.0);
+#endif
 #if !defined(MODE_UNSHADED) || defined(MODE_RENDER_MATERIAL)
 	// Used in regular draw pass and when drawing SDFs for SDFGI and materials for VoxelGI.
 	emission *= scene_data.emissive_exposure_normalization;
@@ -1863,12 +1879,14 @@ void fragment_shader(in SceneData scene_data) {
 			lm_light_l1_0 = (textureLod(sampler2DArray(lightmap_textures[ofs], SAMPLER_LINEAR_CLAMP), uvw + vec3(0.0, 0.0, 2.0), 0.0).rgb - vec3(0.5)) * 2.0;
 			lm_light_l1p1 = (textureLod(sampler2DArray(lightmap_textures[ofs], SAMPLER_LINEAR_CLAMP), uvw + vec3(0.0, 0.0, 3.0), 0.0).rgb - vec3(0.5)) * 2.0;
 
+#ifdef LIGHTMAP_COLOR_PREVIEW
 			if ((lightmaps.data[ofs].flags & (1u << 8)) != 0u) {
 				lm_light_l0 = clamp(lightmap_grade_color(lm_light_l0, lightmaps.data[ofs].color_adjustment_data), vec3(0.0), vec3(64512.0));
 				if (lightmaps.data[ofs].color_adjustment_data[4].w != 0.0) {
-					lightmap_preview_mask = lm_light_l0.r;
+					lightmap_preview = lm_light_l0;
 				}
 			}
+#endif
 
 			mat3 normal_xform = mat3(lightmaps.data[ofs].normal_xform_and_specular_intensity);
 #if defined(DO_SIDE_CHECK) || defined(UBERSHADER)
@@ -1954,12 +1972,14 @@ void fragment_shader(in SceneData scene_data) {
 			} else {
 				lm_light = textureLod(sampler2DArray(lightmap_textures[ofs], SAMPLER_LINEAR_CLAMP), uvw, 0.0).rgb;
 			}
+#ifdef LIGHTMAP_COLOR_PREVIEW
 			if ((lightmaps.data[ofs].flags & (1u << 8)) != 0u) {
 				lm_light = clamp(lightmap_grade_color(lm_light, lightmaps.data[ofs].color_adjustment_data), vec3(0.0), vec3(64512.0));
 				if (lightmaps.data[ofs].color_adjustment_data[4].w != 0.0) {
-					lightmap_preview_mask = lm_light.r;
+					lightmap_preview = lm_light;
 				}
 			}
+#endif
 			ambient_light += lm_light * lightmaps.data[ofs].exposure_normalization;
 		}
 	}
@@ -3228,22 +3248,22 @@ void fragment_shader(in SceneData scene_data) {
 
 #endif //MODE_SEPARATE_SPECULAR
 
+#ifdef LIGHTMAP_COLOR_PREVIEW
 	// Display the selected tonal weight directly, without material color, lighting or fog.
-	if (lightmap_preview_mask >= 0.0) {
+	// Like editor gizmos, cancel camera and auto exposure so weights read the same at any exposure.
+	if (lightmap_preview.r >= 0.0) {
+		vec3 preview = lightmap_preview * editor_gizmo_exposure_compensation();
 #ifdef MODE_SEPARATE_SPECULAR
-		diffuse_buffer = vec4(vec3(lightmap_preview_mask), 0.0);
+		diffuse_buffer = vec4(preview, 0.0);
 		specular_buffer = vec4(0.0);
 #else
-		frag_color.rgb = vec3(lightmap_preview_mask);
+		frag_color.rgb = preview;
 #endif
 	}
+#endif
 
 	if (bool(instances.data[instance_index].layer_mask & scene_data.editor_gizmo_layer_mask)) {
-		float gizmo_exposure = scene_data.editor_gizmo_exposure;
-		if (scene_data.editor_gizmo_auto_exposure_scale > 0.0) {
-			float luminance = texelFetch(sampler2D(editor_gizmo_exposure_texture, SAMPLER_LINEAR_CLAMP), ivec2(0), 0).r;
-			gizmo_exposure *= luminance * scene_data.editor_gizmo_auto_exposure_scale;
-		}
+		float gizmo_exposure = editor_gizmo_exposure_compensation();
 #ifdef MODE_SEPARATE_SPECULAR
 		diffuse_buffer.rgb *= gizmo_exposure;
 		specular_buffer.rgb *= gizmo_exposure;
