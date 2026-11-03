@@ -356,17 +356,18 @@ private:
 
 	struct Lightmap {
 		LightmapAdjustments color_adjustments;
-		float color_adjustment_data[14][4] = {};
+		float color_adjustment_data[16][4] = {};
 		uint32_t color_adjustment_flags = 0;
 		bool color_texture_dirty = true;
 		RID color_texture;
+		LocalVector<RID> color_texture_views;
 		RID color_parameters_buffer;
 		RID color_source;
 		uint64_t color_source_version = 0;
 		RID tonal_range_source;
 		uint64_t tonal_range_source_version = 0;
 		float tonal_luminance_min = 0.0f;
-		float tonal_luminance_scale = 0.0f;
+		float tonal_luminance_max = -1.0f;
 		bool tonal_range_baked = false;
 		RID light_texture;
 		RID shadow_texture;
@@ -1042,14 +1043,11 @@ public:
 
 	void _update_lightmap_color_adjustments(Lightmap *p_lightmap);
 	void _update_lightmap_tonal_luminance_range(Lightmap *p_lightmap);
-	void lightmap_set_adjustments_enabled(RID p_lightmap, bool p_enabled) override;
-	void lightmap_set_adjustments(RID p_lightmap, float p_energy, const Color &p_tint, float p_saturation, float p_contrast, float p_shadows, float p_midtones, float p_highlights) override;
-	void lightmap_set_tonal_settings(RID p_lightmap, const Color &p_ranges, const Color &p_shadows_tint, const Color &p_midtones_tint, const Color &p_highlights_tint, const Vector3 &p_saturation, const Vector3 &p_contrast, int p_debug_mode) override;
-	void lightmap_set_tonal_levels(RID p_lightmap, const Vector3 &p_black, const Vector3 &p_white, const Vector3 &p_gamma) override;
+	void lightmap_set_color_adjustments(RID p_lightmap, const LightmapAdjustments &p_adjustments) override;
 	void lightmap_set_tonal_luminance_range(RID p_lightmap, float p_min, float p_max) override;
 	uint32_t lightmap_prepare_color_texture(RID p_lightmap);
 	RID lightmap_get_color_texture(RID p_lightmap) const;
-	uint32_t lightmap_get_editor_color_adjustments(RID p_lightmap, float *r_data) const;
+	uint32_t lightmap_get_color_preview(RID p_lightmap, float *r_data) const;
 
 	virtual void lightmap_set_textures(RID p_lightmap, RID p_light, bool p_uses_spherical_haromics) override;
 	virtual void lightmap_set_probe_bounds(RID p_lightmap, const AABB &p_bounds) override;

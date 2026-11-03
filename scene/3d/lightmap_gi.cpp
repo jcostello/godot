@@ -84,24 +84,18 @@ void collect_probe_systems(Node *p_root, LightmapGI *p_source, Vector<LightProbe
 
 // Luminance range of the L0 layers, so tonal ranges don't need a texture readback at runtime.
 Vector2 compute_lightmap_luminance_range(const Ref<Lightmapper> &p_lightmapper, bool p_directional) {
-	float minimum = FLT_MAX;
-	float maximum = 0.0f;
+	LightmapLuminanceHistogram histogram;
 	const int stride = p_directional ? 4 : 1; // SH lightmaps store L0 first in each group of 4 layers.
 	for (int i = 0; i < p_lightmapper->get_bake_texture_count(); i += stride) {
 		const Ref<Image> image = p_lightmapper->get_bake_texture(i);
 		ERR_CONTINUE(image.is_null());
 		for (int y = 0; y < image->get_height(); y++) {
 			for (int x = 0; x < image->get_width(); x++) {
-				const Color color = image->get_pixel(x, y);
-				const float luminance = MAX(0.0f, color.r * 0.2126f + color.g * 0.7152f + color.b * 0.0722f);
-				if (Math::is_finite(luminance)) {
-					minimum = MIN(minimum, luminance);
-					maximum = MAX(maximum, luminance);
-				}
+				histogram.add(image->get_pixel(x, y));
 			}
 		}
 	}
-	return minimum == FLT_MAX ? Vector2(0, -1) : Vector2(minimum, maximum);
+	return histogram.get_range();
 }
 
 LightmapGI::BakeError prepare_probe_capture(Lightmapper *p_lightmapper, LightProbeSystem *p_system, int p_probe_offset, int p_probe_count, const Transform3D &p_capture_transform, float p_exposure, bool p_interior, Lightmapper::BakeStepFunc p_step, void *p_userdata, Ref<LightProbeData> &r_capture) {
@@ -2275,6 +2269,48 @@ float LightmapGI::get_tonal_midtones_end() const {
 	return adjustments.tonal_ranges[3];
 }
 
+void LightmapGI::set_tonal_range_bottom(float p_value) {
+	ERR_FAIL_COND(!Math::is_finite(p_value));
+	p_value = CLAMP(p_value, -12.0f, 12.0f);
+	if (adjustments.tonal_range_offsets.x == p_value) {
+		return;
+	}
+	adjustments.tonal_range_offsets.x = p_value;
+	_update_color_adjustments();
+}
+
+float LightmapGI::get_tonal_range_bottom() const {
+	return adjustments.tonal_range_offsets.x;
+}
+
+void LightmapGI::set_tonal_range_top(float p_value) {
+	ERR_FAIL_COND(!Math::is_finite(p_value));
+	p_value = CLAMP(p_value, -12.0f, 12.0f);
+	if (adjustments.tonal_range_offsets.y == p_value) {
+		return;
+	}
+	adjustments.tonal_range_offsets.y = p_value;
+	_update_color_adjustments();
+}
+
+float LightmapGI::get_tonal_range_top() const {
+	return adjustments.tonal_range_offsets.y;
+}
+
+void LightmapGI::set_tonal_softness(float p_value) {
+	ERR_FAIL_COND(!Math::is_finite(p_value));
+	p_value = CLAMP(p_value, 0.0f, 8.0f);
+	if (adjustments.tonal_softness == p_value) {
+		return;
+	}
+	adjustments.tonal_softness = p_value;
+	_update_color_adjustments();
+}
+
+float LightmapGI::get_tonal_softness() const {
+	return adjustments.tonal_softness;
+}
+
 void LightmapGI::set_shadows_tint(const Color &p_value) {
 	ERR_FAIL_COND(!Math::is_finite(p_value.r) || !Math::is_finite(p_value.g) || !Math::is_finite(p_value.b) || p_value.r < 0.0f || p_value.g < 0.0f || p_value.b < 0.0f);
 	if (adjustments.shadows_tint == p_value) {
@@ -2331,11 +2367,7 @@ void LightmapGI::_update_color_adjustments() {
 	if (light_data.is_null()) {
 		return;
 	}
-	const RID lightmap = light_data->get_rid();
-	RS::get_singleton()->lightmap_set_adjustments(lightmap, adjustments.energy, adjustments.tint, adjustments.saturation, adjustments.contrast, adjustments.shadows, adjustments.midtones, adjustments.highlights);
-	RS::get_singleton()->lightmap_set_tonal_settings(lightmap, adjustments.tonal_ranges, adjustments.shadows_tint, adjustments.midtones_tint, adjustments.highlights_tint, adjustments.tonal_saturation, adjustments.tonal_contrast, adjustments.debug_mode);
-	RS::get_singleton()->lightmap_set_tonal_levels(lightmap, adjustments.tonal_black_point, adjustments.tonal_white_point, adjustments.tonal_gamma);
-	RS::get_singleton()->lightmap_set_adjustments_enabled(lightmap, adjustments.enabled);
+	RS::get_singleton()->lightmap_set_color_adjustments(light_data->get_rid(), adjustments);
 }
 
 void LightmapGI::set_adjustments_enabled(bool p_enabled) {
@@ -2417,6 +2449,38 @@ void LightmapGI::set_shadows(float p_value) {
 
 float LightmapGI::get_shadows() const {
 	return adjustments.shadows;
+}
+
+void LightmapGI::set_tonal_lower(int p_range, float p_value) {
+	ERR_FAIL_INDEX(p_range, 3);
+	ERR_FAIL_COND(!Math::is_finite(p_value));
+	p_value = CLAMP(p_value, -4.0f, 4.0f);
+	if (adjustments.tonal_lower[p_range] == p_value) {
+		return;
+	}
+	adjustments.tonal_lower[p_range] = p_value;
+	_update_color_adjustments();
+}
+
+float LightmapGI::get_tonal_lower(int p_range) const {
+	ERR_FAIL_INDEX_V(p_range, 3, 0.0f);
+	return adjustments.tonal_lower[p_range];
+}
+
+void LightmapGI::set_tonal_upper(int p_range, float p_value) {
+	ERR_FAIL_INDEX(p_range, 3);
+	ERR_FAIL_COND(!Math::is_finite(p_value));
+	p_value = CLAMP(p_value, -4.0f, 4.0f);
+	if (adjustments.tonal_upper[p_range] == p_value) {
+		return;
+	}
+	adjustments.tonal_upper[p_range] = p_value;
+	_update_color_adjustments();
+}
+
+float LightmapGI::get_tonal_upper(int p_range) const {
+	ERR_FAIL_INDEX_V(p_range, 3, 0.0f);
+	return adjustments.tonal_upper[p_range];
 }
 
 void LightmapGI::set_midtones(float p_value) {
@@ -2648,6 +2712,10 @@ void LightmapGI::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("get_shadows_gamma"), &LightmapGI::get_shadows_gamma);
 	ClassDB::bind_method(D_METHOD("set_shadows_white_point", "value"), &LightmapGI::set_shadows_white_point);
 	ClassDB::bind_method(D_METHOD("get_shadows_white_point"), &LightmapGI::get_shadows_white_point);
+	ClassDB::bind_method(D_METHOD("set_tonal_lower", "range", "value"), &LightmapGI::set_tonal_lower);
+	ClassDB::bind_method(D_METHOD("get_tonal_lower", "range"), &LightmapGI::get_tonal_lower);
+	ClassDB::bind_method(D_METHOD("set_tonal_upper", "range", "value"), &LightmapGI::set_tonal_upper);
+	ClassDB::bind_method(D_METHOD("get_tonal_upper", "range"), &LightmapGI::get_tonal_upper);
 	ClassDB::bind_method(D_METHOD("set_shadows_black_point", "value"), &LightmapGI::set_shadows_black_point);
 	ClassDB::bind_method(D_METHOD("get_shadows_black_point"), &LightmapGI::get_shadows_black_point);
 	ClassDB::bind_method(D_METHOD("get_shadows_saturation"), &LightmapGI::get_shadows_saturation);
@@ -2682,6 +2750,12 @@ void LightmapGI::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("get_tonal_highlights_start"), &LightmapGI::get_tonal_highlights_start);
 	ClassDB::bind_method(D_METHOD("set_tonal_midtones_end", "value"), &LightmapGI::set_tonal_midtones_end);
 	ClassDB::bind_method(D_METHOD("get_tonal_midtones_end"), &LightmapGI::get_tonal_midtones_end);
+	ClassDB::bind_method(D_METHOD("set_tonal_range_bottom", "value"), &LightmapGI::set_tonal_range_bottom);
+	ClassDB::bind_method(D_METHOD("get_tonal_range_bottom"), &LightmapGI::get_tonal_range_bottom);
+	ClassDB::bind_method(D_METHOD("set_tonal_range_top", "value"), &LightmapGI::set_tonal_range_top);
+	ClassDB::bind_method(D_METHOD("get_tonal_range_top"), &LightmapGI::get_tonal_range_top);
+	ClassDB::bind_method(D_METHOD("set_tonal_softness", "value"), &LightmapGI::set_tonal_softness);
+	ClassDB::bind_method(D_METHOD("get_tonal_softness"), &LightmapGI::get_tonal_softness);
 
 	ClassDB::bind_method(D_METHOD("set_adjustments_enabled", "enabled"), &LightmapGI::set_adjustments_enabled);
 	ClassDB::bind_method(D_METHOD("is_adjustments_enabled"), &LightmapGI::is_adjustments_enabled);
@@ -2699,12 +2773,17 @@ void LightmapGI::_bind_methods() {
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "midtones", PROPERTY_HINT_RANGE, "-4,4,0.01,suffix:EV", PROPERTY_USAGE_STORAGE), "set_midtones", "get_midtones");
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "highlights", PROPERTY_HINT_RANGE, "-4,4,0.01,suffix:EV", PROPERTY_USAGE_STORAGE), "set_highlights", "get_highlights");
 	ADD_SUBGROUP("Tonal Ranges", "tonal_");
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "tonal_range_bottom", PROPERTY_HINT_RANGE, "-12,12,0.01,suffix:EV"), "set_tonal_range_bottom", "get_tonal_range_bottom");
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "tonal_range_top", PROPERTY_HINT_RANGE, "-12,12,0.01,suffix:EV"), "set_tonal_range_top", "get_tonal_range_top");
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "tonal_softness", PROPERTY_HINT_RANGE, "0,8,0.01,suffix:EV"), "set_tonal_softness", "get_tonal_softness");
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "tonal_midtones_start", PROPERTY_HINT_RANGE, "0,1,0.001"), "set_tonal_midtones_start", "get_tonal_midtones_start");
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "tonal_shadows_end", PROPERTY_HINT_RANGE, "0,1,0.001"), "set_tonal_shadows_end", "get_tonal_shadows_end");
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "tonal_highlights_start", PROPERTY_HINT_RANGE, "0,1,0.001"), "set_tonal_highlights_start", "get_tonal_highlights_start");
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "tonal_midtones_end", PROPERTY_HINT_RANGE, "0,1,0.001"), "set_tonal_midtones_end", "get_tonal_midtones_end");
 	ADD_SUBGROUP("Shadows", "shadows_");
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "shadows_exposure", PROPERTY_HINT_RANGE, "-4,4,0.01,suffix:EV", PROPERTY_USAGE_EDITOR), "set_shadows", "get_shadows");
+	ADD_PROPERTYI(PropertyInfo(Variant::FLOAT, "shadows_lower", PROPERTY_HINT_RANGE, "-4,4,0.01,suffix:EV"), "set_tonal_lower", "get_tonal_lower", 0);
+	ADD_PROPERTYI(PropertyInfo(Variant::FLOAT, "shadows_upper", PROPERTY_HINT_RANGE, "-4,4,0.01,suffix:EV"), "set_tonal_upper", "get_tonal_upper", 0);
 	ADD_PROPERTY(PropertyInfo(Variant::COLOR, "shadows_tint", PROPERTY_HINT_COLOR_NO_ALPHA), "set_shadows_tint", "get_shadows_tint");
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "shadows_saturation", PROPERTY_HINT_RANGE, "0,4,0.01"), "set_shadows_saturation", "get_shadows_saturation");
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "shadows_contrast", PROPERTY_HINT_RANGE, "0,4,0.01"), "set_shadows_contrast", "get_shadows_contrast");
@@ -2713,6 +2792,8 @@ void LightmapGI::_bind_methods() {
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "shadows_gamma", PROPERTY_HINT_RANGE, "0.05,4,0.01"), "set_shadows_gamma", "get_shadows_gamma");
 	ADD_SUBGROUP("Midtones", "midtones_");
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "midtones_exposure", PROPERTY_HINT_RANGE, "-4,4,0.01,suffix:EV", PROPERTY_USAGE_EDITOR), "set_midtones", "get_midtones");
+	ADD_PROPERTYI(PropertyInfo(Variant::FLOAT, "midtones_lower", PROPERTY_HINT_RANGE, "-4,4,0.01,suffix:EV"), "set_tonal_lower", "get_tonal_lower", 1);
+	ADD_PROPERTYI(PropertyInfo(Variant::FLOAT, "midtones_upper", PROPERTY_HINT_RANGE, "-4,4,0.01,suffix:EV"), "set_tonal_upper", "get_tonal_upper", 1);
 	ADD_PROPERTY(PropertyInfo(Variant::COLOR, "midtones_tint", PROPERTY_HINT_COLOR_NO_ALPHA), "set_midtones_tint", "get_midtones_tint");
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "midtones_saturation", PROPERTY_HINT_RANGE, "0,4,0.01"), "set_midtones_saturation", "get_midtones_saturation");
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "midtones_contrast", PROPERTY_HINT_RANGE, "0,4,0.01"), "set_midtones_contrast", "get_midtones_contrast");
@@ -2721,6 +2802,8 @@ void LightmapGI::_bind_methods() {
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "midtones_gamma", PROPERTY_HINT_RANGE, "0.05,4,0.01"), "set_midtones_gamma", "get_midtones_gamma");
 	ADD_SUBGROUP("Highlights", "highlights_");
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "highlights_exposure", PROPERTY_HINT_RANGE, "-4,4,0.01,suffix:EV", PROPERTY_USAGE_EDITOR), "set_highlights", "get_highlights");
+	ADD_PROPERTYI(PropertyInfo(Variant::FLOAT, "highlights_lower", PROPERTY_HINT_RANGE, "-4,4,0.01,suffix:EV"), "set_tonal_lower", "get_tonal_lower", 2);
+	ADD_PROPERTYI(PropertyInfo(Variant::FLOAT, "highlights_upper", PROPERTY_HINT_RANGE, "-4,4,0.01,suffix:EV"), "set_tonal_upper", "get_tonal_upper", 2);
 	ADD_PROPERTY(PropertyInfo(Variant::COLOR, "highlights_tint", PROPERTY_HINT_COLOR_NO_ALPHA), "set_highlights_tint", "get_highlights_tint");
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "highlights_saturation", PROPERTY_HINT_RANGE, "0,4,0.01"), "set_highlights_saturation", "get_highlights_saturation");
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "highlights_contrast", PROPERTY_HINT_RANGE, "0,4,0.01"), "set_highlights_contrast", "get_highlights_contrast");

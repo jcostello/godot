@@ -554,11 +554,8 @@ public:
 	FUNC1R(RSE::ShadowmaskMode, lightmap_get_shadowmask_mode, RID)
 	FUNC2(lightmap_set_shadowmask_mode, RID, RSE::ShadowmaskMode)
 	FUNC1R(float, lightmap_get_specular_intensity, RID)
-	FUNC2(lightmap_set_adjustments_enabled, RID, bool)
-	FUNC8(lightmap_set_tonal_settings, RID, const Color &, const Color &, const Color &, const Color &, const Vector3 &, const Vector3 &, int)
-	FUNC4(lightmap_set_tonal_levels, RID, const Vector3 &, const Vector3 &, const Vector3 &)
+	FUNC2(lightmap_set_color_adjustments, RID, const LightmapAdjustments &)
 	FUNC3(lightmap_set_tonal_luminance_range, RID, float, float)
-	FUNC8(lightmap_set_adjustments, RID, float, const Color &, float, float, float, float, float)
 	FUNC2(lightmap_set_specular_intensity, RID, float)
 
 	/* Shadow Atlas */
@@ -890,22 +887,8 @@ public:
 	FUNC2(environment_set_tonemap_agx_contrast, RID, float)
 	FUNC2(environment_set_tonemap_temperature, RID, float)
 
-	FUNC13(environment_set_adjustment, RID, bool, float, float, float, bool, RID, const Color &, float, const Color &, float, const Color &, float)
-	FUNC3(environment_set_adjustment_offset, RID, const Color &, float)
-	FUNC7(environment_set_adjustment_lift_gamma_gain, RID, const Color &, float, const Color &, float, const Color &, float)
-	FUNC2(environment_set_adjustment_tint, RID, float)
-	FUNC4(environment_set_adjustment_white_balance, RID, bool, float, float)
-	FUNC4(environment_set_adjustment_levels, RID, bool, const Color &, const Color &)
-	FUNC3(environment_set_adjustment_tonal_softness, RID, float, float)
-	FUNC7(environment_set_adjustment_midtones_range, RID, float, float, float, float, float, float)
-	FUNC2(environment_set_adjustment_advance, RID, bool)
-	FUNC5(environment_set_adjustment_tonal_correction_colors, RID, const Color &, const Color &, const Color &, const Color &)
-	FUNC3(environment_set_adjustment_tonal_levels, RID, const Vector4 &, const Vector4 &)
-	FUNC7(environment_set_adjustment_tonal_correction, RID, const Vector4 &, const Vector4 &, const Vector4 &, const Vector4 &, const Vector4 &, const Vector4 &)
-	FUNC6(environment_set_adjustment_curves, RID, RID, RID, RID, RID, uint32_t)
-	FUNC4(environment_set_adjustment_color_modes, RID, bool, bool, float)
-	FUNC2(environment_set_adjustment_vibrance, RID, float)
-	FUNC4(environment_set_adjustment_vignette, RID, float, float, float)
+	FUNC7(environment_set_adjustment, RID, bool, float, float, float, bool, RID)
+	FUNC2(environment_set_color_grading, RID, const EnvironmentColorGrading::Settings &)
 
 	FUNC11(environment_set_fog, RID, bool, const Color &, float, float, float, float, float, float, float, RSE::EnvironmentFogMode)
 

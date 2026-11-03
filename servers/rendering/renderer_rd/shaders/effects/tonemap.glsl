@@ -54,6 +54,11 @@ white_balance;
 vec3 apply_white_balance(vec3 color) {
 	return max(vec3(dot(white_balance.row_0, vec4(color, 1.0)), dot(white_balance.row_1, vec4(color, 1.0)), dot(white_balance.row_2, vec4(color, 1.0))), vec3(0.0));
 }
+
+// Glow is an added layer: it takes the color transform but not the black level offset.
+vec3 apply_white_balance_scale(vec3 color) {
+	return max(vec3(dot(white_balance.row_0.xyz, color), dot(white_balance.row_1.xyz, color), dot(white_balance.row_2.xyz, color)), vec3(0.0));
+}
 #endif
 
 layout(set = 0, binding = 0) uniform SAMPLER_FORMAT source_color;
@@ -98,6 +103,7 @@ params;
 layout(constant_id = 0) const bool use_soft_contrast = false;
 layout(constant_id = 1) const bool use_saturation = false;
 layout(constant_id = 2) const bool preserve_saturation_luminance = false;
+layout(constant_id = 3) const bool use_log_contrast = false;
 
 layout(location = 0) out vec4 frag_color;
 
@@ -895,13 +901,27 @@ void main() {
 #ifdef USE_WHITE_BALANCE
 	color.rgb = apply_white_balance(color.rgb);
 #endif
+	// Contrast in log2 space: soft keeps hue and saturation around the artist pivot, normal pivots per channel at 18% gray.
 	if (use_soft_contrast) {
-		color.rgb = adjustment_sigmoid_contrast(color.rgb, params.adjustment_controls.x, params.adjustment_controls.y, params.adjustment_controls.w);
+		color.rgb = adjustment_luminance_log_contrast(color.rgb, params.adjustment_controls.x, params.adjustment_controls.y);
+	}
+	if (use_log_contrast) {
+		color.rgb = adjustment_log_contrast(color.rgb, params.adjustment_controls.x, 0.18);
 	}
 #ifdef USE_FORWARD_GRADING
 	vec3 forward_correction_weights_main;
-	color.rgb = forward_adjustments_pre(color.rgb, uv_interp, forward_correction_weights_main);
+	vec3 forward_correction_positions_main;
+	color.rgb = forward_adjustments_pre(color.rgb, uv_interp, exposure, forward_correction_weights_main, forward_correction_positions_main);
 #endif
+	// Saturation runs in scene-linear HDR before tonemapping, like Unity's HDR grading and Blender's compositor.
+	if (use_saturation) {
+		if (preserve_saturation_luminance) {
+			color.rgb = adjustment_gamut_saturation(max(color.rgb, vec3(0.0)), params.saturation);
+		} else {
+			float luminance = dot(color.rgb, vec3(0.2126, 0.7152, 0.0722));
+			color.rgb = max(mix(vec3(luminance), color.rgb, params.saturation), vec3(0.0));
+		}
+	}
 	color.rgb = apply_tonemapping(color.rgb);
 
 	// Post-tonemap glow.
@@ -915,35 +935,18 @@ void main() {
 			glow = mix(glow, texture(glow_map, uv_interp).rgb * glow, params.glow_map_strength);
 		}
 #ifdef USE_WHITE_BALANCE
-		glow = apply_white_balance(glow);
-#endif
-		if (use_soft_contrast) {
-			glow = adjustment_sigmoid_contrast(glow, params.adjustment_controls.x, params.adjustment_controls.y, params.adjustment_controls.w);
-		}
-#ifdef USE_FORWARD_GRADING
-		vec3 unused_correction_weights;
-		glow = forward_adjustments_pre(glow, uv_interp, unused_correction_weights);
+		glow = apply_white_balance_scale(glow);
 #endif
 		glow = apply_tonemapping(glow);
 		color.rgb = apply_glow(color.rgb, glow, params.white);
 	}
 
 #ifdef USE_FORWARD_GRADING
-	color.rgb = forward_adjustments_post(color.rgb, forward_correction_weights_main);
-	if (forward_grading.correction[5].z > 0.5) {
-		color.rgb = vec3(grading_tonal_correction_mask(forward_correction_weights_main, int(forward_grading.correction[5].z)));
+	color.rgb = forward_adjustments_post(color.rgb);
+	if (use_forward_correction_preview) {
+		color.rgb = grading_tonal_correction_mask(forward_correction_weights_main, forward_correction_positions_main, int(forward_grading.correction[5].z));
 	}
 #endif
-
-	// Saturation follows tonemapping and soft-light glow, in display-linear RGB.
-	if (use_saturation) {
-		if (preserve_saturation_luminance) {
-			color.rgb = adjustment_gamut_saturation(color.rgb, params.saturation);
-		} else {
-			float luminance = dot(color.rgb, vec3(0.2126, 0.7152, 0.0722));
-			color.rgb = max(mix(vec3(luminance), color.rgb, params.saturation), vec3(0.0));
-		}
-	}
 
 	// Additional effects.
 

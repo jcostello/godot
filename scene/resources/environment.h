@@ -35,6 +35,7 @@
 #include "scene/resources/curve_texture.h"
 #include "scene/resources/image_texture.h"
 #include "scene/resources/texture.h"
+#include "servers/rendering/storage/environment_color_grading.h"
 
 class Sky;
 
@@ -255,8 +256,11 @@ private:
 	WhiteBalanceMode adjustment_white_balance_mode = WHITE_BALANCE_LEGACY;
 	float adjustment_shadows_start = 0.0;
 	float adjustment_shadows_end = 0.3;
-	float adjustment_shadows_softness = 0.1f;
-	float adjustment_highlights_softness = 0.1f;
+	float adjustment_shadows_softness = 0.0f;
+	float adjustment_highlights_softness = 0.0f;
+	// Scene luminance in EV: 18% gray (about -2.5 EV) sits in the default midtones.
+	float adjustment_tonal_range_bottom = -6.0f;
+	float adjustment_tonal_range_top = 2.0f;
 	float adjustment_midtones_start = 0.3;
 	float adjustment_midtones_end = 0.55;
 	float adjustment_highlights_start = 0.55;
@@ -282,10 +286,16 @@ private:
 	Vector4 adjustment_correction_lift;
 	Vector4 adjustment_correction_black_point;
 	Vector4 adjustment_correction_white_point = Vector4(1, 1, 1, 1);
+	// Stops for the dark and bright end of each range; x (Master) is unused.
+	Vector4 adjustment_correction_lower;
+	Vector4 adjustment_correction_upper;
 	void _set_tonal_correction_parameter(int p_range, int p_parameter, float p_value);
 	float _get_tonal_correction_parameter(int p_range, int p_parameter) const;
 	void _update_tonal_correction();
 	void _update_tonal_correction_colors();
+	// Fork color grading, sent to the rendering server as one block on every change.
+	EnvironmentColorGrading::Settings grading;
+	void _set_grading_curves(RID p_hue_vs_hue, RID p_hue_vs_saturation, RID p_saturation_vs_saturation, RID p_luminance_vs_saturation, uint32_t p_flags);
 	bool adjustment_use_rgb_curves = false;
 	Color adjustment_black_level = Color(0, 0, 0);
 	Color adjustment_white_level = Color(1, 1, 1);
@@ -569,6 +579,10 @@ public:
 	float get_adjustment_shadows_softness() const;
 	void set_adjustment_highlights_softness(float p_softness);
 	float get_adjustment_highlights_softness() const;
+	void set_adjustment_tonal_range_bottom(float p_bottom);
+	float get_adjustment_tonal_range_bottom() const;
+	void set_adjustment_tonal_range_top(float p_top);
+	float get_adjustment_tonal_range_top() const;
 	void set_adjustment_midtones_start(float p_midtones_start);
 	float get_adjustment_midtones_start() const;
 	void set_adjustment_midtones_end(float p_midtones_end);
@@ -629,6 +643,10 @@ public:
 	float get_adjustment_correction_master_white_point() const;
 	void set_adjustment_correction_master_saturation(float p_value);
 	float get_adjustment_correction_master_saturation() const;
+	void set_adjustment_correction_lower(int p_range, float p_value);
+	float get_adjustment_correction_lower(int p_range) const;
+	void set_adjustment_correction_upper(int p_range, float p_value);
+	float get_adjustment_correction_upper(int p_range) const;
 	void set_adjustment_correction_master_contrast(float p_value);
 	float get_adjustment_correction_master_contrast() const;
 	void set_adjustment_correction_master_gamma(float p_value);

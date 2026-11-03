@@ -30,6 +30,7 @@
 
 #include "render_forward_clustered.h"
 
+#include "core/config/engine.h"
 #include "core/config/project_settings.h"
 #include "servers/rendering/renderer_rd/environment/fog.h"
 #include "servers/rendering/renderer_rd/framebuffer_cache_rd.h"
@@ -1269,7 +1270,7 @@ void RenderForwardClustered::_setup_lightmaps(const RenderDataRD *p_render_data,
 		scene_state.lightmaps[i].exposure_normalization = 1.0;
 		scene_state.lightmaps[i].flags = light_storage->lightmap_get_shadowmask_mode(lightmap);
 		light_storage->lightmap_prepare_color_texture(lightmap);
-		scene_state.lightmaps[i].flags |= light_storage->lightmap_get_editor_color_adjustments(lightmap, &scene_state.lightmaps[i].color_adjustment_data[0][0]);
+		scene_state.lightmaps[i].flags |= light_storage->lightmap_get_color_preview(lightmap, &scene_state.lightmaps[i].color_adjustment_data[0][0]);
 		if (p_render_data->camera_attributes.is_valid()) {
 			float baked_exposure = light_storage->lightmap_get_baked_exposure_normalization(lightmap);
 			float enf = RSG::camera_attributes->camera_attributes_get_render_exposure_normalization_factor(p_render_data->camera_attributes);
@@ -5330,6 +5331,11 @@ RenderForwardClustered::RenderForwardClustered() {
 			scene_state.max_lightmaps = MAX_LIGHTMAPS;
 			defines += "\n#define MAX_LIGHTMAP_TEXTURES " + itos(scene_state.max_lightmaps) + "\n";
 			defines += "\n#define MAX_LIGHTMAPS " + itos(scene_state.max_lightmaps) + "\n";
+			// The per-pixel tonal preview is editor-only; games always sample the graded cache.
+			// Leaving it out keeps its code from raising register use of every lit fragment.
+			if (Engine::get_singleton()->is_editor_hint()) {
+				defines += "\n#define LIGHTMAP_COLOR_PREVIEW\n";
+			}
 
 			scene_state.lightmap_buffer = RD::get_singleton()->storage_buffer_create(sizeof(LightmapData) * scene_state.max_lightmaps);
 		}

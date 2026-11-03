@@ -54,7 +54,7 @@
 			Runtime luminance contrast of baked lighting, with a fixed pivot at linear luminance [code]0.18[/code]. [code]1.0[/code] preserves contrast; smaller values reduce it and larger values increase it. The range is [code]0.0[/code] to [code]4.0[/code]. Preserves HDR values and leaves completely black lighting black. Does not require rebaking.
 		</member>
 		<member name="debug_mode" type="int" enum="LightmapGI.DebugMode" setter="set_debug_mode" getter="get_debug_mode" default="0">
-			Shows the selected tonal weight in Forward+. In the editor, the mask is displayed directly in grayscale, independently of material color, directional modulation, other lighting and fog. Camera exposure, tonemapping and screen effects still apply. Weights use original L0 luminance normalized between the texture minimum and maximum, before adjustments. In game, this mode continues to use the cached texture through the normal shading path. Settings are shared by nodes using the same LightmapGIData.
+			Shows the selected tonal weight in Forward+. In the editor, the mask is displayed directly, tinted blue where Lower acts and orange where Upper acts (see [member shadows_lower] and [member shadows_upper]), independently of material color, directional modulation, other lighting and fog. Camera and auto exposure are canceled like for editor gizmos; tonemapping and screen effects still apply. Weights use original L0 luminance normalized between the texture minimum and maximum, before adjustments. In game, this mode continues to use the cached texture through the normal shading path. Settings are shared by nodes using the same LightmapGIData.
 		</member>
 		<member name="denoiser_range" type="int" setter="set_denoiser_range" getter="get_denoiser_range" default="10">
 			The distance in pixels from which the denoiser samples. Lower values preserve more details, but may give blotchy results if the lightmap quality is not high enough. Only effective if [member use_denoiser] is [code]true[/code] and [member ProjectSettings.rendering/lightmapping/denoising/denoiser] is set to JNLM.
@@ -99,11 +99,17 @@
 		<member name="highlights_gamma" type="float" setter="set_highlights_gamma" getter="get_highlights_gamma" default="1.0">
 			Adjusts intermediate luminance after the black and white points using a power of 1 / Gamma. Values above 1 brighten the range; values below 1 darken it. A value of 1 is neutral. Levels use the maximum luminance of the original lightmap texture as white (1), preserve RGB proportions, and use the original tonal masks. No rebake is required.
 		</member>
+		<member name="highlights_lower" type="float" setter="set_tonal_lower" getter="get_tonal_lower" default="0.0">
+			Stops added to the darker part of the highlights range only, from [code]-4.0[/code] to [code]4.0[/code]. The effect is strongest at the range's dark end and fades to zero at its bright end, so it brightens or darkens only that part without clipping. Positive values brighten, negative values darken. [member debug_mode] shows this part in blue. Does not require rebaking.
+		</member>
 		<member name="highlights_saturation" type="float" setter="set_highlights_saturation" getter="get_highlights_saturation" default="1.0">
 			Runtime saturation multiplier for the highlights range, from [code]0.0[/code] (grayscale) to [code]4.0[/code]. [code]1.0[/code] is neutral. The three range controls blend smoothly; ranges are selected from the texture color after global saturation and before per-range adjustments. Does not require rebaking.
 		</member>
 		<member name="highlights_tint" type="Color" setter="set_highlights_tint" getter="get_highlights_tint" default="Color(1, 1, 1, 1)">
 			Runtime color multiplier for the highlights range of baked lighting. Converted from sRGB to linear space; alpha is ignored. White is neutral. The three range tints blend smoothly using the luminance ranges defined by the four tonal range boundaries. Applies after per-range saturation and contrast and before global [member tint] and [member energy]. Does not require rebaking.
+		</member>
+		<member name="highlights_upper" type="float" setter="set_tonal_upper" getter="get_tonal_upper" default="0.0">
+			Stops added to the brighter part of the highlights range only, from [code]-4.0[/code] to [code]4.0[/code]. The effect is strongest at the range's bright end and fades to zero at its dark end, so it brightens or darkens only that part without clipping. Positive values brighten, negative values darken. [member debug_mode] shows this part in orange. Does not require rebaking.
 		</member>
 		<member name="highlights_white_point" type="float" setter="set_highlights_white_point" getter="get_highlights_white_point" default="1.0">
 			Input luminance mapped to white in this tonal range. Lowering it brightens the range. The value is kept at least 0.001 above the black point. A value of 1 is neutral. Values above white retain HDR headroom. Levels use the maximum luminance of the original lightmap texture as white (1), preserve RGB proportions, and use the original tonal masks. No rebake is required.
@@ -135,11 +141,17 @@
 		<member name="midtones_gamma" type="float" setter="set_midtones_gamma" getter="get_midtones_gamma" default="1.0">
 			Adjusts intermediate luminance after the black and white points using a power of 1 / Gamma. Values above 1 brighten the range; values below 1 darken it. A value of 1 is neutral. Levels use the maximum luminance of the original lightmap texture as white (1), preserve RGB proportions, and use the original tonal masks. No rebake is required.
 		</member>
+		<member name="midtones_lower" type="float" setter="set_tonal_lower" getter="get_tonal_lower" default="0.0">
+			Stops added to the darker part of the midtones range only, from [code]-4.0[/code] to [code]4.0[/code]. The effect is strongest at the range's dark end and fades to zero at its bright end, so it brightens or darkens only that part without clipping. Positive values brighten, negative values darken. [member debug_mode] shows this part in blue. Does not require rebaking.
+		</member>
 		<member name="midtones_saturation" type="float" setter="set_midtones_saturation" getter="get_midtones_saturation" default="1.0">
 			Runtime saturation multiplier for the midtones range, from [code]0.0[/code] (grayscale) to [code]4.0[/code]. [code]1.0[/code] is neutral. The three range controls blend smoothly; ranges are selected from the texture color after global saturation and before per-range adjustments. Does not require rebaking.
 		</member>
 		<member name="midtones_tint" type="Color" setter="set_midtones_tint" getter="get_midtones_tint" default="Color(1, 1, 1, 1)">
 			Runtime color multiplier for the midtones range of baked lighting. Converted from sRGB to linear space; alpha is ignored. White is neutral. The three range tints blend smoothly using the luminance ranges defined by the four tonal range boundaries. Applies after per-range saturation and contrast and before global [member tint] and [member energy]. Does not require rebaking.
+		</member>
+		<member name="midtones_upper" type="float" setter="set_tonal_upper" getter="get_tonal_upper" default="0.0">
+			Stops added to the brighter part of the midtones range only, from [code]-4.0[/code] to [code]4.0[/code]. The effect is strongest at the range's bright end and fades to zero at its dark end, so it brightens or darkens only that part without clipping. Positive values brighten, negative values darken. [member debug_mode] shows this part in orange. Does not require rebaking.
 		</member>
 		<member name="midtones_white_point" type="float" setter="set_midtones_white_point" getter="get_midtones_white_point" default="1.0">
 			Input luminance mapped to white in this tonal range. Lowering it brightens the range. The value is kept at least 0.001 above the black point. A value of 1 is neutral. Values above white retain HDR headroom. Levels use the maximum luminance of the original lightmap texture as white (1), preserve RGB proportions, and use the original tonal masks. No rebake is required.
@@ -172,11 +184,17 @@
 		<member name="shadows_gamma" type="float" setter="set_shadows_gamma" getter="get_shadows_gamma" default="1.0">
 			Adjusts intermediate luminance after the black and white points using a power of 1 / Gamma. Values above 1 brighten the range; values below 1 darken it. A value of 1 is neutral. Levels use the maximum luminance of the original lightmap texture as white (1), preserve RGB proportions, and use the original tonal masks. No rebake is required.
 		</member>
+		<member name="shadows_lower" type="float" setter="set_tonal_lower" getter="get_tonal_lower" default="0.0">
+			Stops added to the darker part of the shadows range only, from [code]-4.0[/code] to [code]4.0[/code]. The effect is strongest at the range's dark end and fades to zero at its bright end, so it brightens or darkens only that part without clipping. Positive values brighten, negative values darken. [member debug_mode] shows this part in blue. Does not require rebaking.
+		</member>
 		<member name="shadows_saturation" type="float" setter="set_shadows_saturation" getter="get_shadows_saturation" default="1.0">
 			Runtime saturation multiplier for the shadows range, from [code]0.0[/code] (grayscale) to [code]4.0[/code]. [code]1.0[/code] is neutral. The three range controls blend smoothly; ranges are selected from the texture color after global saturation and before per-range adjustments. Does not require rebaking.
 		</member>
 		<member name="shadows_tint" type="Color" setter="set_shadows_tint" getter="get_shadows_tint" default="Color(1, 1, 1, 1)">
 			Runtime color multiplier for the shadows range of baked lighting. Converted from sRGB to linear space; alpha is ignored. White is neutral. The three range tints blend smoothly using the luminance ranges defined by the four tonal range boundaries. Applies after per-range saturation and contrast and before global [member tint] and [member energy]. Does not require rebaking.
+		</member>
+		<member name="shadows_upper" type="float" setter="set_tonal_upper" getter="get_tonal_upper" default="0.0">
+			Stops added to the brighter part of the shadows range only, from [code]-4.0[/code] to [code]4.0[/code]. The effect is strongest at the range's bright end and fades to zero at its dark end, so it brightens or darkens only that part without clipping. Positive values brighten, negative values darken. [member debug_mode] shows this part in orange. Does not require rebaking.
 		</member>
 		<member name="shadows_white_point" type="float" setter="set_shadows_white_point" getter="get_shadows_white_point" default="1.0">
 			Input luminance mapped to white in this tonal range. Lowering it brightens the range. The value is kept at least 0.001 above the black point. A value of 1 is neutral. Values above white retain HDR headroom. Levels use the maximum luminance of the original lightmap texture as white (1), preserve RGB proportions, and use the original tonal masks. No rebake is required.
@@ -210,8 +228,17 @@
 		<member name="tonal_midtones_start" type="float" setter="set_tonal_midtones_start" getter="get_tonal_midtones_start" default="0.1">
 			Luminance where midtones start contributing and shadows begin fading. Values use baked linear luminance normalized between the original texture minimum and maximum, in the range [code]0.0[/code] to [code]1.0[/code]. Changing a boundary moves adjacent boundaries if necessary to keep transitions ordered and nonzero. Does not change the contrast pivot or require rebaking.
 		</member>
+		<member name="tonal_range_bottom" type="float" setter="set_tonal_range_bottom" getter="get_tonal_range_bottom" default="0.0">
+			Stops added to the bottom of the baked luminance range (the 1st percentile of the lightmap) that places the tonal ranges, from [code]-12.0[/code] to [code]12.0[/code]. [code]0.0[/code] uses the baked range. Raise it to ignore the darkest corners so the tonal ranges spread over the visible surfaces. Also moves the levels axis and the contrast pivot, which sits halfway between bottom and top. Use [member debug_mode] to see the result. Does not require rebaking.
+		</member>
+		<member name="tonal_range_top" type="float" setter="set_tonal_range_top" getter="get_tonal_range_top" default="0.0">
+			Stops added to the top of the baked luminance range (the 99th percentile of the lightmap) that places the tonal ranges, from [code]-12.0[/code] to [code]12.0[/code]. [code]0.0[/code] uses the baked range. In dark scenes lit by a few bright sources, such as a hangar with lamps, lower it to leave the hot spots above the range so shadows, midtones and highlights spread over the rest of the scene. Also moves the levels axis and the contrast pivot, which sits halfway between bottom and top. Use [member debug_mode] to see the result. Does not require rebaking.
+		</member>
 		<member name="tonal_shadows_end" type="float" setter="set_tonal_shadows_end" getter="get_tonal_shadows_end" default="0.4">
 			Luminance where shadows stop contributing and midtones reach full weight. Values use baked linear luminance normalized between the original texture minimum and maximum, in the range [code]0.0[/code] to [code]1.0[/code]. Changing a boundary moves adjacent boundaries if necessary to keep transitions ordered and nonzero. Does not change the contrast pivot or require rebaking.
+		</member>
+		<member name="tonal_softness" type="float" setter="set_tonal_softness" getter="get_tonal_softness" default="0.0">
+			Widens both tonal range transitions (shadows to midtones and midtones to highlights) by this many stops, split evenly on each side, from [code]0.0[/code] to [code]8.0[/code]. [code]0.0[/code] uses the boundaries as set. Because it is measured in stops, it keeps transitions soft when [member tonal_range_bottom] and [member tonal_range_top] narrow the range. Transitions may extend past the ends of the range; overlapping weights are normalized. Use [member debug_mode] to see the result. Does not require rebaking.
 		</member>
 		<member name="use_denoiser" type="bool" setter="set_use_denoiser" getter="is_using_denoiser" default="true">
 			If [code]true[/code], uses a GPU-based denoising algorithm on the generated lightmap. This eliminates most noise within the generated lightmap at the cost of longer bake times. File sizes are generally not impacted significantly by the use of a denoiser, although lossless compression may do a better job at compressing a denoised image.

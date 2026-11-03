@@ -413,6 +413,12 @@ public:
 	float get_tonal_highlights_start() const;
 	void set_tonal_midtones_end(float p_value);
 	float get_tonal_midtones_end() const;
+	void set_tonal_range_bottom(float p_value);
+	float get_tonal_range_bottom() const;
+	void set_tonal_range_top(float p_value);
+	float get_tonal_range_top() const;
+	void set_tonal_softness(float p_value);
+	float get_tonal_softness() const;
 	void set_shadows_tint(const Color &p_value);
 	Color get_shadows_tint() const;
 	void set_midtones_tint(const Color &p_value);
@@ -439,6 +445,10 @@ public:
 	float get_midtones() const;
 	void set_highlights(float p_value);
 	float get_highlights() const;
+	void set_tonal_lower(int p_range, float p_value);
+	float get_tonal_lower(int p_range) const;
+	void set_tonal_upper(int p_range, float p_value);
+	float get_tonal_upper(int p_range) const;
 
 	float get_specular_intensity() const;
 	void set_specular_intensity(float p_strength);

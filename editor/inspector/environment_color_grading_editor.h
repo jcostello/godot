@@ -112,7 +112,7 @@ class EnvironmentTonalCorrectionEditor : public EditorProperty {
 	GDCLASS(EnvironmentTonalCorrectionEditor, EditorProperty);
 
 	static constexpr int RANGE_COUNT = 4;
-	static constexpr int PARAMETER_COUNT = 7;
+	static constexpr int PARAMETER_COUNT = 9;
 	EditorPropertyColor *color_editors[RANGE_COUNT] = {};
 	EditorSpinSlider *sliders[RANGE_COUNT][PARAMETER_COUNT] = {};
 	Button *reset_buttons[RANGE_COUNT] = {};

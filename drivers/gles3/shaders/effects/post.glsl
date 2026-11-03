@@ -137,7 +137,8 @@ layout(location = 0) out vec4 frag_color;
 
 void main() {
 	vec3 tonal_correction_weights = vec3(0.0, 1.0, 0.0);
-	float tonal_correction_mask = -1.0;
+	vec3 tonal_correction_positions = vec3(0.5);
+	vec3 tonal_correction_mask = vec3(-1.0);
 #ifdef USE_MULTIVIEW
 	vec4 color = texture(source_color, vec3(uv_interp, view));
 #else
@@ -189,7 +190,10 @@ void main() {
 #endif
 
 #ifdef USE_COLOR_GRADING
-	tonal_correction_weights = grading_correction_weights(color.rgb, tonal_softness, tonal_correction);
+	// The scene shader applied exposure; masks measure luminance before it, so tonal ranges and their preview don't move with exposure.
+	tonal_correction_weights = grading_correction_weights(color.rgb / max(exposure, 1e-6), tonal_limits, tonal_correction, tonal_correction_positions);
+	// Lower and Upper act like exposure, so they apply here in scene-linear HDR.
+	color.rgb *= exp2(grading_tonal_split_stops(tonal_correction_weights, tonal_correction_positions, tonal_correction));
 #endif
 
 	color.rgb = apply_tonemapping(color.rgb);
@@ -231,7 +235,7 @@ void main() {
 	color.rgb *= vec3(1.0 + tint, 1.0 - tint, 1.0 + tint);
 	color.rgb = apply_grading_tonal_correction(color.rgb, tonal_correction_weights, tonal_correction);
 	if (tonal_correction[5].z > 0.5) {
-		tonal_correction_mask = grading_tonal_correction_mask(tonal_correction_weights, int(tonal_correction[5].z));
+		tonal_correction_mask = grading_tonal_correction_mask(tonal_correction_weights, tonal_correction_positions, int(tonal_correction[5].z));
 	}
 
 #endif
@@ -255,8 +259,8 @@ void main() {
 	color.rgb = apply_color_correction(color.rgb);
 #endif
 
-	if (tonal_correction_mask >= 0.0) {
-		color.rgb = vec3(tonal_correction_mask);
+	if (tonal_correction_mask.r >= 0.0) {
+		color.rgb = tonal_correction_mask;
 	}
 	frag_color = color;
 }

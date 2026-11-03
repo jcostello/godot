@@ -10,7 +10,7 @@
 		- Glow
 		- Tonemap
 		- Adjustments
-		In this fork, Forward+ supports independent White Balance, Color Grading, Color Correction, and Curves subgroups, all gated by [member adjustment_enabled]. White/black levels, temperature/tint, brightness/contrast, tonal color correction, RGB/hue/luminance curves, user LUTs, and vignette run before tonemapping in scene-linear HDR. Saturation (including tonal correction and selective curves) and vibrance run after tonemapping. Neutral or disabled modules skip their optional buffers, texture bindings, and shader paths. RGB curves and user LUTs cover 0–1; RGB curves preserve values outside their domain and LUTs preserve excess HDR headroom. The legacy processing descriptions below apply to Mobile and Compatibility unless a Forward+ behavior is specified.
+		In this fork, Forward+ supports independent White Balance, Color Grading, Color Correction, and Curves subgroups, all gated by [member adjustment_enabled]. White/black levels, temperature/tint, brightness/contrast, tonal color correction, saturation (including tonal correction), hue and saturation curves, vibrance, and vignette run before tonemapping in scene-linear HDR, like Unity's HDR grading mode and Blender's compositor, so the tonemapper still desaturates bright highlights toward white. RGB curves and user LUTs are authored on display values and run after tonemapping, in sRGB. Neutral or disabled modules skip their optional buffers, texture bindings, and shader paths. RGB curves and user LUTs cover 0–1; RGB curves preserve values outside their domain and LUTs preserve excess HDR headroom. The legacy processing descriptions below apply to Mobile and Compatibility unless a Forward+ behavior is specified.
 	</description>
 	<tutorials>
 		<link title="Environment and post-processing">$DOCS_URL/tutorials/3d/environment_and_post_processing.html</link>
@@ -45,7 +45,7 @@
 		<member name="adjustment_color_correction" type="Texture" setter="set_adjustment_color_correction" getter="get_adjustment_color_correction">
 			The [Texture2D] or [Texture3D] lookup table (LUT) to use for the built-in post-process color grading. Can use a [GradientTexture1D] for a 1-dimensional LUT, or a [Texture3D] for a more complex LUT. Effective only if [member adjustment_enabled] is [code]true[/code].
 			[b]Note:[/b] Color correction does not currently support HDR output due to only supporting values in the SDR (0.0 to 1.0) range.
-					[b]Forward+:[/b] In Forward+, this user LUT belongs to Curves and runs before tonemapping. Only its 0–1 domain is sampled; excess HDR headroom is added back. Requires Adjustments and Curves, independently of Color Grading.
+					[b]Forward+:[/b] In Forward+, this user LUT belongs to Curves and runs after tonemapping, on sRGB-encoded color. Only its 0–1 domain is sampled; values above 1 keep their offset. Requires Adjustments and Curves, independently of Color Grading.
 		</member>
 		<member name="adjustment_contrast_pivot" type="float" setter="set_adjustment_contrast_pivot" getter="get_adjustment_contrast_pivot" default="0.5">
 			Fixed point of the soft contrast curve in sRGB, clamped to 0.01–0.99. Values below the pivot become darker and values above it become brighter when contrast exceeds 1. Effective when [member adjustment_enabled] is enabled and either [member adjustment_contrast_soft] or [member adjustment_correction_enabled] is enabled.
@@ -55,7 +55,7 @@
 		</member>
 		<member name="adjustment_correction_enabled" type="bool" setter="set_adjustment_correction_enabled" getter="is_adjustment_correction_enabled" default="false">
 			Enables tonal color correction with Master, Shadows, Midtones and Highlights controls. Uses the same pre-tonemap scene-linear luminance masks and transition limits as the existing tonal wheels. Overlapping masks are clamped to non-negative values and normalized for this correction. The correction is applied after tonemapping, offset and tint, before RGB curves. Saturation preserves linear-light luminance; contrast, gain, lift and gamma operate on sRGB-encoded color. Effective only when [member adjustment_enabled] and [member adjustment_advanced] are enabled. Each range also has a linear-light RGB modulation color, with white as neutral. All default parameters are neutral.
-					[b]Forward+:[/b] In Forward+, this is an independent subgroup gated only by this toggle and adjustment_enabled, with its own Amount. Colors, contrast, lift, gamma, and gain apply before tonemapping; saturation applies after it. Color Grading and Curves may remain disabled.
+					[b]Forward+:[/b] In Forward+, this is an independent subgroup gated only by this toggle and adjustment_enabled, with its own Amount. Colors, contrast, lift, gamma, gain, and saturation apply before tonemapping. Color Grading and Curves may remain disabled.
 		</member>
 		<member name="adjustment_correction_highlights_black_point" type="float" setter="set_adjustment_correction_highlights_black_point" getter="get_adjustment_correction_highlights_black_point" default="0.0">
 			Input luminance mapped to black in this tonal range. Raising it deepens shadows. The value is kept at least 0.001 below the white point. A value of 0 is neutral. Levels preserve RGB proportions and use the original pre-tonemap tonal masks. Master levels apply before the blended Shadows, Midtones, and Highlights levels; the existing Gamma control applies afterward.
@@ -75,8 +75,14 @@
 		<member name="adjustment_correction_highlights_lift" type="float" setter="set_adjustment_correction_highlights_lift" getter="get_adjustment_correction_highlights_lift" default="0.0">
 			Adds to RGB after gain and before gamma. Positive values brighten the range; negative values darken it. Clamped to -1.0–1.0. Zero is neutral. Affects the highlights mask; the three tonal parameters are blended by mask weight before combining with Master. See [member adjustment_correction_enabled] for processing order and required settings.
 		</member>
+		<member name="adjustment_correction_highlights_lower" type="float" setter="set_adjustment_correction_lower" getter="get_adjustment_correction_lower" default="0.0">
+			Stops added to the darker part of the highlights range only, from [code]-4.0[/code] to [code]4.0[/code]. The effect is strongest at the range's dark end and fades to zero at its bright end, measured in EV on the tonal range, so it brightens or darkens only that part without clipping. Applied like exposure, in scene-linear color before tonemapping, ahead of the rest of the correction. [member adjustment_correction_preview] shows this part in blue. Effective only when [member adjustment_correction_enabled] is enabled.
+		</member>
 		<member name="adjustment_correction_highlights_saturation" type="float" setter="set_adjustment_correction_highlights_saturation" getter="get_adjustment_correction_highlights_saturation" default="1.0">
 			Adjusts saturation while preserving linear-light Rec. 709 luminance and reducing chroma to fit the RGB gamut. Values above one increase saturation; zero removes it. Clamped to 0.0–4.0. One is neutral. Affects the highlights mask; the three tonal parameters are blended by mask weight before combining with Master. See [member adjustment_correction_enabled] for processing order and required settings.
+		</member>
+		<member name="adjustment_correction_highlights_upper" type="float" setter="set_adjustment_correction_upper" getter="get_adjustment_correction_upper" default="0.0">
+			Stops added to the brighter part of the highlights range only, from [code]-4.0[/code] to [code]4.0[/code]. The effect is strongest at the range's bright end and fades to zero at its dark end, measured in EV on the tonal range, so it brightens or darkens only that part without clipping. Applied like exposure, in scene-linear color before tonemapping, ahead of the rest of the correction. [member adjustment_correction_preview] shows this part in orange. Effective only when [member adjustment_correction_enabled] is enabled.
 		</member>
 		<member name="adjustment_correction_highlights_white_point" type="float" setter="set_adjustment_correction_highlights_white_point" getter="get_adjustment_correction_highlights_white_point" default="1.0">
 			Input luminance mapped to white in this tonal range. Lowering it brightens the range. The value is kept at least 0.001 above the black point. A value of 1 is neutral. Values above white retain HDR headroom. Levels preserve RGB proportions and use the original pre-tonemap tonal masks. Master levels apply before the blended Shadows, Midtones, and Highlights levels; the existing Gamma control applies afterward.
@@ -123,14 +129,20 @@
 		<member name="adjustment_correction_midtones_lift" type="float" setter="set_adjustment_correction_midtones_lift" getter="get_adjustment_correction_midtones_lift" default="0.0">
 			Adds to RGB after gain and before gamma. Positive values brighten the range; negative values darken it. Clamped to -1.0–1.0. Zero is neutral. Affects the midtones mask; the three tonal parameters are blended by mask weight before combining with Master. See [member adjustment_correction_enabled] for processing order and required settings.
 		</member>
+		<member name="adjustment_correction_midtones_lower" type="float" setter="set_adjustment_correction_lower" getter="get_adjustment_correction_lower" default="0.0">
+			Stops added to the darker part of the midtones range only, from [code]-4.0[/code] to [code]4.0[/code]. The effect is strongest at the range's dark end and fades to zero at its bright end, measured in EV on the tonal range, so it brightens or darkens only that part without clipping. Applied like exposure, in scene-linear color before tonemapping, ahead of the rest of the correction. [member adjustment_correction_preview] shows this part in blue. Effective only when [member adjustment_correction_enabled] is enabled.
+		</member>
 		<member name="adjustment_correction_midtones_saturation" type="float" setter="set_adjustment_correction_midtones_saturation" getter="get_adjustment_correction_midtones_saturation" default="1.0">
 			Adjusts saturation while preserving linear-light Rec. 709 luminance and reducing chroma to fit the RGB gamut. Values above one increase saturation; zero removes it. Clamped to 0.0–4.0. One is neutral. Affects the midtones mask; the three tonal parameters are blended by mask weight before combining with Master. See [member adjustment_correction_enabled] for processing order and required settings.
+		</member>
+		<member name="adjustment_correction_midtones_upper" type="float" setter="set_adjustment_correction_upper" getter="get_adjustment_correction_upper" default="0.0">
+			Stops added to the brighter part of the midtones range only, from [code]-4.0[/code] to [code]4.0[/code]. The effect is strongest at the range's bright end and fades to zero at its dark end, measured in EV on the tonal range, so it brightens or darkens only that part without clipping. Applied like exposure, in scene-linear color before tonemapping, ahead of the rest of the correction. [member adjustment_correction_preview] shows this part in orange. Effective only when [member adjustment_correction_enabled] is enabled.
 		</member>
 		<member name="adjustment_correction_midtones_white_point" type="float" setter="set_adjustment_correction_midtones_white_point" getter="get_adjustment_correction_midtones_white_point" default="1.0">
 			Input luminance mapped to white in this tonal range. Lowering it brightens the range. The value is kept at least 0.001 above the black point. A value of 1 is neutral. Values above white retain HDR headroom. Levels preserve RGB proportions and use the original pre-tonemap tonal masks. Master levels apply before the blended Shadows, Midtones, and Highlights levels; the existing Gamma control applies afterward.
 		</member>
 		<member name="adjustment_correction_preview" type="int" setter="set_adjustment_correction_preview" getter="get_adjustment_correction_preview" enum="Environment.ColorCorrectionPreview" default="0">
-			Shows the selected tonal mask as grayscale in the editor. White means full coverage and black means no coverage. Master covers the whole image. Reuses the same normalized pre-tonemap masks used by tonal correction. The preview bypasses subsequent color grading, curves, vignette and LUT effects, preserving image alpha. This is an editor-only property and is not saved with the resource. Effective only when [member adjustment_correction_enabled], [member adjustment_enabled] and [member adjustment_advanced] are enabled.
+			Shows the selected tonal mask in the editor. Bright means full coverage and black means no coverage; the range is tinted blue where its Lower control acts and orange where its Upper control acts. Master covers the whole image. Reuses the same normalized pre-tonemap masks used by tonal correction. They are measured before exposure, so the preview doesn't change with camera or auto exposure. The preview bypasses subsequent color grading, curves, vignette and LUT effects, preserving image alpha. This is an editor-only property and is not saved with the resource. Effective only when [member adjustment_correction_enabled], [member adjustment_enabled] and [member adjustment_advanced] are enabled.
 					[b]Forward+:[/b] In Forward+, preview uses the same scene-linear masks, is effective independently of Color Grading and Curves, and is restricted to the editor. Requires Color Correction and Adjustments.
 		</member>
 		<member name="adjustment_correction_shadows_black_point" type="float" setter="set_adjustment_correction_shadows_black_point" getter="get_adjustment_correction_shadows_black_point" default="0.0">
@@ -151,8 +163,14 @@
 		<member name="adjustment_correction_shadows_lift" type="float" setter="set_adjustment_correction_shadows_lift" getter="get_adjustment_correction_shadows_lift" default="0.0">
 			Adds to RGB after gain and before gamma. Positive values brighten the range; negative values darken it. Clamped to -1.0–1.0. Zero is neutral. Affects the shadows mask; the three tonal parameters are blended by mask weight before combining with Master. See [member adjustment_correction_enabled] for processing order and required settings.
 		</member>
+		<member name="adjustment_correction_shadows_lower" type="float" setter="set_adjustment_correction_lower" getter="get_adjustment_correction_lower" default="0.0">
+			Stops added to the darker part of the shadows range only, from [code]-4.0[/code] to [code]4.0[/code]. The effect is strongest at the range's dark end and fades to zero at its bright end, measured in EV on the tonal range, so it brightens or darkens only that part without clipping. Applied like exposure, in scene-linear color before tonemapping, ahead of the rest of the correction. [member adjustment_correction_preview] shows this part in blue. Effective only when [member adjustment_correction_enabled] is enabled.
+		</member>
 		<member name="adjustment_correction_shadows_saturation" type="float" setter="set_adjustment_correction_shadows_saturation" getter="get_adjustment_correction_shadows_saturation" default="1.0">
 			Adjusts saturation while preserving linear-light Rec. 709 luminance and reducing chroma to fit the RGB gamut. Values above one increase saturation; zero removes it. Clamped to 0.0–4.0. One is neutral. Affects the shadows mask; the three tonal parameters are blended by mask weight before combining with Master. See [member adjustment_correction_enabled] for processing order and required settings.
+		</member>
+		<member name="adjustment_correction_shadows_upper" type="float" setter="set_adjustment_correction_upper" getter="get_adjustment_correction_upper" default="0.0">
+			Stops added to the brighter part of the shadows range only, from [code]-4.0[/code] to [code]4.0[/code]. The effect is strongest at the range's bright end and fades to zero at its dark end, measured in EV on the tonal range, so it brightens or darkens only that part without clipping. Applied like exposure, in scene-linear color before tonemapping, ahead of the rest of the correction. [member adjustment_correction_preview] shows this part in orange. Effective only when [member adjustment_correction_enabled] is enabled.
 		</member>
 		<member name="adjustment_correction_shadows_white_point" type="float" setter="set_adjustment_correction_shadows_white_point" getter="get_adjustment_correction_shadows_white_point" default="1.0">
 			Input luminance mapped to white in this tonal range. Lowering it brightens the range. The value is kept at least 0.001 above the black point. A value of 1 is neutral. Values above white retain HDR headroom. Levels preserve RGB proportions and use the original pre-tonemap tonal masks. Master levels apply before the blended Shadows, Midtones, and Highlights levels; the existing Gamma control applies afterward.
@@ -170,7 +188,7 @@
 			Red channel transfer curve, applied after black/white levels and before [member adjustment_curve_master]. The identity diagonal is neutral. Effective only when [member adjustment_use_rgb_curves] is enabled. See [member adjustment_curve_master] for the input range and processing space.
 		</member>
 		<member name="adjustment_curves_enabled" type="bool" setter="set_adjustment_curves_enabled" getter="is_adjustment_curves_enabled" default="false">
-			Enables the independent Curves subgroup in Forward+, gated by [member adjustment_enabled]. RGB, hue, and luminance operations run before tonemapping; saturation curves run after it. Neutral curves do not allocate or bind the curve atlas. Also gates [member adjustment_color_correction].
+			Enables the independent Curves subgroup in Forward+, gated by [member adjustment_enabled]. Hue vs hue, hue vs saturation, saturation vs saturation, luminance vs saturation, and hue vs luminance run before tonemapping, with their hue, saturation and luminance axes measured on sRGB-encoded color; RGB curves and the user LUT run after it. Neutral curves do not allocate or bind the curve atlas. Also gates [member adjustment_color_correction].
 		</member>
 		<member name="adjustment_hue_vs_luminance" type="CurveTexture" setter="set_adjustment_hue_vs_luminance" getter="get_adjustment_hue_vs_luminance">
 			Adjusts linear-light Rec. 709 luminance according to the input hue after RGB curves. The horizontal axis covers the hue wheel; [code]0.5[/code] on the vertical axis is neutral, [code]0.0[/code] is -2 exposure stops and [code]1.0[/code] is +2 stops. Applied after the existing hue and saturation curves. Grays are unchanged and the effect fades smoothly for very low saturation. Preserves linear RGB chromaticity while the result fits the gamut; otherwise reduces chroma toward the target-luminance neutral axis. Retains existing HDR headroom and limits target luminance to that headroom. Endpoint samples are joined at the red hue boundary; use matching endpoint values. Effective only when [member adjustment_enabled] and [member adjustment_advanced] are enabled.
@@ -194,10 +212,10 @@
 			Legacy serialized value retained for resource compatibility. Hidden from the inspector and has no rendering effect. Use the independent Color Correction subgroup instead.
 		</member>
 		<member name="adjustment_highlights_start" type="float" setter="set_adjustment_highlights_start" getter="get_adjustment_highlights_start" default="0.55">
-			Scene-linear luminance where the smooth transition into highlights begins.
+			Fraction of the logarithmic tonal range, from [member adjustment_tonal_range_bottom] to [member adjustment_tonal_range_top], where the smooth transition into highlights begins.
 		</member>
 		<member name="adjustment_highlights_end" type="float" setter="set_adjustment_highlights_end" getter="get_adjustment_highlights_end" default="1.0">
-			Scene-linear luminance where the transition into highlights is complete.
+			Fraction of the logarithmic tonal range, from [member adjustment_tonal_range_bottom] to [member adjustment_tonal_range_top], where the transition into highlights is complete.
 		</member>
 		<member name="adjustment_highlights_luminance" type="float" setter="set_adjustment_highlights_luminance" getter="get_adjustment_highlights_luminance" default="1.0">
 			Legacy serialized value retained for resource compatibility. Hidden from the inspector and has no rendering effect. Use the independent Color Correction subgroup instead.
@@ -220,8 +238,8 @@
 		<member name="adjustment_gain_intensity" type="float" setter="set_adjustment_gain_intensity" getter="get_adjustment_gain_intensity" default="0.0">
 			Legacy serialized value retained for resource compatibility. Hidden from the inspector and has no rendering effect. Use the independent Color Correction subgroup instead.
 		</member>
-		<member name="adjustment_highlights_softness" type="float" setter="set_adjustment_highlights_softness" getter="get_adjustment_highlights_softness" default="0.1">
-			Total width of the transition centered at [member adjustment_midtones_end]. For example, a center of [code]0.3[/code] with softness [code]0.1[/code] blends from [code]0.25[/code] to [code]0.35[/code]. Zero produces an exact cutoff. The width does not move either transition center. Overlapping transitions are normalized so neutral grading preserves brightness. Effective only if [member adjustment_enabled] and [member adjustment_advanced] are [code]true[/code].
+		<member name="adjustment_highlights_softness" type="float" setter="set_adjustment_highlights_softness" getter="get_adjustment_highlights_softness" default="0.0">
+			Widens the midtones-to-highlights transition, from [member adjustment_highlights_start] to [member adjustment_highlights_end], by this many stops, split evenly on each side, from [code]0.0[/code] to [code]8.0[/code]. [code]0.0[/code] uses the limits as set. Overlapping transitions are normalized so neutral grading preserves brightness.
 		</member>
 		<member name="adjustment_hue_vs_hue" type="CurveTexture" setter="set_adjustment_hue_vs_hue" getter="get_adjustment_hue_vs_hue">
 			Shifts each input hue according to the curve. The horizontal axis is the input hue and the vertical axis is the hue offset, with [code]0.5[/code] being neutral. Sampling joins the first and last texture samples at the red hue boundary, averaging them over a one-texel transition. Use matching endpoint values for a periodic curve. Effective only if [member adjustment_enabled] and [member adjustment_advanced] are [code]true[/code].
@@ -254,13 +272,19 @@
 			Legacy serialized value retained for resource compatibility. Hidden from the inspector and has no rendering effect. Use the independent Color Correction subgroup instead.
 		</member>
 		<member name="adjustment_saturation" type="float" setter="set_adjustment_saturation" getter="get_adjustment_saturation" default="1.0">
-			Adjusts saturation after tonemapping. In Forward+, operates in display-linear RGB using Rec. 709 luminance. Zero produces grayscale and one is neutral. Requires [member adjustment_enabled] and is independent of all adjustment subgroup toggles.
+			Adjusts saturation. In Forward+, operates in scene-linear HDR before tonemapping using Rec. 709 luminance; Mobile and Compatibility apply it after tonemapping. Zero produces grayscale and one is neutral. Requires [member adjustment_enabled] and is independent of all adjustment subgroup toggles.
 		</member>
 		<member name="adjustment_temperature" type="float" setter="set_tonemap_temperature" getter="get_tonemap_temperature" default="6500.0">
 			Sets the white balance temperature in Kelvin. Lower values produce warmer colors, while higher values produce cooler colors. A value of [code]6500.0[/code] is neutral. In Forward+, requires both [member adjustment_enabled] and [member adjustment_color_grading_enabled].
 		</member>
 		<member name="adjustment_tint" type="float" setter="set_adjustment_tint" getter="get_adjustment_tint" default="0.0">
 			Adjusts the green-magenta axis to compensate color temperature. Positive values push toward magenta, while negative values push toward green. In Forward+, requires both [member adjustment_enabled] and [member adjustment_color_grading_enabled].
+		</member>
+		<member name="adjustment_tonal_range_bottom" type="float" setter="set_adjustment_tonal_range_bottom" getter="get_adjustment_tonal_range_bottom" default="-6.0">
+			Bottom of the range that places the tonal ranges, in EV of scene luminance before exposure, from [code]-16.0[/code] to [code]16.0[/code]. Like [member LightmapGI.tonal_range_bottom], the tonal ranges are placed on a logarithmic axis between this value and [member adjustment_tonal_range_top], and exposure doesn't move them. Raise it to ignore the darkest parts of the image so the tonal ranges spread over the rest. Raising it above [member adjustment_tonal_range_top] pushes the top up.
+		</member>
+		<member name="adjustment_tonal_range_top" type="float" setter="set_adjustment_tonal_range_top" getter="get_adjustment_tonal_range_top" default="2.0">
+			Top of the range that places the tonal ranges, in EV of scene luminance before exposure, from [code]-16.0[/code] to [code]16.0[/code]. [code]0.0[/code] is a luminance of [code]1.0[/code]. Raise it to spread the tonal ranges over HDR highlights; lower it in dark scenes so shadows, midtones and highlights spread over the visible surfaces. Kept above [member adjustment_tonal_range_bottom].
 		</member>
 		<member name="adjustment_use_rgb_curves" type="bool" setter="set_adjustment_use_rgb_curves" getter="get_adjustment_use_rgb_curves" default="false">
 			Enables the black and white levels and master/RGB curves. Effective only when [member adjustment_enabled] and [member adjustment_advanced] are enabled. [member adjustment_hue_vs_luminance] is independent of this switch.
@@ -279,16 +303,16 @@
 			Legacy serialized value retained for resource compatibility. Hidden from the inspector and has no rendering effect. Use the independent Color Correction subgroup instead.
 		</member>
 		<member name="adjustment_shadows_start" type="float" setter="set_adjustment_shadows_start" getter="get_adjustment_shadows_start" default="0.0">
-			Scene-linear luminance where the shadows weight starts decreasing.
+			Fraction of the logarithmic tonal range, from [member adjustment_tonal_range_bottom] to [member adjustment_tonal_range_top], where the shadows weight starts decreasing.
 		</member>
 		<member name="adjustment_shadows_end" type="float" setter="set_adjustment_shadows_end" getter="get_adjustment_shadows_end" default="0.3">
-			Scene-linear luminance where the smooth transition out of shadows is complete.
+			Fraction of the logarithmic tonal range, from [member adjustment_tonal_range_bottom] to [member adjustment_tonal_range_top], where the smooth transition out of shadows is complete.
 		</member>
 		<member name="adjustment_shadows_luminance" type="float" setter="set_adjustment_shadows_luminance" getter="get_adjustment_shadows_luminance" default="1.0">
 			Legacy serialized value retained for resource compatibility. Hidden from the inspector and has no rendering effect. Use the independent Color Correction subgroup instead.
 		</member>
-		<member name="adjustment_shadows_softness" type="float" setter="set_adjustment_shadows_softness" getter="get_adjustment_shadows_softness" default="0.1">
-			Total width of the transition centered at [member adjustment_midtones_start]. For example, a center of [code]0.3[/code] with softness [code]0.1[/code] blends from [code]0.25[/code] to [code]0.35[/code]. Zero produces an exact cutoff. The width does not move either transition center. Overlapping transitions are normalized so neutral grading preserves brightness. Effective only if [member adjustment_enabled] and [member adjustment_advanced] are [code]true[/code].
+		<member name="adjustment_shadows_softness" type="float" setter="set_adjustment_shadows_softness" getter="get_adjustment_shadows_softness" default="0.0">
+			Widens the shadows-to-midtones transition, from [member adjustment_shadows_start] to [member adjustment_shadows_end], by this many stops, split evenly on each side, from [code]0.0[/code] to [code]8.0[/code]. Because it is measured in stops, it keeps the transition soft when the tonal range is narrow. [code]0.0[/code] uses the limits as set. Overlapping transitions are normalized so neutral grading preserves brightness.
 		</member>
 		<member name="adjustment_white_level" type="Color" setter="set_adjustment_white_level" getter="get_adjustment_white_level" default="Color(1, 1, 1, 1)">
 			The sRGB input color that maps to white before the RGB curves. Each channel is clamped between the corresponding [member adjustment_black_level] channel plus [code]0.0001[/code] and one. Alpha is ignored. Effective only when [member adjustment_use_rgb_curves] is enabled. The editor color selector includes a screen eyedropper; see [member adjustment_black_level] for the sampling workflow.
@@ -636,7 +660,7 @@
 			Inspector alias of [member white_balance_enabled]. Independent White Balance subgroup toggle under Adjustments. In Forward+, enables the selected [member adjustment_white_balance_method] before Color Grading and tonemapping, gated by [member adjustment_enabled]. The mapping operates in linear HDR and preserves values above white. Neutral black (0) and white (1) skip the effect.
 		</member>
 		<member name="adjustment_color_grading_enabled" type="bool" setter="set_adjustment_color_grading_enabled" getter="is_adjustment_color_grading_enabled" default="false">
-			Enables the Color Grading subgroup when [member adjustment_enabled] is enabled. In Forward+, applies temperature/tint before tonemapping, vibrance after tonemapping, and vignette before tonemapping. Independent of White Balance, Color Correction, and Curves.
+			Enables the Color Grading subgroup when [member adjustment_enabled] is enabled. In Forward+, applies temperature/tint, vibrance, and vignette before tonemapping. Independent of White Balance, Color Correction, and Curves.
 		</member>
 	</members>
 	<constants>

@@ -2822,7 +2822,8 @@ LightmapperRD::BakeError LightmapperRD::bake(BakeQuality p_quality, bool p_use_d
 	{
 		const int light_layers = p_bake_lightmaps ? atlas_slices * light_coefficients : 0;
 		const int source_layers = plot_direct_light ? atlas_slices : 0;
-		const int direct_layers = p_bake_ao ? atlas_slices * light_coefficients : 0;
+		// Without bounces, AO runs in the direct pass while direct light is still on the GPU.
+		const int direct_layers = p_bake_ao && p_bounces > 0 ? atlas_slices * light_coefficients : 0;
 		const int64_t layer_pixels = int64_t(atlas_size.width) * atlas_size.height;
 		// RGBA half layers, plus R11G11B10 source layers.
 		const int64_t staged_bytes = (light_layers + direct_layers) * layer_pixels * 8 + source_layers * layer_pixels * 4;
@@ -2849,6 +2850,41 @@ LightmapperRD::BakeError LightmapperRD::bake(BakeQuality p_quality, bool p_use_d
 			}
 		}
 		return true;
+	};
+
+	/* AMBIENT OCCLUSION */
+	// Applied to each slice as soon as its light is final (after the direct pass,
+	// or after its bounces), reusing that pass's rasterized geometry and resident
+	// light instead of re-rasterizing and round-tripping every slice again.
+	RID ao_uniform_set;
+	if (p_bake_ao) {
+		Vector<RD::Uniform> uniforms;
+		for (int binding = 0; binding < 5; binding++) {
+			RD::Uniform u;
+			u.uniform_type = binding == 0 || binding == 3 ? RD::UNIFORM_TYPE_IMAGE : RD::UNIFORM_TYPE_TEXTURE;
+			u.binding = binding;
+			u.append_id(binding == 0 ? light_accum_tex : (binding == 1 ? position_tex : (binding == 2 ? normal_tex : (binding == 3 ? direct_light_tex : unocclude_tex))));
+			uniforms.push_back(u);
+		}
+		ao_uniform_set = rd->uniform_set_create(uniforms, compute_shader_ao, 1);
+	}
+	auto apply_ao_slice = [&](int p_slice) {
+		PushConstant ao_push_constant = push_constant;
+		ao_push_constant.ray_count = CLAMP((uint32_t)p_ao_samples, 1u, 1024u);
+		ao_push_constant.region_ofs[0] = 0;
+		ao_push_constant.region_ofs[1] = 0;
+		ao_push_constant.geometry_slice = 0;
+		ao_push_constant.output_slice = 0;
+		ao_push_constant.atlas_slice = p_slice;
+		RD::ComputeListID compute_list = rd->compute_list_begin();
+		rd->compute_list_bind_compute_pipeline(compute_list, compute_shader_ao_pipeline);
+		rd->compute_list_bind_uniform_set(compute_list, compute_base_uniform_set, 0);
+		rd->compute_list_bind_uniform_set(compute_list, ao_uniform_set, 1);
+		rd->compute_list_set_push_constant(compute_list, &ao_push_constant, sizeof(PushConstant));
+		rd->compute_list_dispatch(compute_list, geometry_group_size.x, geometry_group_size.y, geometry_group_size.z);
+		rd->compute_list_end();
+		rd->submit();
+		rd->sync();
 	};
 
 	/* PRIMARY (direct) LIGHT PASS */
@@ -2970,6 +3006,9 @@ LightmapperRD::BakeError LightmapperRD::bake(BakeQuality p_quality, bool p_use_d
 					}
 				}
 			}
+			if (p_bake_ao && p_bounces <= 0) {
+				apply_ao_slice(s);
+			}
 			if (p_bake_lightmaps) {
 				for (int coefficient = 0; coefficient < light_coefficients; coefficient++) {
 					if (!staged_light.store(s * light_coefficients + coefficient, rd->texture_get_data(light_accum_tex, coefficient))) {
@@ -2978,7 +3017,7 @@ LightmapperRD::BakeError LightmapperRD::bake(BakeQuality p_quality, bool p_use_d
 				}
 			}
 			// Stage direct lighting while the reusable slice accumulates bounces.
-			if (p_bake_ao) {
+			if (p_bake_ao && p_bounces > 0) {
 				for (int coefficient = 0; coefficient < light_coefficients; coefficient++) {
 					if (!staged_direct.store(s * light_coefficients + coefficient, rd->texture_get_data(direct_light_tex, coefficient))) {
 						return BAKE_ERROR_LIGHTMAP_CANT_PRE_BAKE_MESHES;
@@ -3212,6 +3251,14 @@ LightmapperRD::BakeError LightmapperRD::bake(BakeQuality p_quality, bool p_use_d
 					}
 				}
 			}
+			if (p_bake_ao) {
+				for (int coefficient = 0; coefficient < light_coefficients; coefficient++) {
+					if (rd->texture_update(direct_light_tex, coefficient, staged_direct.load(s * light_coefficients + coefficient)) != OK) {
+						return BAKE_ERROR_LIGHTMAP_CANT_PRE_BAKE_MESHES;
+					}
+				}
+				apply_ao_slice(s);
+			}
 			for (int coefficient = 0; coefficient < light_coefficients; coefficient++) {
 				if (!staged_light.store(s * light_coefficients + coefficient, rd->texture_get_data(light_accum_tex, coefficient))) {
 					return BAKE_ERROR_LIGHTMAP_CANT_PRE_BAKE_MESHES;
@@ -3366,53 +3413,10 @@ LightmapperRD::BakeError LightmapperRD::bake(BakeQuality p_quality, bool p_use_d
 		return BAKE_ERROR_LIGHTMAP_CANT_PRE_BAKE_MESHES;
 	}
 
-	/* AMBIENT OCCLUSION */
-	if (p_bake_ao) {
-		if (p_step_function && p_step_function(0.79, RTR("Baking ambient occlusion"), p_bake_userdata, true)) {
-			return BAKE_ERROR_USER_ABORTED;
-		}
-
-		Vector<RD::Uniform> uniforms;
-		for (int binding = 0; binding < 5; binding++) {
-			RD::Uniform u;
-			u.uniform_type = binding == 0 || binding == 3 ? RD::UNIFORM_TYPE_IMAGE : RD::UNIFORM_TYPE_TEXTURE;
-			u.binding = binding;
-			u.append_id(binding == 0 ? light_accum_tex : (binding == 1 ? position_tex : (binding == 2 ? normal_tex : (binding == 3 ? direct_light_tex : unocclude_tex))));
-			uniforms.push_back(u);
-		}
-		RID ao_uniform_set = rd->uniform_set_create(uniforms, compute_shader_ao, 1);
-		push_constant.ray_count = CLAMP((uint32_t)p_ao_samples, 1u, 1024u);
-		push_constant.region_ofs[0] = 0;
-		push_constant.region_ofs[1] = 0;
-		const Vector3i group_size(Math::division_round_up(atlas_size.x, 8), Math::division_round_up(atlas_size.y, 8), 1);
-		for (int s = 0; s < atlas_slices; s++) {
-			if (!load_staged_light_slice(s, light_accum_tex)) {
-				return BAKE_ERROR_LIGHTMAP_CANT_PRE_BAKE_MESHES;
-			}
-			for (int coefficient = 0; coefficient < light_coefficients; coefficient++) {
-				if (rd->texture_update(direct_light_tex, coefficient, staged_direct.load(s * light_coefficients + coefficient)) != OK) {
-					return BAKE_ERROR_LIGHTMAP_CANT_PRE_BAKE_MESHES;
-				}
-			}
-			prepare_geometry_slice(s);
-			push_constant.geometry_slice = 0;
-			push_constant.output_slice = 0;
-			push_constant.atlas_slice = s;
-			RD::ComputeListID compute_list = rd->compute_list_begin();
-			rd->compute_list_bind_compute_pipeline(compute_list, compute_shader_ao_pipeline);
-			rd->compute_list_bind_uniform_set(compute_list, compute_base_uniform_set, 0);
-			rd->compute_list_bind_uniform_set(compute_list, ao_uniform_set, 1);
-			rd->compute_list_set_push_constant(compute_list, &push_constant, sizeof(PushConstant));
-			rd->compute_list_dispatch(compute_list, group_size.x, group_size.y, group_size.z);
-			rd->compute_list_end();
-			rd->submit();
-			rd->sync();
-			if (!store_staged_light_slice(s, light_accum_tex)) {
-				return BAKE_ERROR_LIGHTMAP_CANT_PRE_BAKE_MESHES;
-			}
-		}
+	if (ao_uniform_set.is_valid()) {
 		rd->free_rid(ao_uniform_set);
 	}
+	staged_direct.clear();
 	rd->free_rid(direct_light_tex);
 	direct_light_tex = RID();
 

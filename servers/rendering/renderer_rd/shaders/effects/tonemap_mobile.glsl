@@ -52,7 +52,7 @@ layout(set = 0, binding = 8, std140) uniform GradingData {
 	vec4 white_balance_0;
 	vec4 white_balance_1;
 	vec4 white_balance_2;
-	vec4 tonal_correction[12];
+	vec4 tonal_correction[14];
 } grading;
 
 // All uniforms must be on set 0 to prevent MSAA from crashing Mali GPUs. See GH-114785.
@@ -107,7 +107,7 @@ layout(push_constant, std430) uniform Params {
 	vec4 tonemapper_params;
 	vec4 padding_offset;
 	vec4 tint_midtones_range;
-	vec4 tonal_softness;
+	vec4 tonal_limits;
 
 	vec3 tonemap_temperature;
 	float output_max_value;
@@ -757,7 +757,8 @@ vec3 screen_space_dither(vec2 frag_coord, float bit_alignment_diviser) {
 
 void main() {
 	vec3 tonal_correction_weights = vec3(0.0, 1.0, 0.0);
-	float tonal_correction_mask = -1.0;
+	vec3 tonal_correction_positions = vec3(0.5);
+	vec3 tonal_correction_mask = vec3(-1.0);
 #ifdef SUBPASS
 	// SUBPASS and USE_MULTIVIEW can be combined but in that case we're already reading from the correct layer
 #ifdef USE_MULTIVIEW
@@ -803,7 +804,10 @@ void main() {
 	// Unity 6 URP applies shadows/midtones/highlights and lift/gamma/gain to
 	// scene-linear HDR color before tonemapping.
 	if (use_bcs && use_color_grading) {
-		tonal_correction_weights = grading_correction_weights(color.rgb, params.tonal_softness, grading.tonal_correction);
+		// Masks measure luminance before exposure, so tonal ranges and their preview don't move with exposure.
+		tonal_correction_weights = grading_correction_weights(color.rgb / max(params.exposure, 1e-6), params.tonal_limits, grading.tonal_correction, tonal_correction_positions);
+		// Lower and Upper act like exposure, so they apply here in scene-linear HDR.
+		color.rgb *= exp2(grading_tonal_split_stops(tonal_correction_weights, tonal_correction_positions, grading.tonal_correction));
 	}
 
 	// Tonemap to lower dynamic range.
@@ -864,7 +868,7 @@ void main() {
 			color.rgb *= tint_balance;
 			color.rgb = apply_grading_tonal_correction(color.rgb, tonal_correction_weights, grading.tonal_correction);
 			if (grading.tonal_correction[5].z > 0.5) {
-				tonal_correction_mask = grading_tonal_correction_mask(tonal_correction_weights, int(grading.tonal_correction[5].z));
+				tonal_correction_mask = grading_tonal_correction_mask(tonal_correction_weights, tonal_correction_positions, int(grading.tonal_correction[5].z));
 			}
 		}
 
@@ -894,8 +898,8 @@ void main() {
 		color.rgb = linear_to_srgb(color.rgb); // Regular linear -> SRGB conversion.
 	}
 
-	if (tonal_correction_mask >= 0.0) {
-		color.rgb = convert_to_srgb ? vec3(tonal_correction_mask) : srgb_to_linear(vec3(tonal_correction_mask));
+	if (tonal_correction_mask.r >= 0.0) {
+		color.rgb = convert_to_srgb ? tonal_correction_mask : srgb_to_linear(tonal_correction_mask);
 	}
 
 	// Debanding should be done at the end of tonemapping, but before writing to the LDR buffer.

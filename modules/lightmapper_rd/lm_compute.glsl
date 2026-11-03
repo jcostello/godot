@@ -1384,14 +1384,26 @@ void main() {
 	float occluded = 0.0;
 	uint valid_samples = 0;
 	for (uint i = 0; i < params.ray_count; i++) {
+		// Most texels see nothing within ao_distance. Once a well-spread prefix of
+		// the R2 sequence finds no occluder, the remaining rays won't change AO.
+		if (i == 16u && occluded == 0.0) {
+			break;
+		}
 		vec3 ray_dir = generate_ray_dir_from_normal(normal, r2_sequence(i, ray_rotation));
-		// Smooth normals can point rays below the actual surface.
+		// Smooth normals can point rays below the actual surface. Mirror them
+		// above it instead of dropping the sample, which left smooth edges noisier.
+		float below = dot(geometry_normal, ray_dir);
+		if (below < 0.0) {
+			ray_dir -= 2.0 * below * geometry_normal;
+		}
 		if (dot(geometry_normal, ray_dir) <= 0.0) {
 			continue;
 		}
 		valid_samples++;
 		vec3 ray_end = position + ray_dir * bake_params.ao_distance;
-		vec3 ray_origin = position + ray_dir * bake_params.bias;
+		// Lift along the face too: grazing rays offset only along themselves stay
+		// on the surface and hit neighboring faces of curved meshes (AO acne).
+		vec3 ray_origin = position + (ray_dir + geometry_normal) * bake_params.bias;
 		float transmission = 1.0;
 		bool did_hit = false;
 		for (uint iter = 0; iter < max(bake_params.transparency_rays, 1u); iter++) {

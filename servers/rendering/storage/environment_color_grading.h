@@ -35,6 +35,7 @@
 #include "core/math/vector2.h"
 #include "core/math/vector3.h"
 #include "core/math/vector4.h"
+#include "core/templates/rid.h"
 
 namespace EnvironmentColorGrading {
 
@@ -76,13 +77,20 @@ inline float tonal_smoothstep(float p_start, float p_end, float p_luminance) {
 }
 
 // Unity Graphics 6000.0/staging snapshot 48a8a5b, ColorGrading.hlsl and LutBuilderHdr.shader.
-// Keep this in sync with grading_tonal_weights() in color_grading_inc.glsl.
+// Same transitions as grading_tonal_weights() in color_grading_inc.glsl, on any axis (the editor uses 0-1 fractions).
 inline Vector3 tonal_weights(float p_luminance, const Vector2 &p_shadows_limits, const Vector2 &p_highlights_limits) {
 	const Vector2 shadows = clamp_tonal_range(p_shadows_limits.x, p_shadows_limits.y);
 	const Vector2 highlights = clamp_tonal_range(p_highlights_limits.x, p_highlights_limits.y);
 	const float shadows_weight = 1.0f - tonal_smoothstep(shadows.x, shadows.y, p_luminance);
 	const float highlights_weight = tonal_smoothstep(highlights.x, highlights.y, p_luminance);
 	return Vector3(shadows_weight, 1.0f - shadows_weight - highlights_weight, highlights_weight);
+}
+
+// Places the shadows and highlights limits, fractions of the [bottom, top] range in EV, on the log2 luminance
+// axis the shaders use, and widens each transition by its softness in EV, split evenly on both sides.
+inline Vector4 place_tonal_limits(const Vector2 &p_shadows_limits, const Vector2 &p_highlights_limits, const Vector2 &p_range, const Vector2 &p_softness) {
+	const Vector4 limits = Vector4(p_shadows_limits.x, p_shadows_limits.y, p_highlights_limits.x, p_highlights_limits.y) * (p_range.y - p_range.x) + Vector4(p_range.x, p_range.x, p_range.x, p_range.x);
+	return limits + Vector4(-p_softness.x, p_softness.x, -p_softness.y, p_softness.y) * 0.5f;
 }
 
 inline float unity_luminance(const Color &p_color) {
@@ -182,7 +190,7 @@ inline Basis white_balance_matrix(float p_temperature, float p_tint) {
 				(1.0f + 8.42420235e-4f * temperature + 7.08145163e-7f * temperature_squared);
 		const float v = (0.317398726f + 4.22806245e-5f * temperature + 4.20481691e-8f * temperature_squared) /
 						(1.0f - 2.89741816e-5f * temperature + 1.61456053e-7f * temperature_squared) -
-				CLAMP(p_tint_value, -1.0f, 1.0f) * 0.05f;
+				CLAMP(p_tint_value, -1.0f, 1.0f) * 0.02f; // Duv 0.02 at the ends is already a strong tint.
 		const float d = 1.0f / MAX(2.0f * u - 8.0f * v + 4.0f, 1e-5f);
 		const float x = 3.0f * u * d;
 		const float y = MAX(2.0f * v * d, 1e-5f);
@@ -207,5 +215,63 @@ inline Basis white_balance_matrix(float p_temperature, float p_tint) {
 			0.0f, 0.0f, target_lms.z / MAX(source_lms.z, 1e-5f));
 	return xyz_to_rgb * inverse_bradford * scale * bradford * rgb_to_xyz;
 }
+
+// Color grading that Environment sends to the rendering server as one block.
+// The environment storage clamps it and derives Resolved for the renderers.
+struct Settings {
+	bool advance = true;
+	float tint = 0.0f;
+	bool chromatic_adaptation = false;
+	float temperature = 6500.0f;
+	// Forward+ only: black and white levels in sRGB, applied before chromatic adaptation.
+	bool levels_enabled = false;
+	Color black_level = Color(0, 0, 0);
+	Color white_level = Color(1, 1, 1);
+	TonalRanges ranges;
+	Vector2 tonal_softness; // Shadows, highlights, in EV.
+	Vector2 tonal_range = Vector2(-6.0f, 2.0f); // Bottom, top, in EV of scene luminance before exposure.
+	// Master, shadows, midtones, highlights: saturation, contrast, gamma, gain.
+	Vector4 correction[4] = { Vector4(1, 1, 1, 1), Vector4(1, 1, 1, 1), Vector4(1, 1, 1, 1), Vector4(1, 1, 1, 1) };
+	Vector4 correction_lift;
+	Vector4 correction_black_point;
+	Vector4 correction_white_point = Vector4(1, 1, 1, 1);
+	Vector4 correction_controls = Vector4(0, 0, 0, 0.5f); // Reserved, enabled, preview, contrast pivot.
+	// Stops for the dark (lower) and bright (upper) end of each range; x (Master) is unused.
+	Vector4 correction_lower;
+	Vector4 correction_upper;
+	Color correction_colors[4] = { Color(1, 1, 1), Color(1, 1, 1), Color(1, 1, 1), Color(1, 1, 1) };
+	// Hue vs hue, hue vs saturation, saturation vs saturation, luminance vs saturation (or the curve atlas).
+	RID curves[4];
+	uint32_t curve_flags = 0;
+	bool preserve_luminance = false;
+	bool soft_contrast = false;
+	float contrast_pivot = 0.5f;
+	float vibrance = 0.0f;
+	float vignette = 0.0f;
+	float vignette_start = 0.6f;
+	float vignette_end = 1.0f;
+};
+
+// Color grading as the renderers read it.
+struct Resolved {
+	bool advance = true;
+	float tint = 0.0f;
+	bool white_balance_enabled = false;
+	Basis white_balance_matrix;
+	Vector3 white_balance_offset;
+	// Shadows start/end and highlights start/end in log2 luminance, placed in the tonal range and widened by softness.
+	Vector4 tonal_limits = Vector4(-6.0f, -3.6f, -1.6f, 2.0f);
+	Vector2 midtones_range = Vector2(0.3f, 0.55f);
+	// Four ranges, lift, controls, four linear RGB colors, black/white points,
+	// then range bottom and per-range Lower stops, range top and per-range Upper stops.
+	Vector4 tonal_correction[14] = { Vector4(1, 1, 1, 1), Vector4(1, 1, 1, 1), Vector4(1, 1, 1, 1), Vector4(1, 1, 1, 1), Vector4(), Vector4(0, 0, 0, 0.5), Vector4(1, 1, 1, 0), Vector4(1, 1, 1, 0), Vector4(1, 1, 1, 0), Vector4(1, 1, 1, 0), Vector4(), Vector4(1, 1, 1, 1), Vector4(-6, 0, 0, 0), Vector4(2, 0, 0, 0) };
+	RID curves[4];
+	uint32_t curve_flags = 0;
+	uint32_t forward_flags = 0;
+	Vector2 color_modes = Vector2(0.0f, 0.5f); // Bit 0: luminance saturation; bit 1: soft contrast; y: sRGB pivot.
+	float vibrance = 0.0f;
+	float vignette = 0.0f;
+	Vector2 vignette_range = Vector2(0.6f, 1.0f);
+};
 
 } // namespace EnvironmentColorGrading

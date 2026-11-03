@@ -458,7 +458,7 @@ EnvironmentTonalRangesEditor::EnvironmentTonalRangesEditor(bool p_lightmap_mode)
 	for (int i = 0; i < 4; i++) {
 		cutoff_sliders[i] = memnew(EditorSpinSlider);
 		cutoff_sliders[i]->set_label(labels[i]);
-		cutoff_sliders[i]->set_tooltip_text(lightmap_mode ? TTR("Transition boundary over the original lightmap luminance: 0 is the texture minimum and 1 is its maximum. Shadows Start is where midtones begin; Highlights End is where midtones stop contributing.") : TTR("Limit used by the Unity-style smooth transition over scene-linear luminance before tonemapping."));
+		cutoff_sliders[i]->set_tooltip_text(lightmap_mode ? TTR("Transition boundary over the original lightmap luminance: 0 is the texture minimum and 1 is its maximum. Shadows Start is where midtones begin; Highlights End is where midtones stop contributing.") : TTR("Transition boundary as a fraction of the tonal range, from Tonal Range Bottom (0) to Tonal Range Top (1), on scene luminance in EV before exposure."));
 		cutoff_sliders[i]->set_min(0.0);
 		cutoff_sliders[i]->set_max(1.0);
 		cutoff_sliders[i]->set_step(0.001);
@@ -471,12 +471,17 @@ EnvironmentTonalRangesEditor::EnvironmentTonalRangesEditor(bool p_lightmap_mode)
 
 static const char *tonal_correction_color_properties[4] = { "adjustment_correction_master_color", "adjustment_correction_shadows_color", "adjustment_correction_midtones_color", "adjustment_correction_highlights_color" };
 
-static const char *tonal_correction_properties[4][7] = {
-	{ "adjustment_correction_master_saturation", "adjustment_correction_master_contrast", "adjustment_correction_master_gamma", "adjustment_correction_master_gain", "adjustment_correction_master_lift", "adjustment_correction_master_black_point", "adjustment_correction_master_white_point" },
-	{ "adjustment_correction_shadows_saturation", "adjustment_correction_shadows_contrast", "adjustment_correction_shadows_gamma", "adjustment_correction_shadows_gain", "adjustment_correction_shadows_lift", "adjustment_correction_shadows_black_point", "adjustment_correction_shadows_white_point" },
-	{ "adjustment_correction_midtones_saturation", "adjustment_correction_midtones_contrast", "adjustment_correction_midtones_gamma", "adjustment_correction_midtones_gain", "adjustment_correction_midtones_lift", "adjustment_correction_midtones_black_point", "adjustment_correction_midtones_white_point" },
-	{ "adjustment_correction_highlights_saturation", "adjustment_correction_highlights_contrast", "adjustment_correction_highlights_gamma", "adjustment_correction_highlights_gain", "adjustment_correction_highlights_lift", "adjustment_correction_highlights_black_point", "adjustment_correction_highlights_white_point" },
+// Master has no Lower or Upper: it isn't a tonal range.
+static const char *tonal_correction_properties[4][9] = {
+	{ "adjustment_correction_master_saturation", "adjustment_correction_master_contrast", "adjustment_correction_master_gamma", "adjustment_correction_master_gain", "adjustment_correction_master_lift", "adjustment_correction_master_black_point", "adjustment_correction_master_white_point", nullptr, nullptr },
+	{ "adjustment_correction_shadows_saturation", "adjustment_correction_shadows_contrast", "adjustment_correction_shadows_gamma", "adjustment_correction_shadows_gain", "adjustment_correction_shadows_lift", "adjustment_correction_shadows_black_point", "adjustment_correction_shadows_white_point", "adjustment_correction_shadows_lower", "adjustment_correction_shadows_upper" },
+	{ "adjustment_correction_midtones_saturation", "adjustment_correction_midtones_contrast", "adjustment_correction_midtones_gamma", "adjustment_correction_midtones_gain", "adjustment_correction_midtones_lift", "adjustment_correction_midtones_black_point", "adjustment_correction_midtones_white_point", "adjustment_correction_midtones_lower", "adjustment_correction_midtones_upper" },
+	{ "adjustment_correction_highlights_saturation", "adjustment_correction_highlights_contrast", "adjustment_correction_highlights_gamma", "adjustment_correction_highlights_gain", "adjustment_correction_highlights_lift", "adjustment_correction_highlights_black_point", "adjustment_correction_highlights_white_point", "adjustment_correction_highlights_lower", "adjustment_correction_highlights_upper" },
 };
+
+static float _tonal_correction_neutral(int p_parameter) {
+	return (p_parameter == 4 || p_parameter == 5 || p_parameter >= 7) ? 0.0f : 1.0f;
+}
 
 void EnvironmentTonalCorrectionEditor::_color_changed(const StringName &p_property, const Variant &p_value, const StringName &p_field, bool p_changing) {
 	emit_changed(p_property, p_value, p_field, p_changing);
@@ -497,7 +502,7 @@ void EnvironmentTonalCorrectionEditor::_reset_control(int p_range, int p_paramet
 	if (p_parameter == -1) {
 		emit_changed(tonal_correction_color_properties[p_range], Color(1, 1, 1));
 	} else {
-		emit_changed(tonal_correction_properties[p_range][p_parameter], (p_parameter == 4 || p_parameter == 5) ? 0.0f : 1.0f);
+		emit_changed(tonal_correction_properties[p_range][p_parameter], _tonal_correction_neutral(p_parameter));
 	}
 }
 
@@ -515,7 +520,10 @@ void EnvironmentTonalCorrectionEditor::_reset_range(int p_range) {
 	undo_redo->add_undo_property(edited_object, tonal_correction_color_properties[p_range], edited_object->get(tonal_correction_color_properties[p_range]));
 	for (int parameter = 0; parameter < PARAMETER_COUNT; parameter++) {
 		const char *parameter_property = tonal_correction_properties[p_range][parameter];
-		undo_redo->add_do_property(edited_object, parameter_property, (parameter == 4 || parameter == 5) ? 0.0f : 1.0f);
+		if (!parameter_property) {
+			continue;
+		}
+		undo_redo->add_do_property(edited_object, parameter_property, _tonal_correction_neutral(parameter));
 		undo_redo->add_undo_property(edited_object, parameter_property, edited_object->get(parameter_property));
 	}
 	undo_redo->add_do_method(this, "update_property");
@@ -530,8 +538,10 @@ void EnvironmentTonalCorrectionEditor::_set_read_only(bool p_read_only) {
 		color_reset_buttons[range]->set_disabled(p_read_only);
 		color_editors[range]->set_read_only(p_read_only);
 		for (int parameter = 0; parameter < PARAMETER_COUNT; parameter++) {
-			sliders[range][parameter]->set_read_only(p_read_only);
-			parameter_reset_buttons[range][parameter]->set_disabled(p_read_only);
+			if (sliders[range][parameter]) {
+				sliders[range][parameter]->set_read_only(p_read_only);
+				parameter_reset_buttons[range][parameter]->set_disabled(p_read_only);
+			}
 		}
 	}
 }
@@ -544,7 +554,9 @@ void EnvironmentTonalCorrectionEditor::update_property() {
 		color_editors[range]->set_object_and_property(edited_object, tonal_correction_color_properties[range]);
 		color_editors[range]->update_property();
 		for (int parameter = 0; parameter < PARAMETER_COUNT; parameter++) {
-			sliders[range][parameter]->set_value(edited_object->get(tonal_correction_properties[range][parameter]));
+			if (sliders[range][parameter]) {
+				sliders[range][parameter]->set_value(edited_object->get(tonal_correction_properties[range][parameter]));
+			}
 		}
 	}
 	updating = false;
@@ -553,11 +565,13 @@ void EnvironmentTonalCorrectionEditor::update_property() {
 EnvironmentTonalCorrectionEditor::EnvironmentTonalCorrectionEditor() {
 	set_draw_label(false);
 	TabContainer *tabs = memnew(TabContainer);
+	// Not a bottom editor: those always draw the label, which the inspector fills with the first property's name.
 	add_child(tabs);
-	set_bottom_editor(tabs);
 	const String range_labels[RANGE_COUNT] = { TTR("Master"), TTR("Shadows"), TTR("Midtones"), TTR("Highlights") };
-	const int parameter_order[PARAMETER_COUNT] = { 0, 1, 5, 6, 2, 3, 4 };
-	const String parameter_labels[PARAMETER_COUNT] = { TTR("Saturation"), TTR("Contrast"), TTR("Gamma"), TTR("Gain"), TTR("Lift"), TTR("Black Point"), TTR("White Point") };
+	const int parameter_order[PARAMETER_COUNT] = { 0, 1, 5, 6, 7, 8, 2, 3, 4 };
+	const double parameter_min[PARAMETER_COUNT] = { 0.0, 0.0, 0.05, 0.0, -1.0, 0.0, 0.0, -4.0, -4.0 };
+	const double parameter_max[PARAMETER_COUNT] = { 4.0, 4.0, 4.0, 4.0, 1.0, 0.1, 1.0, 4.0, 4.0 };
+	const String parameter_labels[PARAMETER_COUNT] = { TTR("Saturation"), TTR("Contrast"), TTR("Gamma"), TTR("Gain"), TTR("Lift"), TTR("Black Point"), TTR("White Point"), TTR("Lower"), TTR("Upper") };
 	const String tooltips[PARAMETER_COUNT] = {
 		TTR("Adjust saturation while preserving linear luminance and fitting the RGB gamut. 1 is neutral."),
 		TTR("Soft contrast using the existing contrast pivot. 1 is neutral."),
@@ -566,6 +580,8 @@ EnvironmentTonalCorrectionEditor::EnvironmentTonalCorrectionEditor() {
 		TTR("Add to RGB before gamma. 0 is neutral."),
 		TTR("Input luminance mapped to black. Raise it to deepen shadows. 0 is neutral."),
 		TTR("Input luminance mapped to white. Lower it to brighten the selected range. 1 is neutral; HDR values remain unbounded."),
+		TTR("Stops added to the darker part of this range only, fading out toward its bright end. Blue in the preview. 0 is neutral."),
+		TTR("Stops added to the brighter part of this range only, fading out toward its dark end. Orange in the preview. 0 is neutral."),
 	};
 	for (int range = 0; range < RANGE_COUNT; range++) {
 		VBoxContainer *page = memnew(VBoxContainer);
@@ -587,6 +603,9 @@ EnvironmentTonalCorrectionEditor::EnvironmentTonalCorrectionEditor() {
 		add_focusable(color_reset_buttons[range]);
 		color_editors[range]->connect("property_changed", callable_mp(this, &EnvironmentTonalCorrectionEditor::_color_changed));
 		for (int parameter : parameter_order) {
+			if (!tonal_correction_properties[range][parameter]) {
+				continue;
+			}
 			EditorSpinSlider *slider = memnew(EditorSpinSlider);
 			sliders[range][parameter] = slider;
 			HBoxContainer *parameter_row = memnew(HBoxContainer);
@@ -595,9 +614,8 @@ EnvironmentTonalCorrectionEditor::EnvironmentTonalCorrectionEditor() {
 			parameter_row->add_child(slider);
 			slider->set_label(parameter_labels[parameter]);
 			slider->set_tooltip_text(tooltips[parameter]);
-			slider->set_min(parameter == 4 ? -1.0 : parameter == 2 ? 0.05
-																   : 0.0);
-			slider->set_max(parameter == 5 ? 0.1 : parameter >= 4 ? 1.0 : 4.0);
+			slider->set_min(parameter_min[parameter]);
+			slider->set_max(parameter_max[parameter]);
 			slider->set_allow_greater(parameter == 5);
 			slider->set_step(parameter == 5 ? 0.0001 : parameter == 6 ? 0.001 : 0.01);
 			if (parameter == 5 || parameter == 6) {
@@ -656,8 +674,10 @@ bool EditorInspectorEnvironmentColorGradingPlugin::parse_property(Object *p_obje
 	static const Vector<String> correction_properties = []() {
 		Vector<String> result;
 		for (int range = 0; range < 4; range++) {
-			for (int parameter = 0; parameter < 7; parameter++) {
-				result.push_back(tonal_correction_properties[range][parameter]);
+			for (int parameter = 0; parameter < 9; parameter++) {
+				if (tonal_correction_properties[range][parameter]) {
+					result.push_back(tonal_correction_properties[range][parameter]);
+				}
 			}
 		}
 		for (int range = 0; range < 4; range++) {

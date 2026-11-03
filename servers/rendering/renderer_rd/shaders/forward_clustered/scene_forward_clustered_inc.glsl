@@ -241,7 +241,7 @@ struct Lightmap {
 	vec2 light_texture_size;
 	float exposure_normalization;
 	uint flags;
-	vec4 color_adjustment_data[14];
+	vec4 color_adjustment_data[16];
 };
 
 layout(set = 0, binding = 8, std140) restrict readonly buffer Lightmaps {

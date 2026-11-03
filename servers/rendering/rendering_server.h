@@ -35,8 +35,10 @@
 #include "core/variant/typed_array.h"
 #include "core/variant/variant.h"
 #include "servers/display/display_server_enums.h"
+#include "servers/rendering/lightmap_adjustments.h"
 #include "servers/rendering/rendering_server_enums.h"
 #include "servers/rendering/rendering_server_types.h"
+#include "servers/rendering/storage/environment_color_grading.h"
 #ifdef RD_ENABLED
 #include "servers/rendering/rendering_device_enums.h"
 #endif
@@ -446,11 +448,9 @@ public:
 	virtual RSE::ShadowmaskMode lightmap_get_shadowmask_mode(RID p_lightmap) = 0;
 	virtual void lightmap_set_shadowmask_mode(RID p_lightmap, RSE::ShadowmaskMode p_mode) = 0;
 	virtual float lightmap_get_specular_intensity(RID p_lightmap) = 0;
-	virtual void lightmap_set_adjustments_enabled(RID p_lightmap, bool p_enabled) = 0;
-	virtual void lightmap_set_tonal_settings(RID p_lightmap, const Color &p_ranges, const Color &p_shadows_tint, const Color &p_midtones_tint, const Color &p_highlights_tint, const Vector3 &p_saturation, const Vector3 &p_contrast, int p_debug_mode) = 0;
-	virtual void lightmap_set_tonal_levels(RID p_lightmap, const Vector3 &p_black, const Vector3 &p_white, const Vector3 &p_gamma) = 0;
+	// Not bound: LightmapGI properties are the scripting API.
+	virtual void lightmap_set_color_adjustments(RID p_lightmap, const LightmapAdjustments &p_adjustments) = 0;
 	virtual void lightmap_set_tonal_luminance_range(RID p_lightmap, float p_min, float p_max) = 0;
-	virtual void lightmap_set_adjustments(RID p_lightmap, float p_energy, const Color &p_tint, float p_saturation, float p_contrast, float p_shadows, float p_midtones, float p_highlights) = 0;
 	virtual void lightmap_set_specular_intensity(RID p_lightmap, float p_intensity) = 0;
 
 	/* PARTICLES API */
@@ -686,22 +686,9 @@ public:
 	virtual void environment_set_tonemap(RID p_env, RSE::EnvironmentToneMapper p_tone_mapper, float p_exposure, float p_white) = 0;
 	virtual void environment_set_tonemap_agx_contrast(RID p_env, float p_agx_contrast) = 0;
 	virtual void environment_set_tonemap_temperature(RID p_env, float p_temperature) = 0;
-	virtual void environment_set_adjustment(RID p_env, bool p_enable, float p_brightness, float p_contrast, float p_saturation, bool p_use_1d_color_correction, RID p_color_correction, const Color &p_shadows_color, float p_shadows_luminance, const Color &p_midtones_color, float p_midtones_luminance, const Color &p_highlights_color, float p_highlights_luminance) = 0;
-	virtual void environment_set_adjustment_offset(RID p_env, const Color &p_color, float p_luminance) = 0;
-	virtual void environment_set_adjustment_lift_gamma_gain(RID p_env, const Color &p_lift_color, float p_lift_intensity, const Color &p_gamma_color, float p_gamma_intensity, const Color &p_gain_color, float p_gain_intensity) = 0;
-	virtual void environment_set_adjustment_tint(RID p_env, float p_tint) = 0;
-	virtual void environment_set_adjustment_white_balance(RID p_env, bool p_chromatic_adaptation, float p_temperature, float p_tint) = 0;
-	virtual void environment_set_adjustment_levels(RID p_env, bool p_enabled, const Color &p_black, const Color &p_white) = 0;
-	virtual void environment_set_adjustment_tonal_softness(RID p_env, float p_shadows_softness, float p_highlights_softness) = 0;
-	virtual void environment_set_adjustment_midtones_range(RID p_env, float p_shadows_start, float p_shadows_end, float p_midtones_start, float p_midtones_end, float p_highlights_start, float p_highlights_end) = 0;
-	virtual void environment_set_adjustment_advance(RID p_env, bool p_enable) = 0;
-	virtual void environment_set_adjustment_tonal_correction_colors(RID p_env, const Color &p_master, const Color &p_shadows, const Color &p_midtones, const Color &p_highlights) = 0;
-	virtual void environment_set_adjustment_tonal_levels(RID p_env, const Vector4 &p_black, const Vector4 &p_white) = 0;
-	virtual void environment_set_adjustment_tonal_correction(RID p_env, const Vector4 &p_master, const Vector4 &p_shadows, const Vector4 &p_midtones, const Vector4 &p_highlights, const Vector4 &p_lift, const Vector4 &p_controls) = 0;
-	virtual void environment_set_adjustment_curves(RID p_env, RID p_hue_vs_hue, RID p_hue_vs_saturation, RID p_saturation_vs_saturation, RID p_luminance_vs_saturation, uint32_t p_flags) = 0;
-	virtual void environment_set_adjustment_color_modes(RID p_env, bool p_preserve_luminance, bool p_soft_contrast, float p_pivot) = 0;
-	virtual void environment_set_adjustment_vibrance(RID p_env, float p_vibrance) = 0;
-	virtual void environment_set_adjustment_vignette(RID p_env, float p_vignette, float p_start, float p_end) = 0;
+	virtual void environment_set_adjustment(RID p_env, bool p_enable, float p_brightness, float p_contrast, float p_saturation, bool p_use_1d_color_correction, RID p_color_correction) = 0;
+	// Not bound: Environment properties are the scripting API.
+	virtual void environment_set_color_grading(RID p_env, const EnvironmentColorGrading::Settings &p_settings) = 0;
 
 	virtual void environment_set_ssr(RID p_env, bool p_enable, int p_max_steps, float p_fade_in, float p_fade_out, float p_depth_tolerance) = 0;
 
