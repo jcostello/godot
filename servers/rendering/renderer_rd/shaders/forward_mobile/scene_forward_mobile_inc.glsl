@@ -308,7 +308,10 @@ struct Lightmap {
 	vec2 light_texture_size;
 	float exposure_normalization;
 	uint flags;
+	vec4 color_lut_params;
 };
+
+#define LIGHTMAP_FLAG_COLOR_LUT (1u << 9)
 
 layout(set = 0, binding = 8, std140) restrict readonly buffer Lightmaps {
 	Lightmap data[];
@@ -401,6 +404,9 @@ layout(set = 1, binding = 5) uniform texture2D directional_shadow_atlas;
 
 // this needs to change to providing just the lightmap we're using..
 layout(set = 1, binding = 6) uniform texture2DArray lightmap_textures[MAX_LIGHTMAP_TEXTURES * 2];
+
+// LightmapGI adjustments, applied to the sampled L0 (see lightmap_apply_color_lut()).
+layout(set = 1, binding = 26) uniform texture3D lightmap_color_luts[MAX_LIGHTMAPS];
 
 #ifdef USE_MULTIVIEW
 layout(set = 1, binding = 9) uniform texture2DArray depth_buffer;

@@ -2368,6 +2368,18 @@ void LightmapGI::_update_color_adjustments() {
 		return;
 	}
 	RS::get_singleton()->lightmap_set_color_adjustments(light_data->get_rid(), adjustments);
+#ifdef TOOLS_ENABLED
+	// Lightmaps baked before the luminance range was stored measure it once here and keep it,
+	// so it is saved with the data and games never have to measure it.
+	const Vector2 stored = light_data->get_tonal_luminance_range();
+	if (Engine::get_singleton()->is_editor_hint() && stored.y < stored.x) {
+		const Vector2 measured = RS::get_singleton()->lightmap_get_tonal_luminance_range(light_data->get_rid());
+		if (measured.y >= measured.x) {
+			light_data->set_tonal_luminance_range(measured);
+			light_data->set_edited(true);
+		}
+	}
+#endif
 }
 
 void LightmapGI::set_adjustments_enabled(bool p_enabled) {

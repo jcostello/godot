@@ -923,6 +923,7 @@ layout(location = 13) in highp vec4 prev_screen_position;
 
 #ifdef USE_LIGHTMAP
 #include "../bicubic_filter_inc.glsl"
+#include "../lightmap_color_adjustments_inc.glsl"
 #endif //USE_LIGHTMAP
 
 #ifdef USE_MULTIVIEW
@@ -1754,6 +1755,9 @@ void main() {
 			} else {
 				lm_light_l0 = hvec3(textureLod(sampler2DArray(lightmap_textures[ofs], SAMPLER_LINEAR_CLAMP), uvw + vec3(0.0, 0.0, 0.0), 0.0).rgb);
 			}
+			if ((lightmaps.data[ofs].flags & LIGHTMAP_FLAG_COLOR_LUT) != 0u) {
+				lm_light_l0 = hvec3(lightmap_apply_color_lut(lightmap_color_luts[ofs], SAMPLER_LINEAR_CLAMP, vec3(lm_light_l0), lightmaps.data[ofs].color_lut_params, true));
+			}
 			// L1 is stored relative to L0 and is low frequency, so bilinear is enough (saves 12 bicubic taps).
 			lm_light_l1n1 = hvec3((textureLod(sampler2DArray(lightmap_textures[ofs], SAMPLER_LINEAR_CLAMP), uvw + vec3(0.0, 0.0, 1.0), 0.0).rgb - vec3(0.5)) * 2.0);
 			lm_light_l1_0 = hvec3((textureLod(sampler2DArray(lightmap_textures[ofs], SAMPLER_LINEAR_CLAMP), uvw + vec3(0.0, 0.0, 2.0), 0.0).rgb - vec3(0.5)) * 2.0);
@@ -1831,11 +1835,16 @@ void main() {
 			}
 
 		} else {
+			vec3 lm_light;
 			if (sc_use_lightmap_bicubic_filter()) {
-				ambient_light += hvec3(texture_array_bicubic(lightmap_textures[ofs], uvw, lightmaps.data[ofs].light_texture_size).rgb * lightmaps.data[ofs].exposure_normalization);
+				lm_light = texture_array_bicubic(lightmap_textures[ofs], uvw, lightmaps.data[ofs].light_texture_size).rgb;
 			} else {
-				ambient_light += hvec3(textureLod(sampler2DArray(lightmap_textures[ofs], SAMPLER_LINEAR_CLAMP), uvw, 0.0).rgb * lightmaps.data[ofs].exposure_normalization);
+				lm_light = textureLod(sampler2DArray(lightmap_textures[ofs], SAMPLER_LINEAR_CLAMP), uvw, 0.0).rgb;
 			}
+			if ((lightmaps.data[ofs].flags & LIGHTMAP_FLAG_COLOR_LUT) != 0u) {
+				lm_light = lightmap_apply_color_lut(lightmap_color_luts[ofs], SAMPLER_LINEAR_CLAMP, lm_light, lightmaps.data[ofs].color_lut_params, true);
+			}
+			ambient_light += hvec3(lm_light * lightmaps.data[ofs].exposure_normalization);
 		}
 	}
 
@@ -2020,7 +2029,7 @@ void main() {
 
 		if (bool(instances.data[draw_call.instance_index].flags & INSTANCE_FLAGS_USE_LIGHTMAP)) {
 			const uint ofs = instances.data[draw_call.instance_index].gi_offset & 0xFFFF;
-			shadowmask_mode = lightmaps.data[ofs].flags;
+			shadowmask_mode = lightmaps.data[ofs].flags & 0xffu;
 
 			if (shadowmask_mode != LIGHTMAP_SHADOWMASK_MODE_NONE) {
 				const uint slice = instances.data[draw_call.instance_index].gi_offset >> 16;

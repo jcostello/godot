@@ -241,8 +241,12 @@ struct Lightmap {
 	vec2 light_texture_size;
 	float exposure_normalization;
 	uint flags;
-	vec4 color_adjustment_data[16];
+	vec4 color_lut_params;
 };
+
+// The LUT grades L0, or holds the editor's tonal debug mask instead.
+#define LIGHTMAP_FLAG_COLOR_PREVIEW (1u << 8)
+#define LIGHTMAP_FLAG_COLOR_LUT (1u << 9)
 
 layout(set = 0, binding = 8, std140) restrict readonly buffer Lightmaps {
 	Lightmap data[];
@@ -399,6 +403,9 @@ layout(set = 1, binding = 5) uniform texture2D shadow_atlas;
 layout(set = 1, binding = 6) uniform texture2D directional_shadow_atlas;
 
 layout(set = 1, binding = 7) uniform texture2DArray lightmap_textures[MAX_LIGHTMAP_TEXTURES * 2];
+
+// LightmapGI adjustments, applied to the sampled L0 (see lightmap_apply_color_lut()).
+layout(set = 1, binding = 40) uniform texture3D lightmap_color_luts[MAX_LIGHTMAPS];
 
 layout(set = 1, binding = 8) uniform texture3D voxel_gi_textures[MAX_VOXEL_GI_INSTANCES];
 

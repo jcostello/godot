@@ -451,6 +451,8 @@ public:
 	// Not bound: LightmapGI properties are the scripting API.
 	virtual void lightmap_set_color_adjustments(RID p_lightmap, const LightmapAdjustments &p_adjustments) = 0;
 	virtual void lightmap_set_tonal_luminance_range(RID p_lightmap, float p_min, float p_max) = 0;
+	// Measures the range of lightmaps baked without one, so the editor can store it. (min, max); max < min if unknown.
+	virtual Vector2 lightmap_get_tonal_luminance_range(RID p_lightmap) = 0;
 	virtual void lightmap_set_specular_intensity(RID p_lightmap, float p_intensity) = 0;
 
 	/* PARTICLES API */

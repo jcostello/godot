@@ -943,9 +943,7 @@ layout(location = 10) in flat uint instance_index_interp;
 
 #ifdef USE_LIGHTMAP
 #include "../bicubic_filter_inc.glsl"
-#ifdef LIGHTMAP_COLOR_PREVIEW
 #include "../lightmap_color_adjustments_inc.glsl"
-#endif
 #endif //USE_LIGHTMAP
 
 #ifndef MODE_RENDER_DEPTH
@@ -1874,17 +1872,17 @@ void fragment_shader(in SceneData scene_data) {
 			} else {
 				lm_light_l0 = textureLod(sampler2DArray(lightmap_textures[ofs], SAMPLER_LINEAR_CLAMP), uvw + vec3(0.0, 0.0, 0.0), 0.0).rgb;
 			}
+			if ((lightmaps.data[ofs].flags & LIGHTMAP_FLAG_COLOR_LUT) != 0u) {
+				lm_light_l0 = lightmap_apply_color_lut(lightmap_color_luts[ofs], SAMPLER_LINEAR_CLAMP, lm_light_l0, lightmaps.data[ofs].color_lut_params, true);
+			}
 			// L1 is stored relative to L0 and is low frequency, so bilinear is enough (saves 12 bicubic taps).
 			lm_light_l1n1 = (textureLod(sampler2DArray(lightmap_textures[ofs], SAMPLER_LINEAR_CLAMP), uvw + vec3(0.0, 0.0, 1.0), 0.0).rgb - vec3(0.5)) * 2.0;
 			lm_light_l1_0 = (textureLod(sampler2DArray(lightmap_textures[ofs], SAMPLER_LINEAR_CLAMP), uvw + vec3(0.0, 0.0, 2.0), 0.0).rgb - vec3(0.5)) * 2.0;
 			lm_light_l1p1 = (textureLod(sampler2DArray(lightmap_textures[ofs], SAMPLER_LINEAR_CLAMP), uvw + vec3(0.0, 0.0, 3.0), 0.0).rgb - vec3(0.5)) * 2.0;
 
 #ifdef LIGHTMAP_COLOR_PREVIEW
-			if ((lightmaps.data[ofs].flags & (1u << 8)) != 0u) {
-				lm_light_l0 = clamp(lightmap_grade_color(lm_light_l0, lightmaps.data[ofs].color_adjustment_data), vec3(0.0), vec3(64512.0));
-				if (lightmaps.data[ofs].color_adjustment_data[4].w != 0.0) {
-					lightmap_preview = lm_light_l0;
-				}
+			if ((lightmaps.data[ofs].flags & LIGHTMAP_FLAG_COLOR_PREVIEW) != 0u) {
+				lightmap_preview = lightmap_apply_color_lut(lightmap_color_luts[ofs], SAMPLER_LINEAR_CLAMP, lm_light_l0, lightmaps.data[ofs].color_lut_params, false);
 			}
 #endif
 
@@ -1972,12 +1970,12 @@ void fragment_shader(in SceneData scene_data) {
 			} else {
 				lm_light = textureLod(sampler2DArray(lightmap_textures[ofs], SAMPLER_LINEAR_CLAMP), uvw, 0.0).rgb;
 			}
+			if ((lightmaps.data[ofs].flags & LIGHTMAP_FLAG_COLOR_LUT) != 0u) {
+				lm_light = lightmap_apply_color_lut(lightmap_color_luts[ofs], SAMPLER_LINEAR_CLAMP, lm_light, lightmaps.data[ofs].color_lut_params, true);
+			}
 #ifdef LIGHTMAP_COLOR_PREVIEW
-			if ((lightmaps.data[ofs].flags & (1u << 8)) != 0u) {
-				lm_light = clamp(lightmap_grade_color(lm_light, lightmaps.data[ofs].color_adjustment_data), vec3(0.0), vec3(64512.0));
-				if (lightmaps.data[ofs].color_adjustment_data[4].w != 0.0) {
-					lightmap_preview = lm_light;
-				}
+			if ((lightmaps.data[ofs].flags & LIGHTMAP_FLAG_COLOR_PREVIEW) != 0u) {
+				lightmap_preview = lightmap_apply_color_lut(lightmap_color_luts[ofs], SAMPLER_LINEAR_CLAMP, lm_light, lightmaps.data[ofs].color_lut_params, false);
 			}
 #endif
 			ambient_light += lm_light * lightmaps.data[ofs].exposure_normalization;

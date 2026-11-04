@@ -593,9 +593,8 @@ RID RenderForwardMobile::_setup_render_pass_uniform_set(RenderListType p_render_
 				RID texture;
 
 				if (i < scene_state.max_lightmaps) {
-					// Lightmap, with LightmapGI adjustments baked into a cached texture.
-					textures.write[i] = light_storage->lightmap_get_color_texture(base);
-					continue;
+					// Lightmap
+					texture = light_storage->lightmap_get_texture(base);
 				} else {
 					// Shadowmask
 					texture = light_storage->shadowmask_get_texture(base);
@@ -611,6 +610,17 @@ RID RenderForwardMobile::_setup_render_pass_uniform_set(RenderListType p_render_
 			textures.write[i] = default_tex;
 		}
 		RD::Uniform u(RD::UNIFORM_TYPE_TEXTURE, 6, textures);
+		uniforms.push_back(u);
+	}
+	{
+		// LightmapGI adjustment LUTs, indexed like the lightmaps above.
+		Vector<RID> luts;
+		luts.resize(scene_state.max_lightmaps);
+		for (uint32_t i = 0; i < scene_state.max_lightmaps; i++) {
+			RID base = p_render_data && i < p_render_data->lightmaps->size() ? light_storage->lightmap_instance_get_lightmap((*p_render_data->lightmaps)[i]) : RID();
+			luts.write[i] = light_storage->lightmap_get_color_lut(base);
+		}
+		RD::Uniform u(RD::UNIFORM_TYPE_TEXTURE, 26, luts);
 		uniforms.push_back(u);
 	}
 
@@ -772,7 +782,7 @@ void RenderForwardMobile::_setup_lightmaps(const RenderDataRD *p_render_data, co
 		// Exposure.
 		scene_state.lightmaps[i].exposure_normalization = 1.0;
 		scene_state.lightmaps[i].flags = light_storage->lightmap_get_shadowmask_mode(lightmap);
-		light_storage->lightmap_prepare_color_texture(lightmap);
+		scene_state.lightmaps[i].flags |= light_storage->lightmap_prepare_color_lut(lightmap, scene_state.lightmaps[i].color_lut_params);
 		if (p_render_data->camera_attributes.is_valid()) {
 			float baked_exposure = light_storage->lightmap_get_baked_exposure_normalization(lightmap);
 			float enf = RSG::camera_attributes->camera_attributes_get_render_exposure_normalization_factor(p_render_data->camera_attributes);

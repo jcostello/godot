@@ -556,6 +556,7 @@ public:
 	FUNC1R(float, lightmap_get_specular_intensity, RID)
 	FUNC2(lightmap_set_color_adjustments, RID, const LightmapAdjustments &)
 	FUNC3(lightmap_set_tonal_luminance_range, RID, float, float)
+	FUNC1R(Vector2, lightmap_get_tonal_luminance_range, RID)
 	FUNC2(lightmap_set_specular_intensity, RID, float)
 
 	/* Shadow Atlas */

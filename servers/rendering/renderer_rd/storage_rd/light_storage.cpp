@@ -87,6 +87,9 @@ LightStorage::~LightStorage() {
 	if (color_cache_pipeline.is_valid()) {
 		RD::get_singleton()->free_rid(color_cache_pipeline);
 	}
+	if (color_sample_pipeline.is_valid()) {
+		RD::get_singleton()->free_rid(color_sample_pipeline);
+	}
 	if (color_cache_shader_version.is_valid()) {
 		color_cache_shader.version_free(color_cache_shader_version);
 	}
@@ -2084,6 +2087,9 @@ void LightStorage::lightmap_free(RID p_rid) {
 	if (lightmap->color_parameters_buffer.is_valid()) {
 		RD::get_singleton()->free_rid(lightmap->color_parameters_buffer);
 	}
+	if (lightmap->color_lut.is_valid()) {
+		RD::get_singleton()->free_rid(lightmap->color_lut);
+	}
 	lightmap->dependency.deleted_notify(p_rid);
 	lightmap_owner.free(p_rid);
 }
@@ -2105,12 +2111,7 @@ void LightStorage::lightmap_set_textures(RID p_lightmap, RID p_light, bool p_use
 	}
 
 	TextureStorage::Texture *t = texture_storage->get_texture(p_light);
-	if (lm->color_texture.is_valid()) {
-		RD::get_singleton()->free_rid(lm->color_texture);
-		lm->color_texture = RID();
-		lm->color_texture_views.clear(); // Freed with their parent texture.
-	}
-	lm->color_texture_dirty = true;
+	lm->color_lut_dirty = true;
 	lm->light_texture = p_light;
 	lm->uses_spherical_harmonics = p_uses_spherical_haromics;
 
@@ -2901,9 +2902,9 @@ bool LightStorage::get_shadow_dual_paraboloid_used() const {
 	return shadow_dual_paraboloid_used;
 }
 
-// Derive parameters on property changes; texture regeneration is deferred and coalesced.
+// Derive parameters on property changes; LUT regeneration is deferred and coalesced.
 void LightStorage::_update_lightmap_color_adjustments(Lightmap *p_lightmap) {
-	p_lightmap->color_texture_dirty = true;
+	p_lightmap->color_lut_dirty = true;
 	const LightmapAdjustments &a = p_lightmap->color_adjustments;
 	p_lightmap->color_adjustment_flags = 0;
 	if (!a.enabled) {
@@ -2993,11 +2994,32 @@ void LightStorage::lightmap_set_tonal_luminance_range(RID p_lightmap, float p_mi
 		lm->tonal_luminance_min = MAX(p_min, 0.0f);
 		lm->tonal_luminance_max = p_max;
 	}
-	lm->color_texture_dirty = true;
+	lm->color_lut_dirty = true;
 }
 
-// Fallback for lightmaps baked before the range was stored: scan only original L0 layers,
-// once per source/content change. Adjustment edits reuse this range.
+bool LightStorage::_lightmap_color_shader_init() {
+	if (color_cache_shader_version.is_null()) {
+		RD *rd = RD::get_singleton();
+		color_cache_shader.initialize({ "", "\n#define MODE_SAMPLE_LUMINANCE\n" });
+		color_cache_shader_version = color_cache_shader.version_create();
+		color_cache_pipeline = rd->compute_pipeline_create(color_cache_shader.version_get_shader(color_cache_shader_version, 0));
+		color_sample_pipeline = rd->compute_pipeline_create(color_cache_shader.version_get_shader(color_cache_shader_version, 1));
+	}
+	return color_cache_pipeline.is_valid() && color_sample_pipeline.is_valid();
+}
+
+Vector2 LightStorage::lightmap_get_tonal_luminance_range(RID p_lightmap) {
+	Lightmap *lm = lightmap_owner.get_or_null(p_lightmap);
+	ERR_FAIL_NULL_V(lm, Vector2(0, -1));
+	if (lm->color_adjustment_flags == 0) {
+		return Vector2(0, -1); // Nothing uses the range yet; don't measure it.
+	}
+	_update_lightmap_tonal_luminance_range(lm);
+	return Vector2(lm->tonal_luminance_min, lm->tonal_luminance_max);
+}
+
+// Fallback for lightmaps baked before the range was stored: sample only original L0 layers,
+// once per source/content change. The editor stores the result in LightmapGIData; games never measure.
 void LightStorage::_update_lightmap_tonal_luminance_range(Lightmap *p_lightmap) {
 	TextureStorage *texture_storage = TextureStorage::get_singleton();
 	const TextureStorage::Texture *source = texture_storage->get_texture(p_lightmap->light_texture);
@@ -3009,27 +3031,56 @@ void LightStorage::_update_lightmap_tonal_luminance_range(Lightmap *p_lightmap) 
 	}
 	p_lightmap->tonal_range_source = source->rd_texture;
 	p_lightmap->tonal_range_source_version = source->lightmap_content_version;
-	const RD::TextureFormat format = RD::get_singleton()->texture_get_format(source->rd_texture);
-	LightmapLuminanceHistogram histogram;
+	if (!Engine::get_singleton()->is_editor_hint()) {
+		// Reading the texture back would stall startup. Assume 12 stops below 1.0 instead.
+		WARN_PRINT_ONCE("LightmapGI adjustments: the lightmap has no stored luminance range, so tonal ranges use a default. Open and save the scene in the editor, or rebake, to store it.");
+		p_lightmap->tonal_luminance_min = 0.0f;
+		p_lightmap->tonal_luminance_max = 1.0f;
+		return;
+	}
+	ERR_FAIL_COND(!_lightmap_color_shader_init());
+	RD *rd = RD::get_singleton();
+	const RD::TextureFormat source_format = rd->texture_get_format(source->rd_texture);
 	const uint32_t stride = p_lightmap->uses_spherical_harmonics ? 4 : 1;
-	for (uint32_t layer = 0; layer < format.array_layers; layer += stride) {
-		Ref<Image> image = texture_storage->texture_2d_layer_get(p_lightmap->light_texture, layer);
-		ERR_FAIL_COND(image.is_null() || image->is_empty());
-		if (image->is_compressed()) {
-			ERR_FAIL_COND(image->decompress() != OK);
-		}
-		for (int y = 0; y < image->get_height(); y++) {
-			for (int x = 0; x < image->get_width(); x++) {
-				histogram.add(image->get_pixel(x, y));
-			}
+	// A 512x512 grid per L0 layer is plenty for the 1st and 99th percentiles, and reads back
+	// a few MiB instead of decompressing every texel on the CPU.
+	RD::TextureFormat format;
+	format.texture_type = RD::TEXTURE_TYPE_2D_ARRAY;
+	format.format = RD::DATA_FORMAT_R32G32B32A32_SFLOAT;
+	format.width = MIN(source_format.width, 512u);
+	format.height = MIN(source_format.height, 512u);
+	format.array_layers = MAX(source_format.array_layers / stride, 1u);
+	format.usage_bits = RD::TEXTURE_USAGE_STORAGE_BIT | RD::TEXTURE_USAGE_CAN_COPY_FROM_BIT;
+	const RID samples = rd->texture_create(format, RD::TextureView());
+	ERR_FAIL_COND(samples.is_null());
+
+	const RID shader = color_cache_shader.version_get_shader(color_cache_shader_version, 1);
+	const RID sampler = MaterialStorage::get_singleton()->sampler_rd_get_default(RSE::CANVAS_ITEM_TEXTURE_FILTER_NEAREST, RSE::CANVAS_ITEM_TEXTURE_REPEAT_DISABLED);
+	const RD::Uniform input(RD::UNIFORM_TYPE_SAMPLER_WITH_TEXTURE, 0, Vector<RID>({ sampler, source->rd_texture }));
+	const RD::Uniform output(RD::UNIFORM_TYPE_IMAGE, 1, samples);
+	const uint32_t push[4] = { stride, 0, 0, 0 };
+	RD::ComputeListID list = rd->compute_list_begin();
+	rd->compute_list_bind_compute_pipeline(list, color_sample_pipeline);
+	rd->compute_list_bind_uniform_set(list, UniformSetCacheRD::get_singleton()->get_cache(shader, 0, input, output), 0);
+	rd->compute_list_set_push_constant(list, push, sizeof(push));
+	rd->compute_list_dispatch_threads(list, format.width, format.height, format.array_layers);
+	rd->compute_list_end();
+
+	LightmapLuminanceHistogram histogram;
+	for (uint32_t layer = 0; layer < format.array_layers; layer++) {
+		const Vector<uint8_t> data = rd->texture_get_data(samples, layer);
+		const float *texels = reinterpret_cast<const float *>(data.ptr());
+		for (int i = 0; i + 3 < data.size() / int(sizeof(float)); i += 4) {
+			histogram.add(Color(texels[i], texels[i + 1], texels[i + 2]));
 		}
 	}
+	rd->free_rid(samples);
 	const Vector2 range = histogram.get_range();
 	p_lightmap->tonal_luminance_min = range.x;
 	p_lightmap->tonal_luminance_max = range.y;
 }
 
-uint32_t LightStorage::lightmap_prepare_color_texture(RID p_lightmap) {
+uint32_t LightStorage::lightmap_prepare_color_lut(RID p_lightmap, float *r_params) {
 	Lightmap *lm = lightmap_owner.get_or_null(p_lightmap);
 	ERR_FAIL_NULL_V(lm, 0);
 	if (lm->color_adjustment_flags != 0) {
@@ -3051,109 +3102,66 @@ uint32_t LightStorage::lightmap_prepare_color_texture(RID p_lightmap) {
 		lm->color_adjustment_data[10][3] = 1.0f / (log_max - log_min);
 		lm->color_adjustment_data[11][3] = Math::pow(2.0f, 0.5f * (log_min + log_max));
 		if (old_log_min != lm->color_adjustment_data[3][3] || old_log_scale != lm->color_adjustment_data[10][3]) {
-			lm->color_texture_dirty = true;
+			lm->color_lut_dirty = true;
 		}
 	}
-	if (lm->color_adjustment_flags == 0 || lm->color_adjustments.debug_mode != 0) {
-		if (lm->color_texture.is_valid()) {
-			RD::get_singleton()->free_rid(lm->color_texture);
-			lm->color_texture = RID();
-			lm->color_texture_views.clear(); // Freed with their parent texture.
-		}
+	if (lm->color_adjustment_flags == 0) {
 		return 0;
 	}
-	TextureStorage *texture_storage = TextureStorage::get_singleton();
-	const TextureStorage::Texture *source = texture_storage->get_texture(lm->light_texture);
-	if (!source || source->rd_texture.is_null()) {
-		return 0;
-	}
-	// Cache success and failure alike: no regeneration or repeated allocation each frame.
-	const bool same_source = lm->color_source == source->rd_texture && lm->color_source_version == source->lightmap_content_version;
-	if (!lm->color_texture_dirty && same_source) {
-		return lm->color_texture.is_valid() ? lm->color_adjustment_flags : 0;
-	}
-	lm->color_texture_dirty = false;
+	// In the tonal debug view the LUT holds the mask, which only the editor's Forward+ shader displays.
+	const uint32_t lut_flag = lm->color_adjustments.debug_mode != 0 ? LIGHTMAP_FLAG_COLOR_PREVIEW : LIGHTMAP_FLAG_COLOR_LUT;
 	RD *rd = RD::get_singleton();
-	RD::TextureFormat format = rd->texture_get_format(source->rd_texture);
-	ERR_FAIL_COND_V(format.texture_type != RD::TEXTURE_TYPE_2D_ARRAY, 0);
-	if (lm->uses_spherical_harmonics) {
-		ERR_FAIL_COND_V(format.array_layers % 4 != 0, 0);
+	if (!lm->color_lut_dirty) {
+		memcpy(r_params, lm->color_lut_params, sizeof(lm->color_lut_params));
+		return lm->color_lut.is_valid() ? lut_flag : 0;
 	}
-	// Half floats: packed 11/10-bit floats band smooth lightmap gradients once contrast is applied.
-	format.format = RD::DATA_FORMAT_R16G16B16A16_SFLOAT;
-	format.usage_bits = RD::TEXTURE_USAGE_SAMPLING_BIT | RD::TEXTURE_USAGE_STORAGE_BIT;
-	format.shareable_formats.clear();
-	ERR_FAIL_COND_V_MSG(!rd->texture_is_format_supported_for_usage(format.format, format.usage_bits), 0, "Half float storage textures are unavailable; using original lightmap.");
-	// Adjustment edits only re-run the compute pass; reallocate when the source changes.
-	if (lm->color_texture.is_valid() && !same_source) {
-		rd->free_rid(lm->color_texture);
-		lm->color_texture = RID();
-		lm->color_texture_views.clear(); // Freed with their parent texture.
-	}
-	lm->color_source = source->rd_texture;
-	lm->color_source_version = source->lightmap_content_version;
-	if (color_cache_shader_version.is_null()) {
-		color_cache_shader.initialize({ "" });
-		color_cache_shader_version = color_cache_shader.version_create();
-		color_cache_pipeline = rd->compute_pipeline_create(color_cache_shader.version_get_shader(color_cache_shader_version, 0));
-	}
-	ERR_FAIL_COND_V(color_cache_pipeline.is_null(), 0);
+	// Cache success and failure alike until the next adjustment or source change.
+	lm->color_lut_dirty = false;
+	ERR_FAIL_COND_V(!_lightmap_color_shader_init(), 0);
 	if (lm->color_parameters_buffer.is_null()) {
 		lm->color_parameters_buffer = rd->uniform_buffer_create(sizeof(lm->color_adjustment_data));
+		ERR_FAIL_COND_V(lm->color_parameters_buffer.is_null(), 0);
 	}
-	ERR_FAIL_COND_V(lm->color_parameters_buffer.is_null(), 0);
-	if (lm->color_texture.is_null()) {
-		lm->color_texture = rd->texture_create(format, RD::TextureView());
-		ERR_FAIL_COND_V(lm->color_texture.is_null(), 0);
-		// Views live as long as the texture: freeing one in the frame that records its compute pass drops the write.
-		for (uint32_t mip = 0; mip < format.mipmaps; mip++) {
-			const RID view = rd->texture_create_shared_from_slice(RD::TextureView(), lm->color_texture, 0, mip, 1, RD::TEXTURE_SLICE_2D_ARRAY, format.array_layers);
-			if (view.is_null()) {
-				rd->free_rid(lm->color_texture);
-				lm->color_texture = RID();
-				lm->color_texture_views.clear();
-				ERR_FAIL_V(0);
-			}
-			lm->color_texture_views.push_back(view);
-		}
+	if (lm->color_lut.is_null()) {
+		RD::TextureFormat format;
+		format.texture_type = RD::TEXTURE_TYPE_3D;
+		format.format = RD::DATA_FORMAT_R16G16B16A16_SFLOAT;
+		format.width = LIGHTMAP_COLOR_LUT_SIZE;
+		format.height = LIGHTMAP_COLOR_LUT_SIZE;
+		format.depth = LIGHTMAP_COLOR_LUT_SIZE;
+		format.usage_bits = RD::TEXTURE_USAGE_SAMPLING_BIT | RD::TEXTURE_USAGE_STORAGE_BIT;
+		lm->color_lut = rd->texture_create(format, RD::TextureView());
+		ERR_FAIL_COND_V(lm->color_lut.is_null(), 0);
 	}
+	// Cover the luminance range plus room for the widest tonal transitions; grading extrapolates beyond it.
+	const float lut_log_min = lm->color_adjustment_data[3][3] - 4.0f;
+	const float lut_log_span = MAX(1.0f / lm->color_adjustment_data[10][3] + 8.0f, 12.0f);
+	const float size = LIGHTMAP_COLOR_LUT_SIZE;
+	lm->color_lut_params[0] = lut_log_min;
+	lm->color_lut_params[1] = 1.0f / lut_log_span;
+	lm->color_lut_params[2] = (size - 1.0f) / size;
+	lm->color_lut_params[3] = 0.5f / size;
+	memcpy(r_params, lm->color_lut_params, sizeof(lm->color_lut_params));
+
 	rd->buffer_update(lm->color_parameters_buffer, 0, sizeof(lm->color_adjustment_data), lm->color_adjustment_data);
 	const RID shader = color_cache_shader.version_get_shader(color_cache_shader_version, 0);
-	const RID sampler = MaterialStorage::get_singleton()->sampler_rd_get_default(RSE::CANVAS_ITEM_TEXTURE_FILTER_NEAREST, RSE::CANVAS_ITEM_TEXTURE_REPEAT_DISABLED);
-	const RD::Uniform input(RD::UNIFORM_TYPE_SAMPLER_WITH_TEXTURE, 0, Vector<RID>({ sampler, source->rd_texture }));
+	const RD::Uniform output(RD::UNIFORM_TYPE_IMAGE, 1, lm->color_lut);
 	const RD::Uniform parameters(RD::UNIFORM_TYPE_UNIFORM_BUFFER, 2, lm->color_parameters_buffer);
-	for (uint32_t mip = 0; mip < lm->color_texture_views.size(); mip++) {
-		const RD::Uniform output(RD::UNIFORM_TYPE_IMAGE, 1, lm->color_texture_views[mip]);
-		const RID uniform_set = UniformSetCacheRD::get_singleton()->get_cache(shader, 0, input, output, parameters);
-		const uint32_t push[4] = { lm->uses_spherical_harmonics ? 1u : 0u, mip, 0, 0 };
-		RD::ComputeListID list = rd->compute_list_begin();
-		rd->compute_list_bind_compute_pipeline(list, color_cache_pipeline);
-		rd->compute_list_bind_uniform_set(list, uniform_set, 0);
-		rd->compute_list_set_push_constant(list, push, sizeof(push));
-		rd->compute_list_dispatch_threads(list, MAX(format.width >> mip, 1u), MAX(format.height >> mip, 1u), format.array_layers);
-		rd->compute_list_end();
-	}
-	return lm->color_adjustment_flags;
+	const float push[4] = { lut_log_min, lut_log_span, 0.0f, 0.0f };
+	RD::ComputeListID list = rd->compute_list_begin();
+	rd->compute_list_bind_compute_pipeline(list, color_cache_pipeline);
+	rd->compute_list_bind_uniform_set(list, UniformSetCacheRD::get_singleton()->get_cache(shader, 0, output, parameters), 0);
+	rd->compute_list_set_push_constant(list, push, sizeof(push));
+	rd->compute_list_dispatch_threads(list, LIGHTMAP_COLOR_LUT_SIZE, LIGHTMAP_COLOR_LUT_SIZE, LIGHTMAP_COLOR_LUT_SIZE);
+	rd->compute_list_end();
+	return lut_flag;
 }
 
-RID LightStorage::lightmap_get_color_texture(RID p_lightmap) const {
+RID LightStorage::lightmap_get_color_lut(RID p_lightmap) const {
 	const Lightmap *lm = lightmap_owner.get_or_null(p_lightmap);
-	ERR_FAIL_NULL_V(lm, RID());
-	TextureStorage *texture_storage = TextureStorage::get_singleton();
-	if (lm->color_adjustment_flags != 0 && lm->color_adjustments.debug_mode == 0 && !lm->color_texture_dirty && lm->color_texture.is_valid()) {
-		return lm->color_texture;
+	if (lm && lm->color_lut.is_valid()) {
+		return lm->color_lut;
 	}
-	const RID original = lm->light_texture.is_valid() ? texture_storage->texture_get_rd_texture(lm->light_texture) : RID();
-	return original.is_valid() ? original : texture_storage->texture_rd_get_default(TextureStorage::DEFAULT_RD_TEXTURE_2D_ARRAY_WHITE);
+	return TextureStorage::get_singleton()->texture_rd_get_default(TextureStorage::DEFAULT_RD_TEXTURE_3D_WHITE);
 }
 
-// Tonal mask preview grades per pixel in the scene shader; adjusted lighting always uses the cached texture.
-uint32_t LightStorage::lightmap_get_color_preview(RID p_lightmap, float *r_data) const {
-	const Lightmap *lm = lightmap_owner.get_or_null(p_lightmap);
-	ERR_FAIL_NULL_V(lm, 0);
-	if (lm->color_adjustment_flags == 0 || lm->color_adjustments.debug_mode == 0) {
-		return 0;
-	}
-	memcpy(r_data, lm->color_adjustment_data, sizeof(lm->color_adjustment_data));
-	return lm->color_adjustment_flags;
-}

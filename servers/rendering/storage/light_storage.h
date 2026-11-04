@@ -197,6 +197,7 @@ public:
 	// Backends opt into texture color adjustments; defaults leave baked lighting unchanged.
 	virtual void lightmap_set_color_adjustments(RID p_lightmap, const LightmapAdjustments &p_adjustments) {}
 	virtual void lightmap_set_tonal_luminance_range(RID p_lightmap, float p_min, float p_max) {}
+	virtual Vector2 lightmap_get_tonal_luminance_range(RID p_lightmap) { return Vector2(0, -1); }
 	virtual void lightmap_set_specular_intensity(RID p_lightmap, float p_intensity) = 0;
 
 	/* LIGHTMAP INSTANCE */

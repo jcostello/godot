@@ -1269,8 +1269,7 @@ void RenderForwardClustered::_setup_lightmaps(const RenderDataRD *p_render_data,
 		// Exposure.
 		scene_state.lightmaps[i].exposure_normalization = 1.0;
 		scene_state.lightmaps[i].flags = light_storage->lightmap_get_shadowmask_mode(lightmap);
-		light_storage->lightmap_prepare_color_texture(lightmap);
-		scene_state.lightmaps[i].flags |= light_storage->lightmap_get_color_preview(lightmap, &scene_state.lightmaps[i].color_adjustment_data[0][0]);
+		scene_state.lightmaps[i].flags |= light_storage->lightmap_prepare_color_lut(lightmap, scene_state.lightmaps[i].color_lut_params);
 		if (p_render_data->camera_attributes.is_valid()) {
 			float baked_exposure = light_storage->lightmap_get_baked_exposure_normalization(lightmap);
 			float enf = RSG::camera_attributes->camera_attributes_get_render_exposure_normalization_factor(p_render_data->camera_attributes);
@@ -3632,8 +3631,7 @@ RID RenderForwardClustered::_setup_render_pass_uniform_set(RenderListType p_rend
 
 				if (i < scene_state.max_lightmaps) {
 					// Lightmap
-					textures.write[i] = light_storage->lightmap_get_color_texture(base);
-					continue;
+					texture = light_storage->lightmap_get_texture(base);
 				} else {
 					// Shadowmask
 					texture = light_storage->shadowmask_get_texture(base);
@@ -3649,6 +3647,17 @@ RID RenderForwardClustered::_setup_render_pass_uniform_set(RenderListType p_rend
 			textures.write[i] = default_tex;
 		}
 		RD::Uniform u(RD::UNIFORM_TYPE_TEXTURE, 7, textures);
+		uniforms.push_back(u);
+	}
+	{
+		// LightmapGI adjustment LUTs, indexed like the lightmaps above.
+		Vector<RID> luts;
+		luts.resize(scene_state.max_lightmaps);
+		for (uint32_t i = 0; i < scene_state.max_lightmaps; i++) {
+			RID base = p_render_data && i < p_render_data->lightmaps->size() ? light_storage->lightmap_instance_get_lightmap((*p_render_data->lightmaps)[i]) : RID();
+			luts.write[i] = light_storage->lightmap_get_color_lut(base);
+		}
+		RD::Uniform u(RD::UNIFORM_TYPE_TEXTURE, 40, luts);
 		uniforms.push_back(u);
 	}
 	{
@@ -5331,7 +5340,7 @@ RenderForwardClustered::RenderForwardClustered() {
 			scene_state.max_lightmaps = MAX_LIGHTMAPS;
 			defines += "\n#define MAX_LIGHTMAP_TEXTURES " + itos(scene_state.max_lightmaps) + "\n";
 			defines += "\n#define MAX_LIGHTMAPS " + itos(scene_state.max_lightmaps) + "\n";
-			// The per-pixel tonal preview is editor-only; games always sample the graded cache.
+			// The tonal preview is editor-only; games always grade through the LUT.
 			// Leaving it out keeps its code from raising register use of every lit fragment.
 			if (Engine::get_singleton()->is_editor_hint()) {
 				defines += "\n#define LIGHTMAP_COLOR_PREVIEW\n";
