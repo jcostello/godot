@@ -264,6 +264,7 @@ private:
 	FileSystemTree *tree = nullptr;
 	FileSystemList *files = nullptr;
 	bool import_dock_needs_update = false;
+	bool multi_edit_needs_update = false;
 	TreeItem *resources_item = nullptr;
 	TreeItem *favorites_item = nullptr;
 	Control *had_focus = nullptr;
@@ -306,6 +307,7 @@ private:
 	void _file_list_activate_file(int p_idx);
 	void _file_multi_selected(int p_index, bool p_selected);
 	void _tree_multi_selected(Object *p_item, int p_column, bool p_selected);
+	void _queue_multi_edit_resources();
 	void _try_multi_edit_resources();
 
 	bool _get_imported_files(const String &p_path, String &r_extension, Vector<String> &r_files) const;

@@ -747,7 +747,7 @@ void FileSystemDock::_tree_multi_selected(Object *p_item, int p_column, bool p_s
 	// Display the current path.
 	_set_current_path_line_edit_text(current_path);
 	_push_to_history();
-	_try_multi_edit_resources();
+	_queue_multi_edit_resources();
 
 	// Update the file list.
 	if (!updating_tree && display_mode != DISPLAY_MODE_TREE_ONLY) {
@@ -3931,10 +3931,20 @@ void FileSystemDock::_file_multi_selected(int p_index, bool p_selected) {
 	import_dock_needs_update = true;
 	callable_mp(this, &FileSystemDock::_update_import_dock).call_deferred();
 
-	_try_multi_edit_resources();
+	_queue_multi_edit_resources();
+}
+
+void FileSystemDock::_queue_multi_edit_resources() {
+	// Deferred so the transient selection while a click swaps items (old + new both selected) doesn't push a multi-edit.
+	if (multi_edit_needs_update) {
+		return;
+	}
+	multi_edit_needs_update = true;
+	callable_mp(this, &FileSystemDock::_try_multi_edit_resources).call_deferred();
 }
 
 void FileSystemDock::_try_multi_edit_resources() {
+	multi_edit_needs_update = false;
 	Vector<String> selected = get_selected_paths();
 	if (selected.size() <= 1) {
 		return;
