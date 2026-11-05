@@ -1916,7 +1916,7 @@ LightmapperRD::BakeError LightmapperRD::_denoise_slice(RenderingDevice *p_rd, Re
 	return BAKE_OK;
 }
 
-LightmapperRD::BakeError LightmapperRD::bake(BakeQuality p_quality, bool p_use_denoiser, float p_denoiser_strength, int p_denoiser_range, int p_bounces, float p_bounce_indirect_energy, float p_bias, bool p_bake_ao, float p_ao_distance, float p_ao_strength, float p_ao_light_affect, int p_ao_samples, int p_max_texture_size, bool p_bake_sh, bool p_bake_shadowmask, bool p_texture_for_bounces, const Ref<Image> &p_environment_panorama, const Basis &p_environment_transform, BakeStepFunc p_step_function, void *p_bake_userdata, float p_exposure_normalization, float p_environment_exposure_multiplier, float p_supersampling_factor, bool p_bake_lightmaps, float p_indirect_sample_clamp) {
+LightmapperRD::BakeError LightmapperRD::bake(BakeQuality p_quality, bool p_use_denoiser, float p_denoiser_strength, int p_denoiser_range, int p_bounces, float p_bounce_indirect_energy, float p_bias, bool p_bake_ao, float p_ao_distance, float p_ao_strength, float p_ao_power, float p_ao_contact_distance, float p_ao_contact_strength, int p_ao_samples, int p_max_texture_size, bool p_bake_sh, bool p_bake_shadowmask, bool p_texture_for_bounces, const Ref<Image> &p_environment_panorama, const Basis &p_environment_transform, BakeStepFunc p_step_function, void *p_bake_userdata, float p_exposure_normalization, float p_environment_exposure_multiplier, float p_supersampling_factor, bool p_bake_lightmaps, float p_indirect_sample_clamp) {
 	if (!p_bake_lightmaps) {
 		p_use_denoiser = false;
 		p_bake_ao = false;
@@ -2319,7 +2319,9 @@ LightmapperRD::BakeError LightmapperRD::bake(BakeQuality p_quality, bool p_use_d
 	bake_parameters.supersampling_factor = p_supersampling_factor;
 	bake_parameters.ao_distance = p_ao_distance;
 	bake_parameters.ao_strength = p_ao_strength;
-	bake_parameters.ao_light_affect = p_ao_light_affect;
+	bake_parameters.ao_power = p_ao_power;
+	bake_parameters.ao_contact_distance = p_ao_contact_distance;
+	bake_parameters.ao_contact_strength = p_ao_contact_strength;
 	bake_parameters.environment_exposure_multiplier = p_environment_exposure_multiplier;
 	bake_parameters.indirect_sample_clamp = p_indirect_sample_clamp;
 	bake_parameters.env_cdf_width = env_cdf_width;

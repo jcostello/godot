@@ -1382,11 +1382,15 @@ void main() {
 	uint noise = random_seed(ivec3(atlas_pos, 92821));
 	vec2 ray_rotation = vec2(randomize(noise), randomize(noise));
 	float occluded = 0.0;
+	// Contact occlusion darkens direct light with its own short radius, grounding lit objects.
+	float occluded_contact = 0.0;
+	bool use_contact = bake_params.ao_contact_strength > 0.0;
+	float ray_distance = use_contact ? max(bake_params.ao_distance, bake_params.ao_contact_distance) : bake_params.ao_distance;
 	uint valid_samples = 0;
 	for (uint i = 0; i < params.ray_count; i++) {
 		// Most texels see nothing within ao_distance. Once a well-spread prefix of
 		// the R2 sequence finds no occluder, the remaining rays won't change AO.
-		if (i == 16u && occluded == 0.0) {
+		if (i == 16u && occluded == 0.0 && occluded_contact == 0.0) {
 			break;
 		}
 		vec3 ray_dir = generate_ray_dir_from_normal(normal, r2_sequence(i, ray_rotation));
@@ -1400,7 +1404,7 @@ void main() {
 			continue;
 		}
 		valid_samples++;
-		vec3 ray_end = position + ray_dir * bake_params.ao_distance;
+		vec3 ray_end = position + ray_dir * ray_distance;
 		// Lift along the face too: grazing rays offset only along themselves stay
 		// on the surface and hit neighboring faces of curved meshes (AO acne).
 		vec3 ray_origin = position + (ray_dir + geometry_normal) * bake_params.bias;
@@ -1425,8 +1429,11 @@ void main() {
 			// Match direct lighting: don't count the exit of a closed transparent mesh twice.
 			if (hit == RAY_FRONT || !did_hit) {
 				opacity = clamp(opacity, 0.0, 1.0);
-				float falloff = 1.0 - smoothstep(0.0, bake_params.ao_distance, distance(position, hit_position));
-				occluded += transmission * opacity * falloff;
+				float hit_distance = distance(position, hit_position);
+				occluded += transmission * opacity * (1.0 - smoothstep(0.0, bake_params.ao_distance, hit_distance));
+				if (use_contact) {
+					occluded_contact += transmission * opacity * (1.0 - smoothstep(0.0, bake_params.ao_contact_distance, hit_distance));
+				}
 				transmission *= 1.0 - opacity;
 			}
 			did_hit = true;
@@ -1436,20 +1443,22 @@ void main() {
 			ray_origin = hit_position + ray_dir * bake_params.bias;
 		}
 	}
-	float ao = max(0.0, 1.0 - occluded / float(max(valid_samples, 1u)) * bake_params.ao_strength);
+	float sample_count = float(max(valid_samples, 1u));
+	float ao = pow(max(0.0, 1.0 - occluded / sample_count * bake_params.ao_strength), bake_params.ao_power);
+	float ao_direct = pow(max(0.0, 1.0 - occluded_contact / sample_count * bake_params.ao_contact_strength), bake_params.ao_power);
 #ifdef USE_SH_LIGHTMAPS
 	for (int i = 0; i < 4; i++) {
 		vec4 light = imageLoad(ao_light, ivec3(atlas_pos, params.output_slice * 4 + i));
 		vec3 direct = imageLoad(ao_direct_light, ivec3(atlas_pos, params.output_slice * 4 + i)).rgb;
 		vec3 indirect = light.rgb - direct;
-		vec3 result = indirect * ao + direct * mix(1.0, ao, bake_params.ao_light_affect);
+		vec3 result = indirect * ao + direct * ao_direct;
 		imageStore(ao_light, ivec3(atlas_pos, params.output_slice * 4 + i), vec4(result, light.a));
 	}
 #else
 	vec4 light = imageLoad(ao_light, ivec3(atlas_pos, params.output_slice));
 	vec3 direct = imageLoad(ao_direct_light, ivec3(atlas_pos, params.output_slice)).rgb;
 	vec3 indirect = light.rgb - direct;
-	vec3 result = indirect * ao + direct * mix(1.0, ao, bake_params.ao_light_affect);
+	vec3 result = indirect * ao + direct * ao_direct;
 	imageStore(ao_light, ivec3(atlas_pos, params.output_slice), vec4(result, light.a));
 #endif
 #endif

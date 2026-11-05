@@ -1495,7 +1495,7 @@ LightmapGI::BakeError LightmapGI::bake(Node *p_from_node, String p_image_data_pa
 	const float environment_exposure_multiplier = environment_energy * exposure_normalization * environment_intensity;
 
 	Lightmapper::BakeError bake_err = lightmapper->bake(Lightmapper::BakeQuality(bake_quality), bake_lightmaps && use_denoiser, denoiser_strength, denoiser_range, bounces,
-			bounce_indirect_energy, bias, bake_lightmaps && bake_ao, ao_distance, ao_strength, ao_light_affect, ao_samples, max_texture_size, bake_lightmaps && directional, bake_lightmaps && shadowmask_mode != LightmapGIData::SHADOWMASK_MODE_NONE, use_texture_for_bounces,
+			bounce_indirect_energy, bias, bake_lightmaps && bake_ao, ao_distance, ao_strength, ao_power, ao_contact_distance, ao_contact_strength, ao_samples, max_texture_size, bake_lightmaps && directional, bake_lightmaps && shadowmask_mode != LightmapGIData::SHADOWMASK_MODE_NONE, use_texture_for_bounces,
 			environment_image, environment_transform, _lightmap_bake_step_function, &bsud, exposure_normalization, environment_exposure_multiplier, (supersampling_enabled ? supersampling_factor : 1), bake_lightmaps, indirect_sample_clamp);
 
 	if (bake_err == Lightmapper::BAKE_ERROR_TEXTURE_EXCEEDS_MAX_SIZE) {
@@ -1983,13 +1983,31 @@ float LightmapGI::get_ao_strength() const {
 	return ao_strength;
 }
 
-void LightmapGI::set_ao_light_affect(float p_light_affect) {
-	ERR_FAIL_COND(p_light_affect < 0.0 || p_light_affect > 1.0);
-	ao_light_affect = p_light_affect;
+void LightmapGI::set_ao_power(float p_power) {
+	ERR_FAIL_COND(p_power <= 0.0);
+	ao_power = p_power;
 }
 
-float LightmapGI::get_ao_light_affect() const {
-	return ao_light_affect;
+float LightmapGI::get_ao_power() const {
+	return ao_power;
+}
+
+void LightmapGI::set_ao_contact_distance(float p_distance) {
+	ERR_FAIL_COND(p_distance <= 0.0);
+	ao_contact_distance = p_distance;
+}
+
+float LightmapGI::get_ao_contact_distance() const {
+	return ao_contact_distance;
+}
+
+void LightmapGI::set_ao_contact_strength(float p_strength) {
+	ERR_FAIL_COND(p_strength < 0.0);
+	ao_contact_strength = p_strength;
+}
+
+float LightmapGI::get_ao_contact_strength() const {
+	return ao_contact_strength;
 }
 
 void LightmapGI::set_ao_samples(int p_samples) {
@@ -2558,6 +2576,12 @@ PackedStringArray LightmapGI::get_configuration_warnings() const {
 }
 
 bool LightmapGI::_set(const StringName &p_name, const Variant &p_value) {
+	// Old AO light affect was a mix of the full AO into direct light: same radius and strength.
+	if (p_name == SNAME("ao_light_affect")) {
+		ao_contact_distance = ao_distance;
+		ao_contact_strength = float(p_value) * ao_strength;
+		return true;
+	}
 	// Accept removed bake options in old scene files without persisting them again.
 	return p_name == SNAME("generate_probes_subdiv") || p_name == SNAME("probe_ray_count");
 }
@@ -2594,7 +2618,7 @@ void LightmapGI::_validate_property(PropertyInfo &p_property) const {
 		if (!use_denoiser) {
 			p_property.usage = PROPERTY_USAGE_NO_EDITOR;
 		}
-	} else if (p_property.name == "ao_distance" || p_property.name == "ao_strength" || p_property.name == "ao_light_affect" || p_property.name == "ao_samples") {
+	} else if (p_property.name == "ao_distance" || p_property.name == "ao_strength" || p_property.name == "ao_power" || p_property.name == "ao_contact_distance" || p_property.name == "ao_contact_strength" || p_property.name == "ao_samples") {
 		if (!bake_ao) {
 			p_property.usage = PROPERTY_USAGE_NO_EDITOR;
 		}
@@ -2630,8 +2654,12 @@ void LightmapGI::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("get_ao_distance"), &LightmapGI::get_ao_distance);
 	ClassDB::bind_method(D_METHOD("set_ao_strength", "strength"), &LightmapGI::set_ao_strength);
 	ClassDB::bind_method(D_METHOD("get_ao_strength"), &LightmapGI::get_ao_strength);
-	ClassDB::bind_method(D_METHOD("set_ao_light_affect", "light_affect"), &LightmapGI::set_ao_light_affect);
-	ClassDB::bind_method(D_METHOD("get_ao_light_affect"), &LightmapGI::get_ao_light_affect);
+	ClassDB::bind_method(D_METHOD("set_ao_power", "power"), &LightmapGI::set_ao_power);
+	ClassDB::bind_method(D_METHOD("get_ao_power"), &LightmapGI::get_ao_power);
+	ClassDB::bind_method(D_METHOD("set_ao_contact_distance", "distance"), &LightmapGI::set_ao_contact_distance);
+	ClassDB::bind_method(D_METHOD("get_ao_contact_distance"), &LightmapGI::get_ao_contact_distance);
+	ClassDB::bind_method(D_METHOD("set_ao_contact_strength", "strength"), &LightmapGI::set_ao_contact_strength);
+	ClassDB::bind_method(D_METHOD("get_ao_contact_strength"), &LightmapGI::get_ao_contact_strength);
 	ClassDB::bind_method(D_METHOD("set_ao_samples", "samples"), &LightmapGI::set_ao_samples);
 	ClassDB::bind_method(D_METHOD("get_ao_samples"), &LightmapGI::get_ao_samples);
 
@@ -2842,7 +2870,9 @@ void LightmapGI::_bind_methods() {
 	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "bake_ao"), "set_bake_ao", "is_baking_ao");
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "ao_distance", PROPERTY_HINT_RANGE, "0.01,100.0,0.01,or_greater,suffix:m"), "set_ao_distance", "get_ao_distance");
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "ao_strength", PROPERTY_HINT_RANGE, "0,4,0.01,or_greater"), "set_ao_strength", "get_ao_strength");
-	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "ao_light_affect", PROPERTY_HINT_RANGE, "0,1,0.01"), "set_ao_light_affect", "get_ao_light_affect");
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "ao_power", PROPERTY_HINT_RANGE, "0.1,4,0.01,or_greater"), "set_ao_power", "get_ao_power");
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "ao_contact_distance", PROPERTY_HINT_RANGE, "0.01,2.0,0.01,or_greater,suffix:m"), "set_ao_contact_distance", "get_ao_contact_distance");
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "ao_contact_strength", PROPERTY_HINT_RANGE, "0,4,0.01,or_greater"), "set_ao_contact_strength", "get_ao_contact_strength");
 	ADD_PROPERTY(PropertyInfo(Variant::INT, "ao_samples", PROPERTY_HINT_RANGE, "1,1024,1"), "set_ao_samples", "get_ao_samples");
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "texel_scale", PROPERTY_HINT_RANGE, "0.01,100.0,0.01"), "set_texel_scale", "get_texel_scale");
 	ADD_PROPERTY(PropertyInfo(Variant::INT, "max_texture_size", PROPERTY_HINT_RANGE, "2048,16384,1"), "set_max_texture_size", "get_max_texture_size");

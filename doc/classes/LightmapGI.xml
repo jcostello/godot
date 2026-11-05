@@ -22,11 +22,17 @@
 		<member name="adjustments_enabled" type="bool" setter="set_adjustments_enabled" getter="is_adjustments_enabled" default="true">
 			Enables lightmap color adjustments in Forward+. The editor applies them per pixel to the original texture; the game uses a cached derived texture. An additional packed positive HDR texture is generated on the GPU when controls or the original texture change; stable frames only sample the cached result. Controls include energy, tint, saturation, contrast and tonal ranges. Directional lightmaps process only the L0 color layer; normals and dynamic object probes use their original data. Direction layers are copied without grading into the reduced precision format. Generated specular shares the adjusted L0 through the original material sampling path. Disabled or neutral settings use the original texture. Settings are shared by nodes using the same LightmapGIData. The cache uses 4 bytes per texel across all layers and requires packed HDR sampling/storage support. Signed BC6H sources or unsupported devices retain the original lightmap. Regeneration occurs only when controls or the source change. No rebaking is required.
 		</member>
+		<member name="ao_contact_distance" type="float" setter="set_ao_contact_distance" getter="get_ao_contact_distance" default="0.25">
+			The maximum distance, in world units, at which geometry occludes direct lighting. Keep it small to only darken direct light right where objects touch or come close to other surfaces. Only effective if [member bake_ao] is [code]true[/code] and [member ao_contact_strength] is greater than [code]0.0[/code].
+		</member>
+		<member name="ao_contact_strength" type="float" setter="set_ao_contact_strength" getter="get_ao_contact_strength" default="0.0">
+			The strength of contact occlusion applied to direct lighting. This is an artistic adjustment that grounds objects in lit areas, independent of the ambient occlusion applied to indirect lighting. At [code]0.0[/code], direct lighting is not occluded. Only effective if [member bake_ao] is [code]true[/code].
+		</member>
 		<member name="ao_distance" type="float" setter="set_ao_distance" getter="get_ao_distance" default="1.0">
 			The maximum distance, in world units, at which geometry occludes a texel for baked ambient occlusion. Occlusion decreases smoothly to zero at this distance. Only effective if [member bake_ao] is [code]true[/code].
 		</member>
-		<member name="ao_light_affect" type="float" setter="set_ao_light_affect" getter="get_ao_light_affect" default="0.0">
-			How strongly baked ambient occlusion affects direct lighting. At [code]0.0[/code], AO only affects indirect lighting. At [code]1.0[/code], AO affects direct and indirect lighting equally. Only effective if [member bake_ao] is [code]true[/code].
+		<member name="ao_power" type="float" setter="set_ao_power" getter="get_ao_power" default="1.0">
+			Exponent applied to the baked ambient occlusion. Values above [code]1.0[/code] give darker, tighter occlusion, values below [code]1.0[/code] give softer, more spread out occlusion. Only effective if [member bake_ao] is [code]true[/code].
 		</member>
 		<member name="ao_samples" type="int" setter="set_ao_samples" getter="get_ao_samples" default="64">
 			The number of hemisphere rays traced per lightmap texel for ambient occlusion. Higher values reduce noise at the cost of longer bake times. Only effective if [member bake_ao] is [code]true[/code].

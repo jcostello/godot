@@ -22,13 +22,18 @@ layout(set = 0, binding = 0) uniform BakeParameters {
 
 	float ao_distance;
 	float ao_strength;
-	float ao_light_affect;
+	float ao_power;
 	float environment_exposure_multiplier;
 
 	float indirect_sample_clamp;
 	uint env_cdf_width; // 0 disables environment importance sampling.
 	uint env_cdf_height;
 	float adaptive_threshold; // Relative standard error to stop sampling a texel, 0 disables.
+
+	float ao_contact_distance;
+	float ao_contact_strength;
+	float pad0;
+	float pad1;
 }
 bake_params;
 

@@ -219,7 +219,9 @@ private:
 	bool bake_ao = false;
 	float ao_distance = 1.0;
 	float ao_strength = 1.0;
-	float ao_light_affect = 0.0;
+	float ao_power = 1.0;
+	float ao_contact_distance = 0.25;
+	float ao_contact_strength = 0.0;
 	int ao_samples = 64;
 	float texel_scale = 1.0;
 	int max_texture_size = 16384;
@@ -354,8 +356,12 @@ public:
 	float get_ao_distance() const;
 	void set_ao_strength(float p_strength);
 	float get_ao_strength() const;
-	void set_ao_light_affect(float p_light_affect);
-	float get_ao_light_affect() const;
+	void set_ao_power(float p_power);
+	float get_ao_power() const;
+	void set_ao_contact_distance(float p_distance);
+	float get_ao_contact_distance() const;
+	void set_ao_contact_strength(float p_strength);
+	float get_ao_contact_strength() const;
 	void set_ao_samples(int p_samples);
 	int get_ao_samples() const;
 
