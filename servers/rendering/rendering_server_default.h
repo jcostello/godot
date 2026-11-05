@@ -551,6 +551,7 @@ public:
 	FUNC1(lightmap_set_probe_capture_update_speed, float)
 
 	FUNC2(lightmap_set_shadowmask_textures, RID, RID)
+	FUNC3(lightmap_set_direction_texture, RID, RID, bool)
 	FUNC1R(RSE::ShadowmaskMode, lightmap_get_shadowmask_mode, RID)
 	FUNC2(lightmap_set_shadowmask_mode, RID, RSE::ShadowmaskMode)
 	FUNC1R(float, lightmap_get_specular_intensity, RID)

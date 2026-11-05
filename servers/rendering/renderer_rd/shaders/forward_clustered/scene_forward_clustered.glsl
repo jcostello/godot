@@ -1861,7 +1861,11 @@ void fragment_shader(in SceneData scene_data) {
 		uvw.z = float(slice);
 
 		if (uses_sh) {
-			uvw.z *= 4.0; //SH textures use 4 times more data
+			// Lightmaps with a separate 8-bit direction texture keep one light layer per slice.
+			bool uses_direction_texture = (lightmaps.data[ofs].flags & LIGHTMAP_FLAG_DIRECTION_TEXTURE) != 0u;
+			if (!uses_direction_texture) {
+				uvw.z *= 4.0; //SH textures use 4 times more data
+			}
 			vec3 lm_light_l0;
 			vec3 lm_light_l1n1;
 			vec3 lm_light_l1_0;
@@ -1876,9 +1880,26 @@ void fragment_shader(in SceneData scene_data) {
 				lm_light_l0 = lightmap_apply_color_lut(lightmap_color_luts[ofs], SAMPLER_LINEAR_CLAMP, lm_light_l0, lightmaps.data[ofs].color_lut_params, true);
 			}
 			// L1 is stored relative to L0 and is low frequency, so bilinear is enough (saves 12 bicubic taps).
-			lm_light_l1n1 = (textureLod(sampler2DArray(lightmap_textures[ofs], SAMPLER_LINEAR_CLAMP), uvw + vec3(0.0, 0.0, 1.0), 0.0).rgb - vec3(0.5)) * 2.0;
-			lm_light_l1_0 = (textureLod(sampler2DArray(lightmap_textures[ofs], SAMPLER_LINEAR_CLAMP), uvw + vec3(0.0, 0.0, 2.0), 0.0).rgb - vec3(0.5)) * 2.0;
-			lm_light_l1p1 = (textureLod(sampler2DArray(lightmap_textures[ofs], SAMPLER_LINEAR_CLAMP), uvw + vec3(0.0, 0.0, 3.0), 0.0).rgb - vec3(0.5)) * 2.0;
+			if (uses_direction_texture && (lightmaps.data[ofs].flags & LIGHTMAP_FLAG_DIRECTION_SH) != 0u) {
+				// The three L1 layers, stored apart and possibly at a lower resolution.
+				vec3 dir_uvw = vec3(uvw.xy, uvw.z * 3.0);
+				lm_light_l1n1 = (textureLod(sampler2DArray(lightmap_textures[MAX_LIGHTMAP_TEXTURES * 2 + ofs], SAMPLER_LINEAR_CLAMP), dir_uvw + vec3(0.0, 0.0, 0.0), 0.0).rgb - vec3(0.5)) * 2.0;
+				lm_light_l1_0 = (textureLod(sampler2DArray(lightmap_textures[MAX_LIGHTMAP_TEXTURES * 2 + ofs], SAMPLER_LINEAR_CLAMP), dir_uvw + vec3(0.0, 0.0, 1.0), 0.0).rgb - vec3(0.5)) * 2.0;
+				lm_light_l1p1 = (textureLod(sampler2DArray(lightmap_textures[MAX_LIGHTMAP_TEXTURES * 2 + ofs], SAMPLER_LINEAR_CLAMP), dir_uvw + vec3(0.0, 0.0, 2.0), 0.0).rgb - vec3(0.5)) * 2.0;
+			} else if (uses_direction_texture) {
+				// Dominant direction: unit (l1n1, l1_0, l1p1) in RGB, strength in A, shared by all channels.
+				vec4 lm_direction = textureLod(sampler2DArray(lightmap_textures[MAX_LIGHTMAP_TEXTURES * 2 + ofs], SAMPLER_LINEAR_CLAMP), uvw, 0.0);
+				// Not renormalized: where filtering mixes disagreeing directions (chart borders, low
+				// resolution) they cancel out into less directional light instead of a wrong lobe.
+				vec3 lm_axis = (lm_direction.rgb * 2.0 - 1.0) * lm_direction.a;
+				lm_light_l1n1 = vec3(lm_axis.x);
+				lm_light_l1_0 = vec3(lm_axis.y);
+				lm_light_l1p1 = vec3(lm_axis.z);
+			} else {
+				lm_light_l1n1 = (textureLod(sampler2DArray(lightmap_textures[ofs], SAMPLER_LINEAR_CLAMP), uvw + vec3(0.0, 0.0, 1.0), 0.0).rgb - vec3(0.5)) * 2.0;
+				lm_light_l1_0 = (textureLod(sampler2DArray(lightmap_textures[ofs], SAMPLER_LINEAR_CLAMP), uvw + vec3(0.0, 0.0, 2.0), 0.0).rgb - vec3(0.5)) * 2.0;
+				lm_light_l1p1 = (textureLod(sampler2DArray(lightmap_textures[ofs], SAMPLER_LINEAR_CLAMP), uvw + vec3(0.0, 0.0, 3.0), 0.0).rgb - vec3(0.5)) * 2.0;
+			}
 
 #ifdef LIGHTMAP_COLOR_PREVIEW
 			if ((lightmaps.data[ofs].flags & LIGHTMAP_FLAG_COLOR_PREVIEW) != 0u) {

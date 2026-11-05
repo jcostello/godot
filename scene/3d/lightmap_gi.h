@@ -59,11 +59,13 @@ private:
 	// The 'merged' texture atlases actually used by the renderer.
 	Ref<TextureLayered> combined_light_texture;
 	Ref<TextureLayered> combined_shadowmask_texture;
+	Ref<TextureLayered> combined_direction_texture;
 
 	// The temporary texture atlas arrays which are used for storage.
 	// If a single atlas is too large, it's split and recombined during loading.
 	TypedArray<TextureLayered> storage_light_textures;
 	TypedArray<TextureLayered> storage_shadowmask_textures;
+	TypedArray<TextureLayered> storage_direction_textures;
 
 	bool uses_spherical_harmonics = false;
 	bool interior = false;
@@ -94,6 +96,7 @@ private:
 
 	void _reset_lightmap_textures();
 	void _reset_shadowmask_textures();
+	void _reset_direction_textures();
 
 protected:
 	static void _bind_methods();
@@ -153,6 +156,10 @@ public:
 	void clear_shadowmask_textures();
 	bool has_shadowmask_textures();
 
+	// Dominant-direction textures replace the L1 SH layers of directional lightmaps.
+	void set_direction_textures(const TypedArray<TextureLayered> &p_data);
+	TypedArray<TextureLayered> get_direction_textures() const;
+
 	void update_specular_intensity(float p_intensity);
 
 	virtual RID get_rid() const override;
@@ -207,6 +214,11 @@ public:
 		DEBUG_HIGHLIGHTS,
 	};
 
+	enum DirectionalFormat {
+		DIRECTIONAL_FORMAT_SPHERICAL_HARMONICS,
+		DIRECTIONAL_FORMAT_DOMINANT_DIRECTION,
+	};
+
 private:
 	BakeQuality bake_quality = BAKE_QUALITY_MEDIUM;
 	bool use_denoiser = true;
@@ -214,7 +226,7 @@ private:
 	int denoiser_range = 10;
 	int bounces = 3;
 	float bounce_indirect_energy = 1.0;
-	float indirect_sample_clamp = 0.0;
+	float indirect_sample_clamp = 10.0;
 	float bias = 0.0005;
 	bool bake_ao = false;
 	float ao_distance = 1.0;
@@ -234,6 +246,8 @@ private:
 	Color environment_custom_color = Color(1, 1, 1);
 	float environment_custom_energy = 1.0;
 	bool directional = false;
+	DirectionalFormat directional_format = DIRECTIONAL_FORMAT_DOMINANT_DIRECTION;
+	float directional_resolution_scale = 1.0f;
 	bool use_texture_for_bounces = true;
 	LightmapGIData::ShadowmaskMode shadowmask_mode = LightmapGIData::SHADOWMASK_MODE_NONE;
 	Ref<CameraAttributes> camera_attributes;
@@ -285,7 +299,7 @@ private:
 
 	static bool _lightmap_bake_step_function(float p_completion, const String &p_text, void *ud, bool p_refresh);
 
-	BakeError _save_and_reimport_atlas_textures(const Ref<Lightmapper> p_lightmapper, const String &p_base_name, TypedArray<TextureLayered> &r_textures, bool p_is_shadowmask = false) const;
+	BakeError _save_and_reimport_atlas_textures(const Vector<Ref<Image>> &p_images, const String &p_base_name, TypedArray<TextureLayered> &r_textures, bool p_save_png, float p_resolution_scale, bool p_high_quality = false) const;
 	void _build_area_light_texture_atlas(const Vector<LightmapGI::LightsFound> &lights_found, HashMap<Ref<Texture2D>, AreaLightAtlasTexture> &r_texture_rects, Size2i &r_atlas_size, int &r_mipmaps) const;
 
 protected:
@@ -313,6 +327,12 @@ public:
 
 	void set_directional(bool p_enable);
 	bool is_directional() const;
+
+	void set_directional_format(DirectionalFormat p_format);
+	DirectionalFormat get_directional_format() const;
+
+	void set_directional_resolution_scale(float p_scale);
+	float get_directional_resolution_scale() const;
 
 	void set_shadowmask_mode(LightmapGIData::ShadowmaskMode p_mode);
 	LightmapGIData::ShadowmaskMode get_shadowmask_mode() const;
@@ -474,3 +494,4 @@ VARIANT_ENUM_CAST(LightmapGI::BakeMode);
 VARIANT_ENUM_CAST(LightmapGI::BakeError);
 VARIANT_ENUM_CAST(LightmapGI::EnvironmentMode);
 VARIANT_ENUM_CAST(LightmapGI::DebugMode);
+VARIANT_ENUM_CAST(LightmapGI::DirectionalFormat);

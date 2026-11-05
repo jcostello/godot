@@ -445,6 +445,9 @@ public:
 	virtual void lightmaps_set_bicubic_filter(bool p_enable) = 0;
 
 	virtual void lightmap_set_shadowmask_textures(RID p_lightmap, RID p_shadow) = 0;
+	// 8-bit directional data stored apart from the HDR light texture, at its own resolution:
+	// three L1 layers per slice for spherical harmonics, or one dominant-direction layer.
+	virtual void lightmap_set_direction_texture(RID p_lightmap, RID p_direction, bool p_spherical_harmonics) = 0;
 	virtual RSE::ShadowmaskMode lightmap_get_shadowmask_mode(RID p_lightmap) = 0;
 	virtual void lightmap_set_shadowmask_mode(RID p_lightmap, RSE::ShadowmaskMode p_mode) = 0;
 	virtual float lightmap_get_specular_intensity(RID p_lightmap) = 0;

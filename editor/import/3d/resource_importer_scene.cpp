@@ -327,8 +327,9 @@ bool ResourceImporterScene::get_option_visibility(const String &p_path, const St
 	if (p_option == "nodes/use_node_type_suffixes" && p_options.has("nodes/use_name_suffixes")) {
 		return p_options["nodes/use_name_suffixes"];
 	}
-	if (p_option == "meshes/lightmap_texel_size" && int(p_options["meshes/light_baking"]) != 2) {
-		// Only display the lightmap texel size import option when using the Static Lightmaps light baking mode.
+	if (p_option == "meshes/lightmap_texel_size" && int(p_options["meshes/light_baking"]) != 1 && int(p_options["meshes/light_baking"]) != 2) {
+		// Only display the lightmap texel size import option when baking static lighting
+		// (Static uses it to size the lightmap of meshes with their own UV2).
 		return false;
 	}
 
@@ -2785,6 +2786,38 @@ Array ResourceImporterScene::_get_skinned_pose_transforms(ImporterMeshInstance3D
 	return skin_pose_transform_array;
 }
 
+// Size of the lightmap for a mesh that brings its own UV2: texels across the UV square, so that one texel covers
+// p_texel_size world units on average. Returns a zero size if the mesh has no usable UV2.
+static Size2i _lightmap_size_from_uv2(const Ref<ImporterMesh> &p_mesh, const Basis &p_basis, float p_texel_size) {
+	double world_area = 0.0;
+	double uv_area = 0.0;
+	for (int s = 0; s < p_mesh->get_surface_count(); s++) {
+		if (p_mesh->get_surface_primitive_type(s) != Mesh::PRIMITIVE_TRIANGLES) {
+			continue;
+		}
+		const Array arrays = p_mesh->get_surface_arrays(s);
+		const PackedVector3Array vertices = arrays[Mesh::ARRAY_VERTEX];
+		const PackedVector2Array uv2 = arrays[Mesh::ARRAY_TEX_UV2];
+		const PackedInt32Array indices = arrays[Mesh::ARRAY_INDEX];
+		if (uv2.size() != vertices.size()) {
+			continue;
+		}
+		const int index_count = indices.is_empty() ? vertices.size() : indices.size();
+		for (int i = 0; i + 2 < index_count; i += 3) {
+			const int a = indices.is_empty() ? i : indices[i];
+			const int b = indices.is_empty() ? i + 1 : indices[i + 1];
+			const int c = indices.is_empty() ? i + 2 : indices[i + 2];
+			world_area += (p_basis.xform(vertices[b] - vertices[a])).cross(p_basis.xform(vertices[c] - vertices[a])).length() * 0.5;
+			uv_area += Math::abs((uv2[b] - uv2[a]).cross(uv2[c] - uv2[a])) * 0.5;
+		}
+	}
+	if (uv_area <= 0.0 || world_area <= 0.0 || p_texel_size <= 0.0f) {
+		return Size2i();
+	}
+	const int size = CLAMP(int(Math::ceil(Math::sqrt(world_area / uv_area) / p_texel_size)), 1, 4096);
+	return Size2i(size, size);
+}
+
 Node *ResourceImporterScene::_generate_meshes(Node *p_node, const Dictionary &p_mesh_data, bool p_generate_lods, bool p_create_shadow_meshes, LightBakeMode p_light_bake_mode, float p_lightmap_texel_size, const Vector<uint8_t> &p_src_lightmap_cache, Vector<Vector<uint8_t>> &r_lightmap_caches) {
 	ImporterMeshInstance3D *src_mesh_node = Object::cast_to<ImporterMeshInstance3D>(p_node);
 	if (src_mesh_node) {
@@ -2866,14 +2899,20 @@ Node *ResourceImporterScene::_generate_meshes(Node *p_node, const Dictionary &p_
 					}
 				}
 
-				if (bake_lightmaps) {
-					Transform3D xf;
-					Node3D *n = src_mesh_node;
-					while (n) {
-						xf = n->get_transform() * xf;
-						n = n->get_parent_node_3d();
-					}
+				Transform3D xf;
+				Node3D *n = src_mesh_node;
+				while (n) {
+					xf = n->get_transform() * xf;
+					n = n->get_parent_node_3d();
+				}
 
+				if (!bake_lightmaps && p_light_bake_mode != LIGHT_BAKE_DISABLED && p_light_bake_mode != LIGHT_BAKE_DYNAMIC && importer_mesh->get_lightmap_size_hint() == Size2i()) {
+					// Meshes with their own UV2 are not unwrapped, but still need a lightmap size,
+					// otherwise LightmapGI falls back to a fixed 64x64 per mesh.
+					importer_mesh->set_lightmap_size_hint(_lightmap_size_from_uv2(importer_mesh, xf.basis, p_lightmap_texel_size));
+				}
+
+				if (bake_lightmaps) {
 					Vector<uint8_t> lightmap_cache;
 					importer_mesh->lightmap_unwrap_cached(xf, p_lightmap_texel_size, p_src_lightmap_cache, lightmap_cache);
 

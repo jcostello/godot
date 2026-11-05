@@ -206,6 +206,7 @@ public:
 	virtual float lightmap_get_probe_capture_update_speed() const override { return 0; }
 
 	virtual void lightmap_set_shadowmask_textures(RID p_lightmap, RID p_shadow) override {}
+	virtual void lightmap_set_direction_texture(RID p_lightmap, RID p_direction, bool p_spherical_harmonics) override {}
 	virtual RSE::ShadowmaskMode lightmap_get_shadowmask_mode(RID p_lightmap) override { return RSE::SHADOWMASK_MODE_NONE; }
 	virtual void lightmap_set_shadowmask_mode(RID p_lightmap, RSE::ShadowmaskMode p_mode) override {}
 	virtual float lightmap_get_specular_intensity(RID p_lightmap) override { return 0.0f; }

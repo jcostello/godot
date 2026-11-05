@@ -98,6 +98,74 @@ Vector2 compute_lightmap_luminance_range(const Ref<Lightmapper> &p_lightmapper, 
 	return histogram.get_range();
 }
 
+// Splits packed SH lightmaps (L0 + three L1 layers per atlas slice, L1 stored per channel as
+// c / (8 * L0) + 0.5) into HDR L0 light slices and 8-bit direction layers, which can be
+// stored at a lower resolution.
+// - Spherical harmonics: the three packed L1 layers per slice, as they are.
+// - Dominant direction: one RGBA layer per slice. Like Unity's directional lightmaps, the
+//   luminance-weighted L1 is shared by all channels: RGB is its unit direction and A its
+//   strength relative to L0, so compression errors bend the direction instead of the energy.
+static void split_sh_lightmap(const Vector<Ref<Image>> &p_sh, bool p_dominant_direction, Vector<Ref<Image>> &r_light, Vector<Ref<Image>> &r_direction) {
+	const float weights[3] = { 0.2126f, 0.7152f, 0.0722f };
+	for (int slice = 0; slice + 3 < p_sh.size(); slice += 4) {
+		Ref<Image> layers[4];
+		for (int i = 0; i < 4; i++) {
+			layers[i] = p_sh[slice + i];
+			ERR_FAIL_COND(layers[i].is_null());
+			if (layers[i]->get_format() != Image::FORMAT_RGBH) {
+				layers[i] = layers[i]->duplicate();
+				layers[i]->convert(Image::FORMAT_RGBH);
+			}
+		}
+		r_light.push_back(layers[0]);
+		const int width = layers[0]->get_width();
+		const int height = layers[0]->get_height();
+		const int texel_count = width * height;
+
+		if (!p_dominant_direction) {
+			for (int k = 1; k < 4; k++) {
+				Ref<Image> l1 = layers[k]->duplicate();
+				l1->convert(Image::FORMAT_RGB8);
+				r_direction.push_back(l1);
+			}
+			continue;
+		}
+
+		const uint16_t *l0 = reinterpret_cast<const uint16_t *>(layers[0]->ptr());
+		const uint16_t *l1[3] = { reinterpret_cast<const uint16_t *>(layers[1]->ptr()), reinterpret_cast<const uint16_t *>(layers[2]->ptr()), reinterpret_cast<const uint16_t *>(layers[3]->ptr()) };
+		Vector<uint8_t> direction;
+		direction.resize(texel_count * 4);
+		uint8_t *dst = direction.ptrw();
+		for (int t = 0; t < texel_count; t++) {
+			float l0_rgb[3];
+			float l0_luminance = 0.0f;
+			for (int c = 0; c < 3; c++) {
+				l0_rgb[c] = Math::half_to_float(l0[t * 3 + c]);
+				l0_luminance += l0_rgb[c] * weights[c];
+			}
+			// Luminance-weighted L1 relative to L0, in the units the scene shader reads
+			// (packed - 0.5) * 2. Layer order is (l1n1, l1_0, l1p1).
+			Vector3 l1_ratio;
+			if (l0_luminance > 1e-6f) {
+				for (int k = 0; k < 3; k++) {
+					float l1_luminance = 0.0f;
+					for (int c = 0; c < 3; c++) {
+						l1_luminance += (Math::half_to_float(l1[k][t * 3 + c]) - 0.5f) * l0_rgb[c] * weights[c];
+					}
+					l1_ratio[k] = 2.0f * l1_luminance / l0_luminance;
+				}
+			}
+			const float strength = MIN(l1_ratio.length(), 1.0f); // Packing already limits each axis to [-1, 1].
+			const Vector3 unit = strength > 1e-4f ? l1_ratio.normalized() : Vector3();
+			for (int k = 0; k < 3; k++) {
+				dst[t * 4 + k] = uint8_t(CLAMP(Math::round((unit[k] * 0.5f + 0.5f) * 255.0f), 0.0f, 255.0f));
+			}
+			dst[t * 4 + 3] = uint8_t(CLAMP(Math::round(strength * 255.0f), 0.0f, 255.0f));
+		}
+		r_direction.push_back(Image::create_from_data(width, height, false, Image::FORMAT_RGBA8, direction));
+	}
+}
+
 LightmapGI::BakeError prepare_probe_capture(Lightmapper *p_lightmapper, LightProbeSystem *p_system, int p_probe_offset, int p_probe_count, const Transform3D &p_capture_transform, float p_exposure, bool p_interior, Lightmapper::BakeStepFunc p_step, void *p_userdata, Ref<LightProbeData> &r_capture) {
 	const Ref<LightProbeData> previous_capture = p_system->get_light_data();
 	const bool use_probe_cache = previous_capture.is_valid() && !previous_capture->is_cache_invalidated() && p_system->get_capture_global_transform().is_equal_approx(p_capture_transform);
@@ -367,6 +435,32 @@ bool LightmapGIData::has_shadowmask_textures() {
 	return !storage_shadowmask_textures.is_empty() && combined_shadowmask_texture.is_valid();
 }
 
+void LightmapGIData::set_direction_textures(const TypedArray<TextureLayered> &p_data) {
+	storage_direction_textures = p_data;
+	combined_direction_texture.unref();
+	if (p_data.size() == 1) {
+		combined_direction_texture = p_data[0];
+	} else if (p_data.size() > 1) {
+		Vector<Ref<Image>> images;
+		for (int i = 0; i < p_data.size(); i++) {
+			Ref<TextureLayered> texture = p_data[i];
+			ERR_FAIL_COND_MSG(texture.is_null(), vformat("Invalid TextureLayered at index %d.", i));
+			for (int j = 0; j < texture->get_layers(); j++) {
+				images.push_back(texture->get_layer_data(j));
+			}
+		}
+		Ref<Texture2DArray> combined_texture;
+		combined_texture.instantiate();
+		combined_texture->create_from_images(images);
+		combined_direction_texture = combined_texture;
+	}
+	_reset_direction_textures();
+}
+
+TypedArray<TextureLayered> LightmapGIData::get_direction_textures() const {
+	return storage_direction_textures;
+}
+
 RID LightmapGIData::get_rid() const {
 	return lightmap;
 }
@@ -377,10 +471,17 @@ void LightmapGIData::clear() {
 
 void LightmapGIData::_reset_lightmap_textures() {
 	RS::get_singleton()->lightmap_set_textures(lightmap, combined_light_texture.is_valid() ? combined_light_texture->get_rid() : RID(), uses_spherical_harmonics);
+	_reset_direction_textures(); // Its layout depends on the light texture.
 }
 
 void LightmapGIData::_reset_shadowmask_textures() {
 	RS::get_singleton()->lightmap_set_shadowmask_textures(lightmap, combined_shadowmask_texture.is_valid() ? combined_shadowmask_texture->get_rid() : RID());
+}
+
+void LightmapGIData::_reset_direction_textures() {
+	// Spherical harmonics store three L1 layers per light layer, dominant direction one.
+	const bool spherical_harmonics = combined_direction_texture.is_valid() && combined_light_texture.is_valid() && combined_direction_texture->get_layers() == combined_light_texture->get_layers() * 3;
+	RS::get_singleton()->lightmap_set_direction_texture(lightmap, combined_direction_texture.is_valid() ? combined_direction_texture->get_rid() : RID(), spherical_harmonics);
 }
 
 void LightmapGIData::set_uses_spherical_harmonics(bool p_enable) {
@@ -568,6 +669,8 @@ void LightmapGIData::_bind_methods() {
 
 	ClassDB::bind_method(D_METHOD("set_shadowmask_textures", "shadowmask_textures"), &LightmapGIData::set_shadowmask_textures);
 	ClassDB::bind_method(D_METHOD("get_shadowmask_textures"), &LightmapGIData::get_shadowmask_textures);
+	ClassDB::bind_method(D_METHOD("set_direction_textures", "direction_textures"), &LightmapGIData::set_direction_textures);
+	ClassDB::bind_method(D_METHOD("get_direction_textures"), &LightmapGIData::get_direction_textures);
 
 	ClassDB::bind_method(D_METHOD("set_uses_spherical_harmonics", "uses_spherical_harmonics"), &LightmapGIData::set_uses_spherical_harmonics);
 	ClassDB::bind_method(D_METHOD("is_using_spherical_harmonics"), &LightmapGIData::is_using_spherical_harmonics);
@@ -585,6 +688,7 @@ void LightmapGIData::_bind_methods() {
 
 	ADD_PROPERTY(PropertyInfo(Variant::ARRAY, "lightmap_textures", PROPERTY_HINT_ARRAY_TYPE, "TextureLayered", PROPERTY_USAGE_DEFAULT | PROPERTY_USAGE_READ_ONLY), "set_lightmap_textures", "get_lightmap_textures");
 	ADD_PROPERTY(PropertyInfo(Variant::ARRAY, "shadowmask_textures", PROPERTY_HINT_ARRAY_TYPE, "TextureLayered", PROPERTY_USAGE_DEFAULT | PROPERTY_USAGE_READ_ONLY), "set_shadowmask_textures", "get_shadowmask_textures");
+	ADD_PROPERTY(PropertyInfo(Variant::ARRAY, "direction_textures", PROPERTY_HINT_ARRAY_TYPE, "TextureLayered", PROPERTY_USAGE_DEFAULT | PROPERTY_USAGE_READ_ONLY), "set_direction_textures", "get_direction_textures");
 	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "uses_spherical_harmonics", PROPERTY_HINT_NONE, "", PROPERTY_USAGE_NO_EDITOR | PROPERTY_USAGE_INTERNAL), "set_uses_spherical_harmonics", "is_using_spherical_harmonics");
 	ADD_PROPERTY(PropertyInfo(Variant::ARRAY, "user_data", PROPERTY_HINT_NONE, "", PROPERTY_USAGE_NO_EDITOR | PROPERTY_USAGE_INTERNAL), "_set_user_data", "_get_user_data");
 	ADD_PROPERTY(PropertyInfo(Variant::DICTIONARY, "probe_data", PROPERTY_HINT_NONE, "", PROPERTY_USAGE_NO_EDITOR | PROPERTY_USAGE_INTERNAL), "_set_probe_data", "_get_probe_data");
@@ -717,12 +821,18 @@ bool LightmapGI::_lightmap_bake_step_function(float p_completion, const String &
 	return ret;
 }
 
-LightmapGI::BakeError LightmapGI::_save_and_reimport_atlas_textures(const Ref<Lightmapper> p_lightmapper, const String &p_base_name, TypedArray<TextureLayered> &r_textures, bool p_is_shadowmask) const {
-	Vector<Ref<Image>> images;
-	images.resize(p_is_shadowmask ? p_lightmapper->get_shadowmask_texture_count() : p_lightmapper->get_bake_texture_count());
-
-	for (int i = 0; i < images.size(); i++) {
-		images.set(i, p_is_shadowmask ? p_lightmapper->get_shadowmask_texture(i) : p_lightmapper->get_bake_texture(i));
+LightmapGI::BakeError LightmapGI::_save_and_reimport_atlas_textures(const Vector<Ref<Image>> &p_images, const String &p_base_name, TypedArray<TextureLayered> &r_textures, bool p_save_png, float p_resolution_scale, bool p_high_quality) const {
+	ERR_FAIL_COND_V(p_images.is_empty(), LightmapGI::BAKE_ERROR_CANT_CREATE_IMAGE);
+	Vector<Ref<Image>> images = p_images;
+	if (p_resolution_scale != 1.0f) {
+		// Scale each slice on its own, so filtering never mixes neighboring slices.
+		const int width = MAX(1, int(Math::round(images[0]->get_width() * p_resolution_scale)));
+		const int height = MAX(1, int(Math::round(images[0]->get_height() * p_resolution_scale)));
+		for (int i = 0; i < images.size(); i++) {
+			Ref<Image> scaled = images[i]->duplicate();
+			scaled->resize(width, height, Image::INTERPOLATE_TRILINEAR);
+			images.write[i] = scaled;
+		}
 	}
 
 	const int slice_count = images.size();
@@ -747,7 +857,7 @@ LightmapGI::BakeError LightmapGI::_save_and_reimport_atlas_textures(const Ref<Li
 			texture_image->blit_rect(images[i * slices_per_texture + j], Rect2i(0, 0, slice_width, slice_height), Point2i(0, slice_height * j));
 		}
 
-		const String atlas_path = (texture_count > 1 ? p_base_name + "_" + itos(i) : p_base_name) + (p_is_shadowmask ? ".png" : ".exr");
+		const String atlas_path = (texture_count > 1 ? p_base_name + "_" + itos(i) : p_base_name) + (p_save_png ? ".png" : ".exr");
 		const String config_path = atlas_path + ".import";
 
 		Ref<ConfigFile> config;
@@ -765,19 +875,20 @@ LightmapGI::BakeError LightmapGI::_save_and_reimport_atlas_textures(const Ref<Li
 			config->set_value("params", "compress/mode", 2);
 		}
 		config->set_value("params", "compress/channel_pack", 1);
+		if (p_high_quality) {
+			// Direction data is amplified when lighting is reconstructed, so low bit depth
+			// formats (DXT1 is 5:6:5) show up as blotches. Use BC7/ASTC instead.
+			config->set_value("params", "compress/high_quality", true);
+		}
 		config->set_value("params", "mipmaps/generate", false);
 		config->set_value("params", "slices/horizontal", 1);
 		config->set_value("params", "slices/vertical", texture_slice_count);
 
 		config->save(config_path);
 
-		if (supersampling_enabled) {
-			texture_image->resize(texture_image->get_width() / supersampling_factor, texture_image->get_height() / supersampling_factor, Image::INTERPOLATE_TRILINEAR);
-		}
-
 		// Save the file.
 		Error save_err;
-		if (p_is_shadowmask) {
+		if (p_save_png) {
 			save_err = texture_image->save_png(atlas_path);
 		} else {
 			save_err = texture_image->save_exr(atlas_path, false);
@@ -1054,6 +1165,7 @@ LightmapGI::BakeError LightmapGI::bake(Node *p_from_node, String p_image_data_pa
 		Array user_backup;
 		TypedArray<TextureLayered> light_backup;
 		TypedArray<TextureLayered> shadow_backup;
+		TypedArray<TextureLayered> direction_backup;
 		bool sh_backup = false;
 		bool packed_backup = false;
 		String path_backup;
@@ -1064,6 +1176,7 @@ LightmapGI::BakeError LightmapGI::bake(Node *p_from_node, String p_image_data_pa
 			user_backup = data->get("user_data");
 			light_backup = data->get_lightmap_textures();
 			shadow_backup = data->get_shadowmask_textures();
+			direction_backup = data->get_direction_textures();
 			sh_backup = data->is_using_spherical_harmonics();
 			packed_backup = data->_is_using_packed_directional();
 			path_backup = data->get_path();
@@ -1078,6 +1191,7 @@ LightmapGI::BakeError LightmapGI::bake(Node *p_from_node, String p_image_data_pa
 				return;
 			}
 			if (mutated) {
+				data->set_direction_textures(direction_backup);
 				data->set("user_data", user_backup);
 				data->set_uses_spherical_harmonics(sh_backup);
 				data->_set_uses_packed_directional(packed_backup);
@@ -1510,6 +1624,7 @@ LightmapGI::BakeError LightmapGI::bake(Node *p_from_node, String p_image_data_pa
 
 	TypedArray<TextureLayered> lightmap_textures;
 	TypedArray<TextureLayered> shadowmask_textures;
+	TypedArray<TextureLayered> direction_textures;
 	bool save_shadowmask = false;
 	if (bake_lightmaps) {
 		// POSTBAKE: Save Textures.
@@ -1517,14 +1632,37 @@ LightmapGI::BakeError LightmapGI::bake(Node *p_from_node, String p_image_data_pa
 		const String texture_filename = p_image_data_path.get_basename();
 		const int shadowmask_texture_count = lightmapper->get_shadowmask_texture_count();
 		save_shadowmask = shadowmask_mode != LightmapGIData::SHADOWMASK_MODE_NONE && shadowmask_texture_count > 0;
+		// Supersampled bakes are downsampled when saving.
+		const float output_scale = supersampling_enabled ? 1.0f / supersampling_factor : 1.0f;
+
+		Vector<Ref<Image>> light_images;
+		for (int i = 0; i < lightmapper->get_bake_texture_count(); i++) {
+			light_images.push_back(lightmapper->get_bake_texture(i));
+		}
+		Vector<Ref<Image>> direction_images;
+		if (directional) {
+			const Vector<Ref<Image>> sh_images = light_images;
+			light_images.clear();
+			split_sh_lightmap(sh_images, directional_format == DIRECTIONAL_FORMAT_DOMINANT_DIRECTION, light_images, direction_images);
+		}
 
 		// Save the lightmap atlases.
-		BakeError save_err = _save_and_reimport_atlas_textures(lightmapper, texture_filename, lightmap_textures, false);
+		BakeError save_err = _save_and_reimport_atlas_textures(light_images, texture_filename, lightmap_textures, false, output_scale);
 		ERR_FAIL_COND_V(save_err != BAKE_ERROR_OK, save_err);
+
+		if (!direction_images.is_empty()) {
+			// Direction is low frequency, so it can be stored at a lower resolution than light.
+			save_err = _save_and_reimport_atlas_textures(direction_images, texture_filename + "_dir", direction_textures, true, output_scale * directional_resolution_scale, true);
+			ERR_FAIL_COND_V(save_err != BAKE_ERROR_OK, save_err);
+		}
 
 		if (save_shadowmask) {
 			// Save the shadowmask atlases.
-			save_err = _save_and_reimport_atlas_textures(lightmapper, texture_filename + "_shadow", shadowmask_textures, true);
+			Vector<Ref<Image>> shadowmask_images;
+			for (int i = 0; i < shadowmask_texture_count; i++) {
+				shadowmask_images.push_back(lightmapper->get_shadowmask_texture(i));
+			}
+			save_err = _save_and_reimport_atlas_textures(shadowmask_images, texture_filename + "_shadow", shadowmask_textures, true, output_scale);
 			ERR_FAIL_COND_V(save_err != BAKE_ERROR_OK, save_err);
 		}
 	}
@@ -1553,6 +1691,7 @@ LightmapGI::BakeError LightmapGI::bake(Node *p_from_node, String p_image_data_pa
 
 		gi_data->set_uses_spherical_harmonics(directional);
 		gi_data->_set_uses_packed_directional(directional); // New SH lightmaps are packed automatically.
+		gi_data->set_direction_textures(direction_textures);
 		gi_data->set_tonal_luminance_range(compute_lightmap_luminance_range(lightmapper, directional));
 
 		for (int i = 0; i < lightmapper->get_bake_mesh_count(); i++) {
@@ -1847,6 +1986,23 @@ void LightmapGI::set_directional(bool p_enable) {
 
 bool LightmapGI::is_directional() const {
 	return directional;
+}
+
+void LightmapGI::set_directional_format(DirectionalFormat p_format) {
+	directional_format = p_format;
+	notify_property_list_changed();
+}
+
+LightmapGI::DirectionalFormat LightmapGI::get_directional_format() const {
+	return directional_format;
+}
+
+void LightmapGI::set_directional_resolution_scale(float p_scale) {
+	directional_resolution_scale = CLAMP(p_scale, 0.0625f, 1.0f);
+}
+
+float LightmapGI::get_directional_resolution_scale() const {
+	return directional_resolution_scale;
 }
 
 void LightmapGI::set_shadowmask_mode(LightmapGIData::ShadowmaskMode p_mode) {
@@ -2594,6 +2750,14 @@ void LightmapGI::_validate_property(PropertyInfo &p_property) const {
 		if (!supersampling_enabled) {
 			p_property.usage = PROPERTY_USAGE_NO_EDITOR;
 		}
+	} else if (p_property.name == "directional_format") {
+		if (!directional) {
+			p_property.usage = PROPERTY_USAGE_NO_EDITOR;
+		}
+	} else if (p_property.name == "directional_resolution_scale") {
+		if (!directional) {
+			p_property.usage = PROPERTY_USAGE_NO_EDITOR;
+		}
 	} else if (p_property.name == "environment_energy") {
 		if (environment_mode == ENVIRONMENT_MODE_DISABLED) {
 			p_property.usage = PROPERTY_USAGE_NO_EDITOR;
@@ -2705,6 +2869,12 @@ void LightmapGI::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("set_directional", "directional"), &LightmapGI::set_directional);
 	ClassDB::bind_method(D_METHOD("is_directional"), &LightmapGI::is_directional);
 
+	ClassDB::bind_method(D_METHOD("set_directional_format", "format"), &LightmapGI::set_directional_format);
+	ClassDB::bind_method(D_METHOD("get_directional_format"), &LightmapGI::get_directional_format);
+
+	ClassDB::bind_method(D_METHOD("set_directional_resolution_scale", "scale"), &LightmapGI::set_directional_resolution_scale);
+	ClassDB::bind_method(D_METHOD("get_directional_resolution_scale"), &LightmapGI::get_directional_resolution_scale);
+
 	ClassDB::bind_method(D_METHOD("set_shadowmask_mode", "mode"), &LightmapGI::set_shadowmask_mode);
 	ClassDB::bind_method(D_METHOD("get_shadowmask_mode"), &LightmapGI::get_shadowmask_mode);
 
@@ -2746,6 +2916,9 @@ void LightmapGI::_bind_methods() {
 	BIND_ENUM_CONSTANT(DEBUG_SHADOWS);
 	BIND_ENUM_CONSTANT(DEBUG_MIDDLETONES);
 	BIND_ENUM_CONSTANT(DEBUG_HIGHLIGHTS);
+
+	BIND_ENUM_CONSTANT(DIRECTIONAL_FORMAT_SPHERICAL_HARMONICS);
+	BIND_ENUM_CONSTANT(DIRECTIONAL_FORMAT_DOMINANT_DIRECTION);
 
 	ClassDB::bind_method(D_METHOD("set_shadows_saturation", "value"), &LightmapGI::set_shadows_saturation);
 	ClassDB::bind_method(D_METHOD("set_shadows_gamma", "value"), &LightmapGI::set_shadows_gamma);
@@ -2859,6 +3032,8 @@ void LightmapGI::_bind_methods() {
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "bounce_indirect_energy", PROPERTY_HINT_RANGE, "0,2,0.01"), "set_bounce_indirect_energy", "get_bounce_indirect_energy");
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "indirect_sample_clamp", PROPERTY_HINT_RANGE, "0,100,0.1,or_greater"), "set_indirect_sample_clamp", "get_indirect_sample_clamp");
 	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "directional"), "set_directional", "is_directional");
+	ADD_PROPERTY(PropertyInfo(Variant::INT, "directional_format", PROPERTY_HINT_ENUM, "Spherical Harmonics,Dominant Direction"), "set_directional_format", "get_directional_format");
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "directional_resolution_scale", PROPERTY_HINT_RANGE, "0.0625,1,0.0625"), "set_directional_resolution_scale", "get_directional_resolution_scale");
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "specular_intensity", PROPERTY_HINT_RANGE, "0,10,0.01"), "set_specular_intensity", "get_specular_intensity");
 	ADD_PROPERTY(PropertyInfo(Variant::INT, "shadowmask_mode", PROPERTY_HINT_ENUM, "None,Replace,Overlay"), "set_shadowmask_mode", "get_shadowmask_mode");
 	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "use_texture_for_bounces"), "set_use_texture_for_bounces", "is_using_texture_for_bounces");

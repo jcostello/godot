@@ -72,6 +72,12 @@
 			If [code]true[/code], bakes lightmaps to contain directional information as spherical harmonics. This results in more realistic lighting appearance, especially with normal mapped materials and for lights that have their direct light baked ([member Light3D.light_bake_mode] set to [constant Light3D.BAKE_STATIC] and with [member Light3D.editor_only] set to [code]false[/code]). The directional information is also used to provide rough reflections for static and dynamic objects. This has a small run-time performance cost as the shader has to perform more work to interpret the direction information from the lightmap. Directional lightmaps also take longer to bake and result in larger file sizes.
 			[b]Note:[/b] The property's name has no relationship with [DirectionalLight3D]. [member directional] works with all light types.
 		</member>
+		<member name="directional_format" type="int" setter="set_directional_format" getter="get_directional_format" enum="LightmapGI.DirectionalFormat" default="1">
+			How the directional information is stored when [member directional] is [code]true[/code]. See [enum DirectionalFormat]. Requires rebaking to take effect.
+		</member>
+		<member name="directional_resolution_scale" type="float" setter="set_directional_resolution_scale" getter="get_directional_resolution_scale" default="1.0">
+			Resolution of the directional data relative to the light texture. Directional lightmaps store HDR light in one texture and the 8-bit directional data in a separate one, so it can use a lower resolution. Direction is low frequency, so values like [code]0.5[/code] usually look the same while using a quarter of the memory. Requires rebaking to take effect.
+		</member>
 		<member name="energy" type="float" setter="set_energy" getter="get_energy" default="1.0">
 			Runtime energy multiplier for baked lighting. A value of [code]0.0[/code] disables its contribution and [code]1.0[/code] preserves the baked energy. Does not require rebaking.
 		</member>
@@ -120,8 +126,8 @@
 		<member name="highlights_white_point" type="float" setter="set_highlights_white_point" getter="get_highlights_white_point" default="1.0">
 			Input luminance mapped to white in this tonal range. Lowering it brightens the range. The value is kept at least 0.001 above the black point. A value of 1 is neutral. Values above white retain HDR headroom. Levels use the maximum luminance of the original lightmap texture as white (1), preserve RGB proportions, and use the original tonal masks. No rebake is required.
 		</member>
-		<member name="indirect_sample_clamp" type="float" setter="set_indirect_sample_clamp" getter="get_indirect_sample_clamp" default="0.0">
-			Maximum luminance of a single indirect lighting sample while baking. Clamping removes fireflies caused by rays hitting small bright emissive surfaces or a bright sun in the environment, at the cost of slightly darkening very bright indirect light. Values around [code]10.0[/code] are a good starting point. [code]0.0[/code] disables clamping.
+		<member name="indirect_sample_clamp" type="float" setter="set_indirect_sample_clamp" getter="get_indirect_sample_clamp" default="10.0">
+			Maximum luminance of a single indirect lighting sample while baking. Clamping removes fireflies caused by rays hitting small bright emissive surfaces or a bright sun in the environment, at the cost of slightly darkening very bright indirect light. Lower it if fireflies remain, e.g. with a very bright sun. [code]0.0[/code] disables clamping.
 		</member>
 		<member name="interior" type="bool" setter="set_interior" getter="is_interior" default="false">
 			If [code]true[/code], ignore environment lighting when baking lightmaps.
@@ -339,6 +345,12 @@
 		</constant>
 		<constant name="DEBUG_HIGHLIGHTS" value="3" enum="DebugMode">
 			Show the highlights weight as a grayscale mask: white for full contribution and black for none.
+		</constant>
+		<constant name="DIRECTIONAL_FORMAT_SPHERICAL_HARMONICS" value="0" enum="DirectionalFormat">
+			Store full L1 spherical harmonics per color channel: one HDR light layer plus three 8-bit L1 layers per atlas slice. Most accurate with several differently colored lights.
+		</constant>
+		<constant name="DIRECTIONAL_FORMAT_DOMINANT_DIRECTION" value="1" enum="DirectionalFormat">
+			Store one HDR light layer plus one 8-bit layer per atlas slice, with the dominant light direction and its strength shared by all color channels (similar to other engines' directional lightmaps). About a third of the directional data of [constant DIRECTIONAL_FORMAT_SPHERICAL_HARMONICS], but less accurate with several differently colored lights.
 		</constant>
 	</constants>
 </class>

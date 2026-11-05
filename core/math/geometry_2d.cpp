@@ -369,13 +369,14 @@ Vector<Vector<Point2>> Geometry2D::_polypath_offset(const Vector<Point2> &p_poly
 	return polypaths;
 }
 
-Vector<Vector3i> Geometry2D::partial_pack_rects(const Vector<Vector2i> &p_sizes, const Size2i &p_atlas_size) {
+Vector<Vector3i> Geometry2D::partial_pack_rects(const Vector<Vector2i> &p_sizes, const Size2i &p_atlas_size, bool p_best_fit) {
 	Vector<stbrp_node> nodes;
 	nodes.resize(p_atlas_size.width);
 	memset(nodes.ptrw(), 0, sizeof(stbrp_node) * nodes.size());
 
 	stbrp_context context;
 	stbrp_init_target(&context, p_atlas_size.width, p_atlas_size.height, nodes.ptrw(), p_atlas_size.width);
+	stbrp_setup_heuristic(&context, p_best_fit ? STBRP_HEURISTIC_Skyline_BF_sortHeight : STBRP_HEURISTIC_Skyline_BL_sortHeight);
 
 	Vector<stbrp_rect> rects;
 	rects.resize(p_sizes.size());

@@ -32,6 +32,8 @@
 
 #include "core/crypto/crypto_core.h"
 #include "core/error/error_macros.h"
+#include "core/math/math_funcs.h"
+#include "core/math/vector3.h"
 #include "core/os/memory.h"
 
 #include <xatlas.h>
@@ -40,10 +42,20 @@
 
 extern bool (*array_mesh_lightmap_unwrap_callback)(float p_texel_size, const float *p_vertices, const float *p_normals, int p_vertex_count, const int *p_indices, int p_index_count, const uint8_t *p_cache_data, bool *r_use_cache, uint8_t **r_mesh_cache, int *r_mesh_cache_size, float **r_uv, int **r_vertex, int *r_vertex_count, int **r_index, int *r_index_count, int *r_size_hint_x, int *r_size_hint_y);
 
+// Unwrap on a grid finer than the lightmap texel, so small and thin charts (pipes,
+// trims) are not rounded up to whole texels.
+static constexpr int UNWRAP_MAX_SUBDIVISIONS = 4;
+// Packing time grows with the grid size, so large meshes use fewer subdivisions
+// (they don't need them) to keep the finer grid within this many texels.
+static constexpr double UNWRAP_MAX_GRID_TEXELS = 4.0e6;
+// Bump when the unwrap settings change, so cached UV2 is regenerated.
+static constexpr int UNWRAP_VERSION = 7;
+
 bool xatlas_mesh_lightmap_unwrap_callback(float p_texel_size, const float *p_vertices, const float *p_normals, int p_vertex_count, const int *p_indices, int p_index_count, const uint8_t *p_cache_data, bool *r_use_cache, uint8_t **r_mesh_cache, int *r_mesh_cache_size, float **r_uv, int **r_vertex, int *r_vertex_count, int **r_index, int *r_index_count, int *r_size_hint_x, int *r_size_hint_y) {
 	CryptoCore::MD5Context ctx;
 	ctx.start();
 
+	ctx.update((unsigned char *)&UNWRAP_VERSION, sizeof(int));
 	ctx.update((unsigned char *)&p_texel_size, sizeof(float));
 	ctx.update((unsigned char *)p_indices, sizeof(int) * p_index_count);
 	ctx.update((unsigned char *)p_vertices, sizeof(float) * p_vertex_count * 3);
@@ -125,32 +137,52 @@ bool xatlas_mesh_lightmap_unwrap_callback(float p_texel_size, const float *p_ver
 
 		xatlas::ChartOptions chart_options;
 		chart_options.fixWinding = true;
+		// Like Unity's hard angle: grow charts across hard edges, limited only by normal deviation (~73 degrees max).
+		// Otherwise every face of a flat-shaded mesh becomes its own chart, wasting space on padding and adding seams.
+		chart_options.normalSeamWeight = 0.0f;
 
 		ERR_FAIL_COND_V_MSG(p_texel_size <= 0.0f, false, "Texel size must be greater than 0.");
 
+		double surface_area = 0.0;
+		for (int i = 0; i + 2 < p_index_count; i += 3) {
+			const float *a = &p_vertices[p_indices[i] * 3];
+			const float *b = &p_vertices[p_indices[i + 1] * 3];
+			const float *c = &p_vertices[p_indices[i + 2] * 3];
+			const Vector3 ab(b[0] - a[0], b[1] - a[1], b[2] - a[2]);
+			const Vector3 ac(c[0] - a[0], c[1] - a[1], c[2] - a[2]);
+			surface_area += ab.cross(ac).length() * 0.5;
+		}
+		const double lightmap_texels = surface_area / (double(p_texel_size) * p_texel_size);
+		const int subdivisions = CLAMP(int(Math::sqrt(UNWRAP_MAX_GRID_TEXELS / MAX(lightmap_texels, 1.0))), 1, UNWRAP_MAX_SUBDIVISIONS);
+
 		xatlas::PackOptions pack_options;
-		pack_options.padding = 1;
-		pack_options.maxChartSize = 4094; // Lightmap atlassing needs 2 for padding between meshes, so 4096-2
-		pack_options.blockAlign = true;
-		pack_options.texelsPerUnit = 1.0 / p_texel_size;
+		// xatlas' bilinear margin is one texel of the finer grid, so pad with two lightmap
+		// texels to keep bilinear/bicubic filtering from bleeding between charts.
+		pack_options.padding = 2 * subdivisions;
+		pack_options.maxChartSize = 4094 * subdivisions; // 4094 lightmap texels: atlassing needs 2 for padding between meshes, so 4096-2
+		// Block alignment is meant for compressed textures, but LightmapGI rescales this layout anyway.
+		pack_options.blockAlign = false;
+		pack_options.texelsPerUnit = subdivisions / p_texel_size;
 
 		xatlas::Atlas *atlas = xatlas::Create();
 
 		xatlas::AddMeshError err = xatlas::AddMesh(atlas, input_mesh, 1);
 		ERR_FAIL_COND_V_MSG(err != xatlas::AddMeshError::Success, false, xatlas::StringForEnum(err));
 
-		xatlas::Generate(atlas, chart_options, pack_options);
+		xatlas::ComputeCharts(atlas, chart_options);
+		xatlas::PackCharts(atlas, pack_options);
 
-		*r_size_hint_x = atlas->width;
-		*r_size_hint_y = atlas->height;
-
-		float w = *r_size_hint_x;
-		float h = *r_size_hint_y;
-
-		if (w == 0 || h == 0) {
+		if (atlas->width == 0 || atlas->height == 0) {
 			xatlas::Destroy(atlas);
 			return false; //could not bake because there is no area
 		}
+
+		*r_size_hint_x = Math::division_round_up(atlas->width, (uint32_t)subdivisions);
+		*r_size_hint_y = Math::division_round_up(atlas->height, (uint32_t)subdivisions);
+
+		// Normalize against the rounded-up hint, so UV2 maps exactly onto lightmap texels.
+		float w = *r_size_hint_x * subdivisions;
+		float h = *r_size_hint_y * subdivisions;
 
 		const xatlas::Mesh &output = atlas->meshes[0];
 

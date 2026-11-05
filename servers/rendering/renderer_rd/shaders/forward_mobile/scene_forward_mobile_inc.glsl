@@ -312,6 +312,8 @@ struct Lightmap {
 };
 
 #define LIGHTMAP_FLAG_COLOR_LUT (1u << 9)
+#define LIGHTMAP_FLAG_DIRECTION_TEXTURE (1u << 10)
+#define LIGHTMAP_FLAG_DIRECTION_SH (1u << 11)
 
 layout(set = 0, binding = 8, std140) restrict readonly buffer Lightmaps {
 	Lightmap data[];
@@ -403,7 +405,7 @@ layout(set = 1, binding = 4) uniform texture2D shadow_atlas;
 layout(set = 1, binding = 5) uniform texture2D directional_shadow_atlas;
 
 // this needs to change to providing just the lightmap we're using..
-layout(set = 1, binding = 6) uniform texture2DArray lightmap_textures[MAX_LIGHTMAP_TEXTURES * 2];
+layout(set = 1, binding = 6) uniform texture2DArray lightmap_textures[MAX_LIGHTMAP_TEXTURES * 3]; // Light, shadowmask, direction.
 
 // LightmapGI adjustments, applied to the sampled L0 (see lightmap_apply_color_lut()).
 layout(set = 1, binding = 26) uniform texture3D lightmap_color_luts[MAX_LIGHTMAPS];

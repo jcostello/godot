@@ -1143,7 +1143,8 @@ void LightStorage::lightmap_set_textures(RID p_lightmap, RID p_light, bool p_use
 	Lightmap *lightmap = lightmap_owner.get_or_null(p_lightmap);
 	ERR_FAIL_NULL(lightmap);
 	lightmap->light_texture = p_light;
-	lightmap->uses_spherical_harmonics = p_uses_spherical_haromics;
+	lightmap->baked_spherical_harmonics = p_uses_spherical_haromics;
+	lightmap->uses_spherical_harmonics = p_uses_spherical_haromics && lightmap->direction_texture.is_null();
 
 	Vector3i light_texture_size = GLES3::TextureStorage::get_singleton()->texture_get_size(lightmap->light_texture);
 	lightmap->light_texture_size = Vector2i(light_texture_size.x, light_texture_size.y);
@@ -1267,6 +1268,13 @@ void LightStorage::lightmap_set_shadowmask_textures(RID p_lightmap, RID p_shadow
 	glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
 	glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
 	glBindTexture(GL_TEXTURE_2D_ARRAY, 0);
+}
+
+void LightStorage::lightmap_set_direction_texture(RID p_lightmap, RID p_direction, bool p_spherical_harmonics) {
+	Lightmap *lightmap = lightmap_owner.get_or_null(p_lightmap);
+	ERR_FAIL_NULL(lightmap);
+	lightmap->direction_texture = p_direction;
+	lightmap->uses_spherical_harmonics = lightmap->baked_spherical_harmonics && p_direction.is_null();
 }
 
 RSE::ShadowmaskMode LightStorage::lightmap_get_shadowmask_mode(RID p_lightmap) {

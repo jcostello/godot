@@ -1245,6 +1245,26 @@ void main() {
 			// The margin provides a validated bilinear footprint or a valid texel center.
 			float source_slice = margin.z * float(coefficient_count) + float(params.material_slice);
 			result.rgb = textureLod(sampler2DArray(source_light, linear_sampler), vec3(margin.xy, source_slice), 0.0).rgb;
+		} else {
+			// Open borders, corner wedges and rejected seam texels would be black
+			// context for OIDN and darken chart edges. Extend the closest chart texel,
+			// searching the whole neighborhood so the padding has no isolated texels.
+			// Charts are 2 * padding apart, so this radius only reaches the own chart.
+			const int max_radius = max(int(params.denoiser_range) + 3, int(ceil(2.0 * bake_params.supersampling_factor))); // Matches oidn_padding.
+			int best_distance = max_radius * max_radius + 1;
+			for (int y = -max_radius; y <= max_radius; y++) {
+				for (int x = -max_radius; x <= max_radius; x++) {
+					const int distance_squared = x * x + y * y;
+					const ivec2 sample_pos = atlas_pos + ivec2(x, y);
+					if (distance_squared >= best_distance || any(lessThan(sample_pos, ivec2(0))) || any(greaterThanEqual(sample_pos, bake_params.atlas_size))) {
+						continue;
+					}
+					if (texelFetch(usampler2DArray(oidn_mesh_tex, linear_sampler), ivec3(sample_pos, params.geometry_slice), 0).r != 0u) {
+						result.rgb = texelFetch(sampler2DArray(source_light, linear_sampler), ivec3(sample_pos, params.atlas_slice), 0).rgb;
+						best_distance = distance_squared;
+					}
+				}
+			}
 		}
 	}
 	// Preserve alpha: padding is denoising context, not valid lightmap coverage.
@@ -1257,7 +1277,10 @@ void main() {
 		return; //empty texel, no process
 	}
 	vec3 position = texelFetch(sampler2DArray(source_position, linear_sampler), ivec3(atlas_pos, params.geometry_slice), 0).xyz;
-	vec3 geometry_normal = texelFetch(sampler2DArray(source_geometry, linear_sampler), ivec3(atlas_pos, params.geometry_slice), 0).yzw;
+	vec4 geometry = texelFetch(sampler2DArray(source_geometry, linear_sampler), ivec3(atlas_pos, params.geometry_slice), 0);
+	vec3 geometry_normal = geometry.yzw;
+	// Buried texels (unocclude mask 2) stay uncovered so dilation refills them.
+	float coverage = geometry.x > 1.5 ? 0.0 : 1.0;
 	// Validate both coverage and bounds before deriving the shadow footprint.
 	const ivec2 footprint_directions[4] = ivec2[4](ivec2(1, 0), ivec2(-1, 0), ivec2(0, 1), ivec2(0, -1));
 	float texel_size_world_space = 1e20;
@@ -1286,10 +1309,10 @@ void main() {
 
 #ifdef USE_SH_LIGHTMAPS
 	vec4 sh_accum[4] = vec4[](
-			vec4(0.0, 0.0, 0.0, 1.0),
-			vec4(0.0, 0.0, 0.0, 1.0),
-			vec4(0.0, 0.0, 0.0, 1.0),
-			vec4(0.0, 0.0, 0.0, 1.0));
+			vec4(0.0, 0.0, 0.0, coverage),
+			vec4(0.0, 0.0, 0.0, coverage),
+			vec4(0.0, 0.0, 0.0, coverage),
+			vec4(0.0, 0.0, 0.0, coverage));
 #endif
 
 	// Use atlas position and a prime number as the seed.
@@ -1362,12 +1385,12 @@ void main() {
 	imageStore(direct_light, ivec3(atlas_pos, params.output_slice * 4 + 3), sh_accum[3]);
 #else
 	light_for_texture *= bake_params.exposure_normalization;
-	imageStore(accum_light, ivec3(atlas_pos, params.output_slice), vec4(light_for_texture, 1.0));
-	imageStore(direct_light, ivec3(atlas_pos, params.output_slice), vec4(light_for_texture, 1.0));
+	imageStore(accum_light, ivec3(atlas_pos, params.output_slice), vec4(light_for_texture, coverage));
+	imageStore(direct_light, ivec3(atlas_pos, params.output_slice), vec4(light_for_texture, coverage));
 #endif
 
 #ifdef USE_SHADOWMASK
-	imageStore(shadowmask, ivec3(atlas_pos, params.atlas_slice), vec4(shadowmask_value, shadowmask_value, shadowmask_value, 1.0));
+	imageStore(shadowmask, ivec3(atlas_pos, params.atlas_slice), vec4(shadowmask_value, shadowmask_value, shadowmask_value, coverage));
 #endif
 
 #endif // MODE_DIRECT_LIGHT
@@ -1650,8 +1673,20 @@ void main() {
 
 	position_alpha.xyz = vertex_pos;
 
+	// Texels sealed under other geometry (e.g. a hoop hugging a barrel stave) get no
+	// light, and filtering bleeds that black into the visible edges around them.
+	// Flag them (mask 2) so they stay uncovered and dilation refills them. A texel is
+	// buried when something lies right on top of it, or its whole hemisphere is sealed.
+	bool covered_on_top = trace_ray_any_hit(base_pos, base_pos + face_normal * texel_size * 0.5) != RAY_MISS;
+	bool buried = true;
+	for (int i = 0; i < 9 && buried && !covered_on_top; i++) {
+		float angle = float(i) * (PI / 4.0);
+		vec3 dir = i == 0 ? face_normal : normalize(face_normal * 0.5 + (tangent * cos(angle) + bitangent * sin(angle)) * 0.866);
+		buried = trace_ray_any_hit(base_pos, base_pos + dir * texel_size * 2.0) != RAY_MISS;
+	}
+
 	imageStore(position, ivec3(atlas_pos, params.geometry_slice), position_alpha);
-	imageStore(unocclude, ivec3(atlas_pos, params.geometry_slice), vec4(unocclude_mask, face_normal));
+	imageStore(unocclude, ivec3(atlas_pos, params.geometry_slice), vec4(buried ? 2.0 : unocclude_mask, face_normal));
 
 #endif
 
@@ -1720,7 +1755,6 @@ void main() {
 #ifdef MODE_DILATE
 
 	const int max_radius = int(4.0 * bake_params.supersampling_factor);
-	const ivec2 directions[8] = ivec2[8](ivec2(-1, 0), ivec2(0, 1), ivec2(1, 0), ivec2(0, -1), ivec2(-1, -1), ivec2(-1, 1), ivec2(1, -1), ivec2(1, 1));
 
 	vec4 texel_color = texelFetch(sampler2DArray(source_light, linear_sampler), ivec3(atlas_pos, params.atlas_slice), 0);
 
@@ -1730,24 +1764,22 @@ void main() {
 		return;
 	}
 
-	for (int radius = 1; radius <= max_radius; radius++) {
-		for (uint i = 0; i < 8; i++) {
-			const ivec2 sample_pos = atlas_pos + directions[i] * radius;
-			// Texture bounds check for robustness.
-			if (any(lessThan(sample_pos, ivec2(0))) ||
-					any(greaterThanEqual(sample_pos, textureSize(source_light, 0).xy))) {
+	// Copy the closest covered texel in the whole neighborhood. Searching only along the
+	// 8 axes leaves isolated filled texels in the padding, which filtering turns into fireflies.
+	const ivec2 atlas_size = textureSize(source_light, 0).xy;
+	int best_distance = max_radius * max_radius + 1;
+	for (int y = -max_radius; y <= max_radius; y++) {
+		for (int x = -max_radius; x <= max_radius; x++) {
+			const int distance_squared = x * x + y * y;
+			const ivec2 sample_pos = atlas_pos + ivec2(x, y);
+			if (distance_squared >= best_distance || any(lessThan(sample_pos, ivec2(0))) || any(greaterThanEqual(sample_pos, atlas_size))) {
 				continue;
 			}
-
 			vec4 neighbor_color = texelFetch(sampler2DArray(source_light, linear_sampler), ivec3(sample_pos, params.atlas_slice), 0);
 			if (neighbor_color.a > 0.5) {
 				texel_color = neighbor_color;
-				break;
+				best_distance = distance_squared;
 			}
-		}
-
-		if (texel_color.a > 0.5) {
-			break;
 		}
 	}
 
@@ -1894,7 +1926,7 @@ void main() {
 					weight *= exp(-normal_square_dist / TWO_SIGMA_NORMAL_SQUARE);
 
 					// Weight with occlusion.
-					weight *= 1.0 - search_occlusion;
+					weight *= 1.0 - min(search_occlusion, 1.0); // Buried texels are flagged with 2.
 
 					denoised_rgb += weight * search_rgb;
 					sum_weights += weight;

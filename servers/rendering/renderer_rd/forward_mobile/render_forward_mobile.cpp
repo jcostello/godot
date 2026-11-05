@@ -582,11 +582,11 @@ RID RenderForwardMobile::_setup_render_pass_uniform_set(RenderListType p_render_
 	/* we have limited ability to keep textures like this so we're moving this to a set we change before drawing geometry and just pushing the needed texture in */
 	{
 		Vector<RID> textures;
-		textures.resize(scene_state.max_lightmaps * 2);
+		textures.resize(scene_state.max_lightmaps * 3);
 
 		RID default_tex = texture_storage->texture_rd_get_default(RendererRD::TextureStorage::DEFAULT_RD_TEXTURE_2D_ARRAY_WHITE);
-		for (uint32_t i = 0; i < scene_state.max_lightmaps * 2; i++) {
-			uint32_t current_lightmap_index = i < scene_state.max_lightmaps ? i : i - scene_state.max_lightmaps;
+		for (uint32_t i = 0; i < scene_state.max_lightmaps * 3; i++) {
+			uint32_t current_lightmap_index = i % scene_state.max_lightmaps;
 
 			if (p_render_data && current_lightmap_index < p_render_data->lightmaps->size()) {
 				RID base = light_storage->lightmap_instance_get_lightmap((*p_render_data->lightmaps)[current_lightmap_index]);
@@ -595,9 +595,12 @@ RID RenderForwardMobile::_setup_render_pass_uniform_set(RenderListType p_render_
 				if (i < scene_state.max_lightmaps) {
 					// Lightmap
 					texture = light_storage->lightmap_get_texture(base);
-				} else {
+				} else if (i < scene_state.max_lightmaps * 2) {
 					// Shadowmask
 					texture = light_storage->shadowmask_get_texture(base);
+				} else {
+					// Directional data (L1 SH layers or dominant direction)
+					texture = light_storage->lightmap_get_direction_texture(base);
 				}
 
 				if (texture.is_valid()) {
@@ -783,6 +786,7 @@ void RenderForwardMobile::_setup_lightmaps(const RenderDataRD *p_render_data, co
 		scene_state.lightmaps[i].exposure_normalization = 1.0;
 		scene_state.lightmaps[i].flags = light_storage->lightmap_get_shadowmask_mode(lightmap);
 		scene_state.lightmaps[i].flags |= light_storage->lightmap_prepare_color_lut(lightmap, scene_state.lightmaps[i].color_lut_params);
+		scene_state.lightmaps[i].flags |= light_storage->lightmap_get_direction_flags(lightmap);
 		if (p_render_data->camera_attributes.is_valid()) {
 			float baked_exposure = light_storage->lightmap_get_baked_exposure_normalization(lightmap);
 			float enf = RSG::camera_attributes->camera_attributes_get_render_exposure_normalization_factor(p_render_data->camera_attributes);

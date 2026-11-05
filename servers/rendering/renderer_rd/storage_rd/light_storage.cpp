@@ -2083,6 +2083,7 @@ void LightStorage::lightmap_initialize(RID p_lightmap) {
 
 void LightStorage::lightmap_free(RID p_rid) {
 	lightmap_set_textures(p_rid, RID(), false);
+	lightmap_set_direction_texture(p_rid, RID(), false);
 	Lightmap *lightmap = lightmap_owner.get_or_null(p_rid);
 	if (lightmap->color_parameters_buffer.is_valid()) {
 		RD::get_singleton()->free_rid(lightmap->color_parameters_buffer);
@@ -2301,6 +2302,15 @@ void LightStorage::lightmap_set_shadowmask_textures(RID p_lightmap, RID p_shadow
 	ERR_FAIL_COND_MSG(lm->array_index < 0, vformat("Maximum amount of shadowmasks in use (%d) has been exceeded, shadowmask will not display properly.", shadowmask_textures.size()));
 
 	shadowmask_textures.write[lm->array_index] = t->rd_texture;
+}
+
+void LightStorage::lightmap_set_direction_texture(RID p_lightmap, RID p_direction, bool p_spherical_harmonics) {
+	Lightmap *lm = lightmap_owner.get_or_null(p_lightmap);
+	ERR_FAIL_NULL(lm);
+	lm->direction_texture = p_direction;
+	lm->direction_spherical_harmonics = p_spherical_harmonics;
+	// The light texture layout changes from 4 layers per slice to 1.
+	lm->color_lut_dirty = true;
 }
 
 RSE::ShadowmaskMode LightStorage::lightmap_get_shadowmask_mode(RID p_lightmap) {
@@ -3041,7 +3051,7 @@ void LightStorage::_update_lightmap_tonal_luminance_range(Lightmap *p_lightmap) 
 	ERR_FAIL_COND(!_lightmap_color_shader_init());
 	RD *rd = RD::get_singleton();
 	const RD::TextureFormat source_format = rd->texture_get_format(source->rd_texture);
-	const uint32_t stride = p_lightmap->uses_spherical_harmonics ? 4 : 1;
+	const uint32_t stride = p_lightmap->uses_spherical_harmonics && p_lightmap->direction_texture.is_null() ? 4 : 1;
 	// A 512x512 grid per L0 layer is plenty for the 1st and 99th percentiles, and reads back
 	// a few MiB instead of decompressing every texel on the CPU.
 	RD::TextureFormat format;

@@ -181,7 +181,11 @@ struct ReflectionProbeInstance {
 struct Lightmap {
 	RID light_texture;
 	RID shadow_texture;
-	bool uses_spherical_harmonics = false;
+	// shortcut: Compatibility doesn't sample separate direction textures, so those lightmaps
+	// fall back to non-directional L0. Sample direction_texture here to support them.
+	RID direction_texture;
+	bool baked_spherical_harmonics = false;
+	bool uses_spherical_harmonics = false; // Light texture holds 4 SH layers per slice.
 	bool interior = false;
 	AABB bounds = AABB(Vector3(), Vector3(1, 1, 1));
 	float baked_exposure = 1.0;
@@ -752,6 +756,7 @@ public:
 	virtual float lightmap_get_probe_capture_update_speed() const override;
 
 	virtual void lightmap_set_shadowmask_textures(RID p_lightmap, RID p_shadow) override;
+	virtual void lightmap_set_direction_texture(RID p_lightmap, RID p_direction, bool p_spherical_harmonics) override;
 	virtual RSE::ShadowmaskMode lightmap_get_shadowmask_mode(RID p_lightmap) override;
 	virtual void lightmap_set_shadowmask_mode(RID p_lightmap, RSE::ShadowmaskMode p_mode) override;
 	virtual float lightmap_get_specular_intensity(RID p_lightmap) override;

@@ -405,19 +405,21 @@ void LightmapperRD::_sort_triangle_clusters(uint32_t p_cluster_size, uint32_t p_
 
 Lightmapper::BakeError LightmapperRD::_blit_meshes_into_atlas(RenderingDevice *p_rd, RID &r_albedo_texture, RID &r_emission_texture, int p_max_texture_size, int p_denoiser_range, bool p_expand_for_oidn, AABB &bounds, Size2i &atlas_size, int &atlas_slices, float p_supersampling_factor, BakeStepFunc p_step_function, void *p_bake_userdata) {
 	Vector<Size2i> sizes;
-	const int oidn_padding = MAX(1, int(Math::ceil((p_denoiser_range + 3) * p_supersampling_factor)));
+	// OIDN runs on the supersampled atlas, so its context only needs the seam margin width (denoiser range + 3 atlas texels),
+	// plus 2 output texels so filtering after downsampling stays inside the padding.
+	const int oidn_padding = MAX(p_denoiser_range + 3, int(Math::ceil(2.0f * p_supersampling_factor)));
+	// Total padding around each mesh, split evenly on both sides. It is scaled when the
+	// lightmap is downsampled at the end of the bake, otherwise it would be insufficient.
+	const Size2i padding = p_expand_for_oidn ? Size2i(oidn_padding * 2, oidn_padding * 2) : Size2i(2, 2).maxi(p_denoiser_range) * p_supersampling_factor;
+	const Vector3i padding_offset(padding.x / 2, padding.y / 2, 0);
 
+	Size2i min_size;
 	for (int m_i = 0; m_i < mesh_instances.size(); m_i++) {
-		MeshInstance &mi = mesh_instances.write[m_i];
-		Size2i s = mi.data.lightmap_size;
-		sizes.push_back(s);
-		atlas_size = atlas_size.max(s + (p_expand_for_oidn ? Size2i(oidn_padding * 2, oidn_padding * 2) : Size2i(2, 2).maxi(p_denoiser_range) * p_supersampling_factor));
+		sizes.push_back(mesh_instances[m_i].data.lightmap_size + padding);
+		min_size = min_size.max(sizes[m_i]);
 	}
 
-	int max = Math::nearest_power_of_2_templated(atlas_size.width);
-	max = MAX(max, Math::nearest_power_of_2_templated(atlas_size.height));
-
-	if (max > p_max_texture_size) {
+	if (min_size.width > p_max_texture_size || min_size.height > p_max_texture_size) {
 		return BAKE_ERROR_TEXTURE_EXCEEDS_MAX_SIZE;
 	}
 
@@ -427,74 +429,67 @@ Lightmapper::BakeError LightmapperRD::_blit_meshes_into_atlas(RenderingDevice *p
 		}
 	}
 
-	atlas_size = Size2i(max, max);
-
 	Size2i best_atlas_size;
 	int best_atlas_slices = 0;
-	int best_atlas_memory = 0x7FFFFFFF;
+	int64_t best_atlas_memory = INT64_MAX;
 	Vector<Vector3i> best_atlas_offsets;
 
-	// Determine best texture array atlas size by bruteforce fitting.
-	while (atlas_size.x <= p_max_texture_size && atlas_size.y <= p_max_texture_size) {
-		Vector<Vector2i> source_sizes;
-		Vector<int> source_indices;
-		source_sizes.resize(sizes.size());
-		source_indices.resize(sizes.size());
-		for (int i = 0; i < source_indices.size(); i++) {
-			// Add padding between lightmaps.
-			// Scale the padding if the lightmap will be downsampled at the end of the baking process
-			// Otherwise the padding would be insufficient.
-			source_sizes.write[i] = sizes[i] + (p_expand_for_oidn ? Vector2i(oidn_padding * 2, oidn_padding * 2) : Vector2i(2, 2).maxi(p_denoiser_range) * p_supersampling_factor);
-			source_indices.write[i] = i;
-		}
-		Vector<Vector3i> atlas_offsets;
-		atlas_offsets.resize(source_sizes.size());
+	// Determine the texture array size using the least memory by bruteforce fitting,
+	// trying both skyline heuristics since neither is always tighter.
+	// Heights are not limited to powers of two, so the last layer is not mostly empty.
+	const int height_step = 64;
+	for (int width = Math::nearest_power_of_2_templated(min_size.width); width <= p_max_texture_size; width *= 2) {
+		for (int best_fit = 0; best_fit < 2; best_fit++) {
+			for (int height = Math::division_round_up(min_size.height, height_step) * height_step; height <= MIN(width, p_max_texture_size); height += height_step) {
+				const Size2i candidate_size(width, height);
+				Vector<Vector2i> source_sizes = sizes;
+				Vector<int> source_indices;
+				source_indices.resize(sizes.size());
+				for (int i = 0; i < source_indices.size(); i++) {
+					source_indices.write[i] = i;
+				}
+				Vector<Vector3i> atlas_offsets;
+				atlas_offsets.resize(source_sizes.size());
 
-		// Ensure the sizes can all fit into a single atlas layer.
-		// This should always happen, and this check is only in place to prevent an infinite loop.
-		for (int i = 0; i < source_sizes.size(); i++) {
-			if (source_sizes[i] > atlas_size) {
-				return BAKE_ERROR_ATLAS_TOO_SMALL;
-			}
-		}
+				int slices = 0;
+				while (source_sizes.size() > 0) {
+					Vector<Vector3i> offsets = Geometry2D::partial_pack_rects(source_sizes, candidate_size, best_fit);
+					Vector<int> new_indices;
+					Vector<Vector2i> new_sources;
+					for (int i = 0; i < offsets.size(); i++) {
+						Vector3i ofs = offsets[i];
+						int sidx = source_indices[i];
+						if (ofs.z > 0) {
+							//valid
+							ofs.z = slices;
+							atlas_offsets.write[sidx] = ofs + padding_offset;
+						} else {
+							new_indices.push_back(sidx);
+							new_sources.push_back(source_sizes[i]);
+						}
+					}
 
-		int slices = 0;
+					source_sizes = new_sources;
+					source_indices = new_indices;
+					slices++;
+				}
 
-		while (source_sizes.size() > 0) {
-			Vector<Vector3i> offsets = Geometry2D::partial_pack_rects(source_sizes, atlas_size);
-			Vector<int> new_indices;
-			Vector<Vector2i> new_sources;
-			for (int i = 0; i < offsets.size(); i++) {
-				Vector3i ofs = offsets[i];
-				int sidx = source_indices[i];
-				if (ofs.z > 0) {
-					//valid
-					ofs.z = slices;
-					atlas_offsets.write[sidx] = ofs + Vector3i(p_expand_for_oidn ? oidn_padding : 1, p_expand_for_oidn ? oidn_padding : 1, 0);
-				} else {
-					new_indices.push_back(sidx);
-					new_sources.push_back(source_sizes[i]);
+				const int64_t mem_used = int64_t(width) * height * slices;
+				// On ties, prefer fewer layers.
+				if (mem_used < best_atlas_memory || (mem_used == best_atlas_memory && slices < best_atlas_slices)) {
+					best_atlas_size = candidate_size;
+					best_atlas_offsets = atlas_offsets;
+					best_atlas_slices = slices;
+					best_atlas_memory = mem_used;
+				}
+				if (slices == 1) {
+					break; // Taller single layers at this width only use more memory.
 				}
 			}
-
-			source_sizes = new_sources;
-			source_indices = new_indices;
-			slices++;
 		}
-
-		int mem_used = atlas_size.x * atlas_size.y * slices;
-		if (mem_used < best_atlas_memory) {
-			best_atlas_size = atlas_size;
-			best_atlas_offsets = atlas_offsets;
-			best_atlas_slices = slices;
-			best_atlas_memory = mem_used;
-		}
-
-		if (atlas_size.width == atlas_size.height) {
-			atlas_size.width *= 2;
-		} else {
-			atlas_size.height *= 2;
-		}
+	}
+	if (best_atlas_slices == 0) {
+		return BAKE_ERROR_ATLAS_TOO_SMALL;
 	}
 	atlas_size = best_atlas_size;
 	atlas_slices = best_atlas_slices;
@@ -876,9 +871,21 @@ Error LightmapperRD::_create_acceleration_structures(RenderingDevice *rd, Size2i
 					if (euv2->seam_found) {
 						continue; //bad geometry
 					}
+					euv2->seam_found = true;
+
+					// Smooth-shaded hard corners (e.g. a box with averaged normals) share
+					// normals across the edge, but their faces see very different light.
+					// Blending them darkens the edges, so only blend bends up to 60 degrees.
+					const Vector3 edge_dir = (edge.b - edge.a).normalized();
+					Vector3 inward = uv2.opposite_vertex - edge.a;
+					Vector3 other_inward = euv2->opposite_vertex - edge.a;
+					inward = (inward - edge_dir * inward.dot(edge_dir)).normalized();
+					other_inward = (other_inward - edge_dir * other_inward.dot(edge_dir)).normalized();
+					if (inward.dot(other_inward) > -0.5) {
+						continue;
+					}
 
 					add_seam(make_edge(edge, uv2, m_i, mi.slice), make_edge(edge, *euv2, m_i, mi.slice));
-					euv2->seam_found = true;
 				}
 			}
 
@@ -1235,25 +1242,31 @@ LightmapperRD::BakeError LightmapperRD::_dilate(RenderingDevice *rd, Ref<RDShade
 	push_constant.region_ofs[0] = 0;
 	push_constant.region_ofs[1] = 0;
 	const Vector3i group_size(Math::division_round_up(atlas_size.x, 8), Math::division_round_up(atlas_size.y, 8), 1);
-	RID dest_slice = rd->texture_create_shared_from_slice(RD::TextureView(), dest_light_tex, 0, 0, 1, RD::TEXTURE_SLICE_2D_ARRAY, 1);
-
+	// Bind whole arrays and select the layer with the push constant: 2D array
+	// slice views can only be created for layer 0, which broke SH and multi-slice shadowmask dilation.
+	Vector<RD::Uniform> uniforms = dilate_or_denoise_common_uniforms(source_light_tex, dest_light_tex);
+	RID uniform_set = rd->uniform_set_create(uniforms, compute_shader_dilate, 1);
+	if (uniform_set.is_null()) {
+		rd->free_rid(compute_shader_dilate);
+		ERR_FAIL_V_MSG(BAKE_ERROR_LIGHTMAP_CANT_PRE_BAKE_MESHES, "Lightmap dilation failed to create its uniform set.");
+	}
+	RD::ComputeListID compute_list = rd->compute_list_begin();
+	rd->compute_list_bind_compute_pipeline(compute_list, compute_shader_dilate_pipeline);
+	rd->compute_list_bind_uniform_set(compute_list, pass_base_uniform, 0);
+	rd->compute_list_bind_uniform_set(compute_list, uniform_set, 1);
 	for (int i = 0; i < atlas_slices; i++) {
-		RID source_slice = rd->texture_create_shared_from_slice(RD::TextureView(), source_light_tex, i, 0, 1, RD::TEXTURE_SLICE_2D_ARRAY, 1);
-		Vector<RD::Uniform> uniforms = dilate_or_denoise_common_uniforms(source_slice, dest_slice);
-		RID uniform_set = rd->uniform_set_create(uniforms, compute_shader_dilate, 1);
-		RD::ComputeListID compute_list = rd->compute_list_begin();
-		rd->compute_list_bind_compute_pipeline(compute_list, compute_shader_dilate_pipeline);
-		rd->compute_list_bind_uniform_set(compute_list, pass_base_uniform, 0);
-		rd->compute_list_bind_uniform_set(compute_list, uniform_set, 1);
-		push_constant.atlas_slice = 0;
+		push_constant.atlas_slice = i;
 		rd->compute_list_set_push_constant(compute_list, &push_constant, sizeof(PushConstant));
 		rd->compute_list_dispatch(compute_list, group_size.x, group_size.y, group_size.z);
-		rd->compute_list_end();
-		rd->texture_copy(dest_light_tex, source_light_tex, Vector3(), Vector3(), Vector3(atlas_size.width, atlas_size.height, 1), 0, 0, 0, i);
-		rd->free_rid(uniform_set);
-		rd->free_rid(source_slice);
 	}
-	rd->free_rid(dest_slice);
+	rd->compute_list_end();
+	for (int i = 0; i < atlas_slices; i++) {
+		// A failed copy silently leaves every lightmap edge undilated.
+		if (rd->texture_copy(dest_light_tex, source_light_tex, Vector3(), Vector3(), Vector3(atlas_size.width, atlas_size.height, 1), 0, 0, i, i) != OK) {
+			rd->free_rid(compute_shader_dilate);
+			ERR_FAIL_V_MSG(BAKE_ERROR_LIGHTMAP_CANT_PRE_BAKE_MESHES, "Lightmap dilation failed to copy its result.");
+		}
+	}
 	rd->free_rid(compute_shader_dilate);
 
 #ifdef DEBUG_TEXTURES
@@ -1964,7 +1977,8 @@ LightmapperRD::BakeError LightmapperRD::bake(BakeQuality p_quality, bool p_use_d
 	RID albedo_array_tex;
 	RID emission_array_tex;
 
-	BakeError bake_error = _blit_meshes_into_atlas(rd, albedo_array_tex, emission_array_tex, p_max_texture_size, p_denoiser_range, p_use_denoiser && denoiser == 1, bounds, atlas_size, atlas_slices, p_supersampling_factor, p_step_function, p_bake_userdata);
+	// Without a denoiser, mesh padding only has to cover bilinear/bicubic filtering.
+	BakeError bake_error = _blit_meshes_into_atlas(rd, albedo_array_tex, emission_array_tex, p_max_texture_size, p_use_denoiser ? p_denoiser_range : 0, p_use_denoiser && denoiser == 1, bounds, atlas_size, atlas_slices, p_supersampling_factor, p_step_function, p_bake_userdata);
 	if (bake_error != BAKE_OK) {
 		return bake_error;
 	}

@@ -165,9 +165,6 @@ void main() {
 	if (determinant == 0.0) {
 		discard;
 	}
-	vec2 dst_edge = seam.dst_uv.zw - seam.dst_uv.xy;
-	float along = clamp(dot(uv_interp.xy - seam.dst_uv.xy, dst_edge) / dot(dst_edge, dst_edge), 0.0, 1.0);
-	vec3 expected_normal = normalize(mix(seam.normal[0].xyz, seam.normal[1].xyz, along));
 	bool full_footprint_valid = true;
 	float best_weight = 0.0;
 	ivec2 best_tap = ivec2(0);
@@ -194,13 +191,11 @@ void main() {
 				continue;
 			}
 			vec3 normal = texelFetch(sampler2DArray(normal_tex, linear_sampler), ivec3(tap, 0), 0).xyz;
-			vec3 tap_expected_normal = expected_normal;
-			if (seam.mesh == seam.src_mesh) {
-				// Smooth internal seams curve away from their endpoint normals.
-				// Validate against the actual source triangle at this texel.
-				tap_expected_normal = normalize(seam.source_normal[0].xyz * (1.0 - barycentric.x - barycentric.y) +
-						seam.source_normal[1].xyz * barycentric.x + seam.source_normal[2].xyz * barycentric.y);
-			}
+			// Curved surfaces bend away from the seam's endpoint normals, so validate
+			// against the actual source triangle at this texel. Coplanarity and normal
+			// continuity across mesh seams are already enforced on the CPU.
+			vec3 tap_expected_normal = normalize(seam.source_normal[0].xyz * (1.0 - barycentric.x - barycentric.y) +
+					seam.source_normal[1].xyz * barycentric.x + seam.source_normal[2].xyz * barycentric.y);
 			if (dot(normal, tap_expected_normal) < 0.999 || texelFetch(sampler2DArray(unocclude_tex, linear_sampler), ivec3(tap, 0), 0).r > 0.0) {
 				full_footprint_valid = false;
 				continue;

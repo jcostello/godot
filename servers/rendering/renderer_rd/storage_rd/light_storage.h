@@ -369,6 +369,8 @@ private:
 		bool tonal_range_baked = false;
 		RID light_texture;
 		RID shadow_texture;
+		RID direction_texture; // 8-bit directional data, replaces the L1 SH layers of the light texture when valid.
+		bool direction_spherical_harmonics = false; // Three L1 layers per slice instead of one dominant direction.
 		RSE::ShadowmaskMode shadowmask_mode = RSE::SHADOWMASK_MODE_NONE;
 		bool uses_spherical_harmonics = false;
 		bool interior = false;
@@ -1050,6 +1052,8 @@ public:
 	static constexpr uint32_t LIGHTMAP_COLOR_LUT_SIZE = 64;
 	static constexpr uint32_t LIGHTMAP_FLAG_COLOR_PREVIEW = 1u << 8;
 	static constexpr uint32_t LIGHTMAP_FLAG_COLOR_LUT = 1u << 9;
+	static constexpr uint32_t LIGHTMAP_FLAG_DIRECTION_TEXTURE = 1u << 10;
+	static constexpr uint32_t LIGHTMAP_FLAG_DIRECTION_SH = 1u << 11;
 	uint32_t lightmap_prepare_color_lut(RID p_lightmap, float *r_params);
 	RID lightmap_get_color_lut(RID p_lightmap) const;
 
@@ -1070,6 +1074,7 @@ public:
 	Dependency *lightmap_get_dependency(RID p_lightmap) const;
 
 	virtual void lightmap_set_shadowmask_textures(RID p_lightmap, RID p_shadow) override;
+	virtual void lightmap_set_direction_texture(RID p_lightmap, RID p_direction, bool p_spherical_harmonics) override;
 	virtual RSE::ShadowmaskMode lightmap_get_shadowmask_mode(RID p_lightmap) override;
 	virtual void lightmap_set_shadowmask_mode(RID p_lightmap, RSE::ShadowmaskMode p_mode) override;
 	virtual float lightmap_get_specular_intensity(RID p_lightmap) override;
@@ -1116,6 +1121,22 @@ public:
 	_FORCE_INLINE_ const Vector<RID> &lightmap_array_get_textures() const {
 		ERR_FAIL_COND_V(!using_lightmap_array, lightmap_textures); //only for arrays
 		return lightmap_textures;
+	}
+
+	_FORCE_INLINE_ RID lightmap_get_direction_texture(RID p_lightmap) const {
+		const Lightmap *lm = lightmap_owner.get_or_null(p_lightmap);
+		ERR_FAIL_NULL_V(lm, RID());
+		return lm->direction_texture;
+	}
+
+	// Lightmap flags describing where the directional data is sampled from.
+	_FORCE_INLINE_ uint32_t lightmap_get_direction_flags(RID p_lightmap) const {
+		const Lightmap *lm = lightmap_owner.get_or_null(p_lightmap);
+		ERR_FAIL_NULL_V(lm, 0);
+		if (lm->direction_texture.is_null()) {
+			return 0;
+		}
+		return LIGHTMAP_FLAG_DIRECTION_TEXTURE | (lm->direction_spherical_harmonics ? LIGHTMAP_FLAG_DIRECTION_SH : 0);
 	}
 
 	_FORCE_INLINE_ RID shadowmask_get_texture(RID p_lightmap) const {
