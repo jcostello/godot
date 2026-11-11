@@ -32,8 +32,8 @@ layout(set = 0, binding = 0) uniform BakeParameters {
 
 	float ao_contact_distance;
 	float ao_contact_strength;
-	float pad0;
-	float pad1;
+	uint emissive_count; // 0 disables emissive importance sampling.
+	float emissive_probability; // Chance a light sample goes to emissives instead of the environment.
 }
 bake_params;
 
@@ -62,7 +62,7 @@ struct Triangle {
 	uint mesh;
 	float alpha_scissor_threshold;
 	uint source_triangle;
-	uint pad0;
+	float emissive_area_pdf; // Emissive NEE: selection probability / area, 0 if the triangle doesn't emit.
 	uint pad2;
 };
 

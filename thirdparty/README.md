@@ -1310,6 +1310,10 @@ Files extracted from upstream source:
 - `source/xatlas/xatlas.{cpp,h}`
 - `LICENSE`
 
+Patches:
+
+- `0001-min-chart-size.patch` (adds `PackOptions::minChartSize`, which stretches thin charts along their thin axis)
+
 
 ## zlib
 

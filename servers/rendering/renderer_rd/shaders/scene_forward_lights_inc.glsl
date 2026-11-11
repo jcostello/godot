@@ -1326,9 +1326,26 @@ void reflection_process(uint ref_index, vec3 vertex, hvec3 ref_vec, hvec3 normal
 	}
 
 	vec2 border_size = scene_data_block.data.reflection_atlas_border_size;
+
+#ifdef USE_LIGHTMAP
+	// Lightmapped surfaces: scale the probe by the baked lighting here over the probe's own irradiance (its blurriest mip
+	// along the normal), so dark corners don't reflect what the probe captured at its centre. Both are exposure normalized.
+	half lightmap_normalization = half(1.0);
+	if (reflections.data[ref_index].intensity > 0.0) {
+		const vec3 luminance_weights = vec3(0.2126, 0.7152, 0.0722);
+		vec2 irradiance_uv = vec3_to_oct_with_border((reflections.data[ref_index].local_matrix * vec4(normal, 0.0)).xyz, border_size);
+		vec3 probe_irradiance = textureLod(sampler2DArray(reflection_atlas, DEFAULT_SAMPLER_LINEAR_WITH_MIPMAPS_CLAMP), vec3(irradiance_uv, reflections.data[ref_index].index), MAX_ROUGHNESS_LOD).rgb;
+		float probe_luminance = dot(probe_irradiance, luminance_weights) * float(REFLECTION_MULTIPLIER) * reflections.data[ref_index].exposure_normalization;
+		if (probe_luminance > 1e-6) {
+			lightmap_normalization = half(clamp(dot(vec3(ambient_light), luminance_weights) / probe_luminance, 0.0, 2.0));
+		}
+	}
+#endif
+
 	if (reflections.data[ref_index].intensity > 0.0 && reflection_accum.a < half(1.0)) { // compute reflection
 
 		vec3 local_ref_vec = (reflections.data[ref_index].local_matrix * vec4(ref_vec, 0.0)).xyz;
+		float reflection_roughness = float(roughness);
 
 		if (reflections.data[ref_index].box_project) { //box project
 
@@ -1341,15 +1358,21 @@ void reflection_process(uint ref_index, vec3 vertex, hvec3 ref_vec, hvec3 normal
 			float fa = min(min(rbminmax.x, rbminmax.y), rbminmax.z);
 			vec3 posonbox = local_pos + nrdir * fa;
 			local_ref_vec = posonbox - reflections.data[ref_index].box_offset;
+			// Distance based roughness ("Moving Frostbite to PBR" 4.9.6): reflected points close to the surface, relative to the probe centre, blur less.
+			float distance_roughness = clamp(fa / max(length(local_ref_vec), 1e-4) * reflection_roughness, 0.0, reflection_roughness);
+			reflection_roughness = mix(distance_roughness, reflection_roughness, reflection_roughness);
 		}
 
 		hvec4 reflection;
 		half reflection_blend = max(half(0.0), blend - reflection_accum.a);
 
-		float roughness_lod = sqrt(roughness) * MAX_ROUGHNESS_LOD;
+		float roughness_lod = sqrt(reflection_roughness) * MAX_ROUGHNESS_LOD;
 		vec2 reflection_uv = vec3_to_oct_with_border(local_ref_vec, border_size);
 		reflection.rgb = hvec3(textureLod(sampler2DArray(reflection_atlas, DEFAULT_SAMPLER_LINEAR_WITH_MIPMAPS_CLAMP), vec3(reflection_uv, reflections.data[ref_index].index), roughness_lod).rgb) * REFLECTION_MULTIPLIER;
 		reflection.rgb *= half(reflections.data[ref_index].exposure_normalization);
+#ifdef USE_LIGHTMAP
+		reflection.rgb *= lightmap_normalization;
+#endif
 		reflection.a = reflection_blend * half(reflections.data[ref_index].intensity);
 
 		reflection.rgb *= reflection.a;
@@ -1360,6 +1383,7 @@ void reflection_process(uint ref_index, vec3 vertex, hvec3 ref_vec, hvec3 normal
 #ifdef LIGHT_CLEARCOAT_USED
 	if (reflections.data[ref_index].intensity > 0.0 && cc_reflection_accum.a < half(1.0)) { // compute clearcoat reflection
 		vec3 local_cc_ref_vec = (reflections.data[ref_index].local_matrix * vec4(cc_ref_vec, 0.0)).xyz;
+		float cc_reflection_roughness = float(cc_roughness);
 
 		if (reflections.data[ref_index].box_project) { // Box project.
 
@@ -1372,15 +1396,20 @@ void reflection_process(uint ref_index, vec3 vertex, hvec3 ref_vec, hvec3 normal
 			float fa = min(min(rbminmax.x, rbminmax.y), rbminmax.z);
 			vec3 posonbox = local_pos + nrdir * fa;
 			local_cc_ref_vec = posonbox - reflections.data[ref_index].box_offset;
+			float distance_roughness = clamp(fa / max(length(local_cc_ref_vec), 1e-4) * cc_reflection_roughness, 0.0, cc_reflection_roughness);
+			cc_reflection_roughness = mix(distance_roughness, cc_reflection_roughness, cc_reflection_roughness);
 		}
 
 		hvec4 cc_reflection;
 		half cc_reflection_blend = max(half(0.0), blend - cc_reflection_accum.a);
 
-		float cc_roughness_lod = sqrt(cc_roughness) * MAX_ROUGHNESS_LOD;
+		float cc_roughness_lod = sqrt(cc_reflection_roughness) * MAX_ROUGHNESS_LOD;
 		vec2 cc_reflection_uv = vec3_to_oct_with_border(local_cc_ref_vec, border_size);
 		cc_reflection.rgb = hvec3(textureLod(sampler2DArray(reflection_atlas, DEFAULT_SAMPLER_LINEAR_WITH_MIPMAPS_CLAMP), vec3(cc_reflection_uv, reflections.data[ref_index].index), cc_roughness_lod).rgb) * REFLECTION_MULTIPLIER;
 		cc_reflection.rgb *= half(reflections.data[ref_index].exposure_normalization);
+#ifdef USE_LIGHTMAP
+		cc_reflection.rgb *= lightmap_normalization;
+#endif
 		cc_reflection.a = cc_reflection_blend * half(reflections.data[ref_index].intensity);
 
 		cc_reflection.rgb *= cc_reflection.a;

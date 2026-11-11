@@ -202,6 +202,9 @@ struct PackOptions
 	// Number of pixels to pad charts with.
 	uint32_t padding = 0;
 
+	// Charts thinner than this (in pixels) are stretched along their thin axis. 0 means no minimum.
+	float minChartSize = 0.0f;
+
 	// Unit to texel scale. e.g. a 1x1 quad with texelsPerUnit of 32 will take up approximately 32x32 texels in the atlas.
 	// If 0, an estimated value will be calculated to approximately match the given resolution.
 	// If resolution is also 0, the estimated value will approximately match a 1024x1024 atlas.

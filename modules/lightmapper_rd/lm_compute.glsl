@@ -89,6 +89,8 @@ layout(set = 1, binding = 5) uniform texture2D environment;
 layout(r32ui, set = 1, binding = 7) uniform restrict uimage2DArray invalid_samples;
 // Adaptive sampling: x = sum of sample luminance, y = sum of squared luminance (negative once converged).
 layout(rg32f, set = 1, binding = 10) uniform restrict image2DArray adaptive_stats;
+// This slice's direct light, which accum_light starts from. Only read when adaptive sampling rescales a texel.
+layout(rgba16f, set = 1, binding = 12) uniform restrict readonly image2DArray bounce_direct_light;
 #endif
 
 #if defined(MODE_DIRECT_LIGHT) || defined(MODE_BOUNCE_LIGHT) || defined(MODE_LIGHT_PROBES)
@@ -101,6 +103,12 @@ layout(set = 1, binding = 9, std430) restrict readonly buffer EnvironmentCDF {
 	float data[];
 }
 env_cdf;
+
+// Emissive triangles picked proportionally to estimated power: x = triangle index, y = CDF as float bits.
+layout(set = 1, binding = 11, std430) restrict readonly buffer EmissiveCDF {
+	uvec2 data[];
+}
+emissive_cdf;
 #endif
 
 #if defined(MODE_PAD_OIDN) || defined(MODE_DILATE) || defined(MODE_DENOISE) || defined(MODE_PACK_L1_COEFFS)
@@ -544,6 +552,20 @@ vec4 generate_probe_rotation(inout uint noise) {
 	return vec4(sqrt(1.0 - u) * vec2(sin(a), cos(a)), sqrt(u) * vec2(sin(b), cos(b)));
 }
 
+float[9] probe_sh_basis(vec3 p_dir) {
+	return float[](
+			0.282095, //l0
+			0.488603 * p_dir.y, //l1n1
+			0.488603 * p_dir.z, //l1n0
+			0.488603 * p_dir.x, //l1p1
+			1.092548 * p_dir.x * p_dir.y, //l2n2
+			1.092548 * p_dir.y * p_dir.z, //l2n1
+			0.315392 * (3.0 * p_dir.z * p_dir.z - 1.0), //l20
+			1.092548 * p_dir.x * p_dir.z, //l2p1
+			0.546274 * (p_dir.x * p_dir.x - p_dir.y * p_dir.y) //l2p2
+	);
+}
+
 vec3 generate_probe_direction(uint sample_index, uint sample_count, vec4 rotation) {
 	float z = 1.0 - 2.0 * (float(sample_index) + 0.5) / float(sample_count);
 	float radius = sqrt(max(0.0, 1.0 - z * z));
@@ -776,22 +798,12 @@ void trace_direct_light(vec3 p_position, vec3 p_normal, vec3 p_geometry_normal, 
 			uint power_accm = 0;
 			vec3 prev_pos = origin;
 			if (use_soft_shadows) {
-				uint soft_shadow_hits = 0;
 				for (uint j = 0; j < shadowing_ray_count; j++) {
 					origin = prev_pos;
-					// Optimization:
-					// Once already traced an important proportion of rays, if all are hits or misses,
-					// assume we're not in the penumbra so we can infer the rest would have the same result.
-					if (!is_area && j == shadowing_ray_count / shadowing_rays_check_penumbra_denom) {
-						if (soft_shadow_hits == j) {
-							// Assume totally lit
-							soft_shadow_hits = shadowing_ray_count;
-							break;
-						} else if (soft_shadow_hits == 0) {
-							// Assume totally dark
-							soft_shadow_hits = 0;
-							break;
-						}
+					// Optimization: once an important proportion of rays was traced, if every sample so far was fully lit
+					// or fully dark, assume we're not in the penumbra. Stopping keeps the average (power / power_accm).
+					if (j == max(shadowing_ray_count / shadowing_rays_check_penumbra_denom, 4u) && power_accm > 0u && (power == 0.0 || power == float(power_accm))) {
+						break;
 					}
 
 					vec3 light_disk_to_point;
@@ -825,7 +837,6 @@ void trace_direct_light(vec3 p_position, vec3 p_normal, vec3 p_geometry_normal, 
 							if (!sample_did_hit) {
 								sample_penumbra = 1.0;
 							}
-							soft_shadow_hits += 1;
 							break;
 						} else if (ret == RAY_FRONT || ret == RAY_BACK) {
 							bool contribute = ret == RAY_FRONT || !sample_did_hit;
@@ -833,8 +844,6 @@ void trace_direct_light(vec3 p_position, vec3 p_normal, vec3 p_geometry_normal, 
 								sample_penumbra = 1.0;
 								sample_did_hit = true;
 							}
-
-							soft_shadow_hits += 1;
 
 							if (contribute) {
 								sample_penumbra_color = mix(sample_penumbra_color, sample_penumbra_color * hit_albedo.rgb, hit_albedo.a);
@@ -1017,6 +1026,17 @@ vec3 sample_environment(vec2 p_rand, out float r_pdf) {
 	return normalize(transpose(mat3(bake_params.env_transform)) * sky_dir);
 }
 
+// The texel takes one light sample per ray, choosing between the environment and emissive surfaces,
+// so emissive sampling costs no extra shadow rays.
+// The split is weighted by estimated power on the CPU, see emissive_probability in lightmapper_rd.cpp.
+float emissive_nee_probability() {
+	return bake_params.emissive_probability;
+}
+
+float environment_nee_probability() {
+	return bake_params.env_cdf_width == 0u ? 0.0 : 1.0 - emissive_nee_probability();
+}
+
 float mis_power_heuristic(float p_pdf, float p_other_pdf) {
 	float a = p_pdf * p_pdf;
 	return a / max(a + p_other_pdf * p_other_pdf, 1e-20);
@@ -1024,22 +1044,117 @@ float mis_power_heuristic(float p_pdf, float p_other_pdf) {
 
 // Next event estimation towards the environment from a surface. The result is MIS weighted against
 // cosine sampling and already divided by the cosine pdf, so it adds directly to cosine-sampled radiance.
-vec3 sample_environment_light(vec3 p_position, vec3 p_normal, vec3 p_geometry_normal, vec2 p_rand, out vec3 r_dir) {
+// p_sphere: the receiver is a light probe, weighted against uniform sphere sampling instead, see sample_emissive_light().
+vec3 sample_environment_light(vec3 p_position, vec3 p_normal, vec3 p_geometry_normal, vec2 p_rand, float p_select, bool p_sphere, out vec3 r_dir) {
 	r_dir = p_normal;
-	if (bake_params.env_cdf_width == 0u) {
+	if (bake_params.env_cdf_width == 0u || p_select <= 0.0) {
 		return vec3(0.0);
 	}
 	float env_pdf;
 	r_dir = sample_environment(p_rand, env_pdf);
+	env_pdf *= p_select;
 	float cos_theta = dot(p_normal, r_dir);
-	if (env_pdf <= 0.0 || cos_theta <= 0.0 || dot(p_geometry_normal, r_dir) <= 0.0) {
+	if (env_pdf <= 0.0 || (!p_sphere && (cos_theta <= 0.0 || dot(p_geometry_normal, r_dir) <= 0.0))) {
 		return vec3(0.0);
 	}
 	if (trace_ray_any_hit(p_position + r_dir * bake_params.bias, p_position + r_dir * length(bake_params.world_size)) != RAY_MISS) {
 		return vec3(0.0);
 	}
-	float cosine_pdf = cos_theta / PI;
-	return trace_environment_color(r_dir) * mis_power_heuristic(env_pdf, cosine_pdf) * cosine_pdf / env_pdf;
+	float base_pdf = p_sphere ? 1.0 / (4.0 * PI) : cos_theta / PI;
+	return trace_environment_color(r_dir) * mis_power_heuristic(env_pdf, base_pdf) * base_pdf / env_pdf;
+}
+
+// Solid angle pdf of sample_emissive_light() for a ray from p_origin hitting emissive triangle p_triangle at p_point.
+// p_select is the chance the vertex spent its light sample on emissives (1 when it does not sample the environment).
+float emissive_light_pdf(uint p_triangle, vec3 p_origin, vec3 p_point, vec3 p_geometry_normal, float p_select) {
+	float area_pdf = triangles.data[p_triangle].emissive_area_pdf;
+	if (area_pdf <= 0.0) {
+		return 0.0;
+	}
+	vec3 to_point = p_point - p_origin;
+	float distance_sq = dot(to_point, to_point);
+	float cos_emitter = abs(dot(p_geometry_normal, to_point)) / max(sqrt(distance_sq), 1e-8);
+	return p_select * area_pdf * distance_sq / max(cos_emitter, 1e-6);
+}
+
+// Next event estimation towards emissive surfaces, MIS weighted against cosine sampling like sample_environment_light().
+// p_sphere: the receiver is a light probe, which gathers uniformly over the sphere and has no surface to face.
+vec3 sample_emissive_light(vec3 p_position, vec3 p_normal, vec3 p_geometry_normal, vec2 p_rand, float p_select, bool p_sphere, out vec3 r_dir) {
+	r_dir = p_normal;
+	uint count = bake_params.emissive_count;
+	if (count == 0u) {
+		return vec3(0.0);
+	}
+	// Pick a triangle by power, then reuse the leftover of p_rand.x inside its CDF interval.
+	uint lo = 0u;
+	uint hi = count - 1u;
+	while (lo < hi) {
+		uint mid = (lo + hi) / 2u;
+		if (uintBitsToFloat(emissive_cdf.data[mid].y) > p_rand.x) {
+			hi = mid;
+		} else {
+			lo = mid + 1u;
+		}
+	}
+	float cdf_lo = lo > 0u ? uintBitsToFloat(emissive_cdf.data[lo - 1u].y) : 0.0;
+	float cdf_hi = uintBitsToFloat(emissive_cdf.data[lo].y);
+	float u = clamp((p_rand.x - cdf_lo) / max(cdf_hi - cdf_lo, 1e-8), 0.0, 1.0);
+	uint tidx = emissive_cdf.data[lo].x;
+
+	// Uniform point on the triangle.
+	Triangle triangle = triangles.data[tidx];
+	Vertex vert0 = vertices.data[triangle.indices.x];
+	Vertex vert1 = vertices.data[triangle.indices.y];
+	Vertex vert2 = vertices.data[triangle.indices.z];
+	float su = sqrt(u);
+	vec3 barycentric = vec3(1.0 - su, su * (1.0 - p_rand.y), su * p_rand.y);
+	vec3 point = barycentric.x * vert0.position + barycentric.y * vert1.position + barycentric.z * vert2.position;
+
+	vec3 to_point = point - p_position;
+	float distance_sq = dot(to_point, to_point);
+	if (distance_sq < 1e-8) {
+		return vec3(0.0);
+	}
+	float dist = sqrt(distance_sq);
+	r_dir = to_point / dist;
+	float cos_theta = dot(p_normal, r_dir);
+	if (!p_sphere && (cos_theta <= 0.0 || dot(p_geometry_normal, r_dir) <= 0.0)) {
+		return vec3(0.0);
+	}
+	// Same front-face convention as trace_ray(): a front hit travels against the geometry normal.
+	vec3 emitter_normal = -normalize(cross(vert1.position - vert0.position, vert2.position - vert0.position));
+	float facing = -dot(emitter_normal, r_dir);
+	if (triangle.cull_mode == CULL_DISABLED) {
+		facing = abs(facing);
+	} else if (triangle.cull_mode == CULL_FRONT) {
+		facing = -facing;
+	}
+	if (facing <= 0.0) {
+		return vec3(0.0);
+	}
+	float light_pdf = emissive_light_pdf(tidx, p_position, point, emitter_normal, p_select);
+	if (light_pdf <= 0.0) {
+		return vec3(0.0);
+	}
+	if (trace_ray_any_hit(p_position + r_dir * bake_params.bias, point - r_dir * bake_params.bias) != RAY_MISS) {
+		return vec3(0.0);
+	}
+	vec3 uvw = vec3(barycentric.x * vert0.uv + barycentric.y * vert1.uv + barycentric.z * vert2.uv, float(triangle.slice));
+	vec3 emissive = textureLod(sampler2DArray(emission_tex, linear_sampler), uvw, 0).rgb;
+	// Cosine-sampled hits scale emission by the emitter's alpha (cutouts, transparency), so do the same here.
+	emissive *= apply_triangle_alpha_scissor(tidx, sample_triangle_albedo_alpha(tidx, barycentric)).a;
+	float base_pdf = p_sphere ? 1.0 / (4.0 * PI) : cos_theta / PI;
+	return emissive * mis_power_heuristic(light_pdf, base_pdf) * base_pdf / light_pdf;
+}
+
+// One light sample per ray: either the environment or an emissive triangle, chosen with p_rand.x.
+vec3 sample_light(vec3 p_position, vec3 p_normal, vec3 p_geometry_normal, vec2 p_rand, bool p_sphere, out vec3 r_dir) {
+	float env_probability = environment_nee_probability();
+	if (p_rand.x < env_probability) {
+		return sample_environment_light(p_position, p_normal, p_geometry_normal, vec2(p_rand.x / env_probability, p_rand.y), env_probability, p_sphere, r_dir);
+	}
+	float emissive_probability = 1.0 - env_probability;
+	return sample_emissive_light(p_position, p_normal, p_geometry_normal, vec2(clamp((p_rand.x - env_probability) / emissive_probability, 0.0, 1.0), p_rand.y), emissive_probability, p_sphere, r_dir);
 }
 
 vec3 clamp_indirect_sample(vec3 p_light) {
@@ -1052,10 +1167,11 @@ vec3 clamp_indirect_sample(vec3 p_light) {
 	return p_light;
 }
 
-// p_origin_nee: the caller already sampled the environment from p_position with normal p_origin_normal,
-// so environment hits of the first ray must be MIS weighted.
+// p_origin_nee: the caller already took a light sample (sample_light()) from p_position with normal p_origin_normal,
+// so environment and emissive hits of the first ray must be MIS weighted.
+// p_origin_sphere: the origin is a light probe, whose rays and light sample are weighted against uniform sphere sampling.
 // p_sample_index and p_path_seed pick the stratified samples for every path vertex, so paths of the same texel stay stratified past the first ray.
-vec3 trace_indirect_light(vec3 p_position, vec3 p_ray_dir, inout uint r_noise, float p_texel_size, bool p_origin_nee, vec3 p_origin_normal, uint p_sample_index, uint p_path_seed, out bool r_near_backface) {
+vec3 trace_indirect_light(vec3 p_position, vec3 p_ray_dir, inout uint r_noise, float p_texel_size, bool p_origin_nee, bool p_origin_sphere, vec3 p_origin_normal, uint p_sample_index, uint p_path_seed, out bool r_near_backface) {
 	// The lower limit considers the case where the lightmapper might have bounces disabled but light probes are requested.
 	vec3 position = p_position;
 	vec3 ray_dir = p_ray_dir;
@@ -1066,9 +1182,13 @@ vec3 trace_indirect_light(vec3 p_position, vec3 p_ray_dir, inout uint r_noise, f
 	// Whether the environment was explicitly sampled from the vertex the current ray left, and that vertex's normal.
 	bool vertex_nee = p_origin_nee;
 	vec3 vertex_normal = p_origin_normal;
+	// Emissive sampling done from that vertex: its selection probability (0 = none), and whether it gathers over the sphere.
+	float vertex_emissive_select = p_origin_nee ? 1.0 - environment_nee_probability() : 1.0;
+	bool vertex_sphere = p_origin_sphere;
 	r_near_backface = false;
 	uint path_vertex = 0u; // Unlike depth, also advances on transparent hits so every decision gets its own dimensions.
 	for (uint depth = 0; depth < max_depth; depth++) {
+		vec3 ray_origin = position;
 		path_vertex++;
 		uint vertex_seed = hash(p_path_seed ^ hash(path_vertex));
 		uint tidx;
@@ -1114,6 +1234,14 @@ vec3 trace_indirect_light(vec3 p_position, vec3 p_ray_dir, inout uint r_noise, f
 #endif
 
 			vec3 emissive = textureLod(sampler2DArray(emission_tex, linear_sampler), uvw, 0).rgb;
+			if (vertex_emissive_select > 0.0) {
+				// The previous vertex also sampled emissive triangles explicitly, see sample_emissive_light().
+				float light_pdf = emissive_light_pdf(tidx, ray_origin, position, geometry_normal, vertex_emissive_select);
+				if (light_pdf > 0.0) {
+					float base_pdf = vertex_sphere ? 1.0 / (4.0 * PI) : max(dot(vertex_normal, ray_dir), 0.0) / PI;
+					emissive *= mis_power_heuristic(base_pdf, light_pdf);
+				}
+			}
 
 			light += throughput * emissive * albedo_alpha.a;
 			throughput = mix(throughput, throughput * albedo_alpha.rgb, albedo_alpha.a);
@@ -1122,6 +1250,17 @@ vec3 trace_indirect_light(vec3 p_position, vec3 p_ray_dir, inout uint r_noise, f
 			// Only the texel samples the environment explicitly. Each bounce vertex would cost another full-length
 			// shadow ray for little gain, so rays leaving it find the sky by cosine sampling alone, at full weight.
 			vertex_nee = false;
+			vertex_sphere = false;
+			vertex_emissive_select = 0.0;
+			// Emissives are different: their shadow ray is short and small lamps are rarely hit by chance, so the first
+			// opaque bounce samples them too (later ones carry little energy for a ray each). Not on the last vertex,
+			// whose next ray is never traced (that would add a bounce).
+			if (depth == 0u && albedo_alpha.a >= 1.0 && bake_params.emissive_count > 0u && depth + 1u < max_depth) {
+				vec3 emissive_dir;
+				light += throughput * sample_emissive_light(position, normal, geometry_normal, sobol_owen_2d(p_sample_index, vertex_seed ^ 0x2c1b3c6du), 1.0, false, emissive_dir);
+				vertex_emissive_select = 1.0;
+				vertex_normal = normal;
+			}
 
 			if (albedo_alpha.a < 1.0) {
 				transparency_rays_left -= 1;
@@ -1156,7 +1295,8 @@ vec3 trace_indirect_light(vec3 p_position, vec3 p_ray_dir, inout uint r_noise, f
 			}
 		} else if (trace_result == RAY_MISS) {
 			// Look for the environment color and stop bouncing.
-			float miss_weight = vertex_nee ? mis_power_heuristic(max(dot(vertex_normal, ray_dir), 0.0) / PI, environment_pdf(ray_dir)) : 1.0;
+			float base_pdf = vertex_sphere ? 1.0 / (4.0 * PI) : max(dot(vertex_normal, ray_dir), 0.0) / PI;
+			float miss_weight = vertex_nee ? mis_power_heuristic(base_pdf, environment_pdf(ray_dir) * environment_nee_probability()) : 1.0;
 			light += throughput * trace_environment_color(ray_dir) * miss_weight;
 			break;
 		} else if (trace_result == RAY_BACK) {
@@ -1170,8 +1310,9 @@ vec3 trace_indirect_light(vec3 p_position, vec3 p_ray_dir, inout uint r_noise, f
 				break;
 			}
 
-			// The environment shadow ray from the previous vertex was blocked by this surface, so a later miss gets full weight.
+			// The light shadow rays from the previous vertex were blocked by this surface, so later hits and misses get full weight.
 			vertex_nee = false;
+			vertex_emissive_select = 0.0;
 			transparency_rays_left -= 1;
 			depth -= 1;
 			if (transparency_rays_left <= 0) {
@@ -1371,7 +1512,8 @@ void main() {
 	}
 
 	light_for_bounces *= bake_params.exposure_normalization;
-	imageStore(dest_light, ivec3(atlas_pos, params.output_slice), vec4(light_for_bounces, 1.0));
+	// Coverage alpha lets dilation fill empty and buried texels before bounces sample this bilinearly.
+	imageStore(dest_light, ivec3(atlas_pos, params.output_slice), vec4(light_for_bounces, coverage));
 
 #ifdef USE_SH_LIGHTMAPS
 	// Keep for adding at the end.
@@ -1412,8 +1554,9 @@ void main() {
 	uint valid_samples = 0;
 	for (uint i = 0; i < params.ray_count; i++) {
 		// Most texels see nothing within ao_distance. Once a well-spread prefix of
-		// the R2 sequence finds no occluder, the remaining rays won't change AO.
-		if (i == 16u && occluded == 0.0 && occluded_contact == 0.0) {
+		// the R2 sequence finds no occluder, the remaining rays barely change AO.
+		// 64 rays: a shorter prefix misses faint occlusion in most texels and speckles its soft falloff.
+		if (i == 64u && occluded == 0.0 && occluded_contact == 0.0) {
 			break;
 		}
 		vec3 ray_dir = generate_ray_dir_from_normal(normal, r2_sequence(i, ray_rotation));
@@ -1548,12 +1691,12 @@ void main() {
 			vec3 light = vec3(0.0);
 			if (dot(geometry_normal, ray_dir) > 0.0) {
 				bool near_backface;
-				light = clamp_indirect_sample(trace_indirect_light(position, ray_dir, noise, texel_size_world_space, true, normal, i, texel_seed, near_backface));
+				light = clamp_indirect_sample(trace_indirect_light(position, ray_dir, noise, texel_size_world_space, true, false, normal, i, texel_seed, near_backface));
 				near_backface_count += near_backface ? 1u : 0u;
 			}
 
 			vec3 env_dir;
-			vec3 env_light = clamp_indirect_sample(sample_environment_light(position, normal, geometry_normal, r2_sequence(i, env_rotation), env_dir));
+			vec3 env_light = clamp_indirect_sample(sample_light(position, normal, geometry_normal, r2_sequence(i, env_rotation), false, env_dir));
 			float sample_luminance = dot(light + env_light, vec3(0.2126, 0.7152, 0.0722));
 			pass_luminance += sample_luminance;
 			pass_luminance_sq += sample_luminance * sample_luminance;
@@ -1590,11 +1733,11 @@ void main() {
 		}
 
 		// Adaptive sampling: stop once the standard error of the mean is small relative to the mean.
-		// Accumulation always divides by ray_count, so a texel stopping after rays_done rays is rescaled by ray_count / rays_done.
+		// Accumulation always divides by ray_count, so the indirect light of a texel stopping after rays_done rays is rescaled by ray_count / rays_done.
 		uint rays_done = min(pass_from + pass_size, params.ray_to);
 		stats += vec2(pass_luminance, pass_luminance_sq);
 		float accum_scale = 1.0;
-		if (bake_params.adaptive_threshold > 0.0 && rays_done < params.ray_count && rays_done >= max(params.ray_count / 4u, 16u)) {
+		if (bake_params.adaptive_threshold > 0.0 && rays_done < params.ray_count && rays_done >= max(params.ray_count / 8u, 32u)) {
 			float n = float(rays_done);
 			float mean = stats.x / n;
 			float std_error = sqrt(max(stats.y / n - mean * mean, 0.0) / n);
@@ -1604,17 +1747,35 @@ void main() {
 			}
 		}
 		imageStore(adaptive_stats, ivec3(atlas_pos, params.output_slice), vec4(stats, 0.0, 0.0));
+		// Once the texel is done, drop the coverage of texels where most traced rays hit nearby back faces (likely inside geometry), so dilation refills them.
+		bool invalid_texel = (stats.y < 0.0 || rays_done >= params.ray_count) && imageLoad(invalid_samples, ivec3(atlas_pos, params.atlas_slice)).x * 2u > rays_done;
 
 		// Add the averaged result to the accumulated light texture.
 #ifdef USE_SH_LIGHTMAPS
 		for (int i = 0; i < 4; i++) {
 			vec4 accum = imageLoad(accum_light, ivec3(atlas_pos, params.output_slice * 4 + i));
-			accum.rgb = (accum.rgb + sh_accum[i].rgb / float(params.ray_count)) * accum_scale;
+			accum.rgb += sh_accum[i].rgb / float(params.ray_count);
+			if (accum_scale != 1.0) {
+				// The accumulator started from direct light, which is exact: rescale the indirect part only.
+				vec3 direct = imageLoad(bounce_direct_light, ivec3(atlas_pos, params.output_slice * 4 + i)).rgb;
+				accum.rgb = direct + (accum.rgb - direct) * accum_scale;
+			}
+			if (invalid_texel) {
+				accum.a = 0.0;
+			}
 			imageStore(accum_light, ivec3(atlas_pos, params.output_slice * 4 + i), accum);
 		}
 #else
 		vec4 accum = imageLoad(accum_light, ivec3(atlas_pos, params.output_slice));
-		accum.rgb = (accum.rgb + light_accum / float(params.ray_count)) * accum_scale;
+		accum.rgb += light_accum / float(params.ray_count);
+		if (accum_scale != 1.0) {
+			// The accumulator started from direct light, which is exact: rescale the indirect part only.
+			vec3 direct = imageLoad(bounce_direct_light, ivec3(atlas_pos, params.output_slice)).rgb;
+			accum.rgb = direct + (accum.rgb - direct) * accum_scale;
+		}
+		if (invalid_texel) {
+			accum.a = 0.0;
+		}
 		imageStore(accum_light, ivec3(atlas_pos, params.output_slice), accum);
 #endif
 		if (stats.y < 0.0) {
@@ -1715,22 +1876,16 @@ void main() {
 		vec3 ray_dir = generate_probe_direction(i, params.ray_count, probe_rotation);
 		uint noise = hash(probe_seed ^ hash(i) ^ 92821u);
 		bool unused_near_backface;
-		vec3 light = clamp_indirect_sample(trace_indirect_light(position, ray_dir, noise, 0.0, false, ray_dir, i, probe_seed, unused_near_backface));
+		vec3 light = clamp_indirect_sample(trace_indirect_light(position, ray_dir, noise, 0.0, true, true, ray_dir, i, probe_seed, unused_near_backface));
 
-		float c[9] = float[](
-				0.282095, //l0
-				0.488603 * ray_dir.y, //l1n1
-				0.488603 * ray_dir.z, //l1n0
-				0.488603 * ray_dir.x, //l1p1
-				1.092548 * ray_dir.x * ray_dir.y, //l2n2
-				1.092548 * ray_dir.y * ray_dir.z, //l2n1
-				0.315392 * (3.0 * ray_dir.z * ray_dir.z - 1.0), //l20
-				1.092548 * ray_dir.x * ray_dir.z, //l2p1
-				0.546274 * (ray_dir.x * ray_dir.x - ray_dir.y * ray_dir.y) //l2p2
-		);
+		// One light sample per ray (environment or emissive, as sample_light() picks), MIS weighted against the uniform directions above.
+		vec3 emissive_dir;
+		vec3 emissive_light = clamp_indirect_sample(sample_light(position, vec3(0.0), vec3(0.0), sobol_owen_2d(i, probe_seed ^ 0x7f4a7c15u), true, emissive_dir));
 
+		float c[9] = probe_sh_basis(ray_dir);
+		float emissive_c[9] = probe_sh_basis(emissive_dir);
 		for (uint j = 0; j < 9; j++) {
-			probe_sh_accum[j].rgb += light * c[j];
+			probe_sh_accum[j].rgb += light * c[j] + emissive_light * emissive_c[j];
 		}
 	}
 

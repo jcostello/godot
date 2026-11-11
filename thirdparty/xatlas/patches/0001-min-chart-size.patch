@@ -1,0 +1,31 @@
+diff --git a/thirdparty/xatlas/xatlas.cpp b/thirdparty/xatlas/xatlas.cpp
+index 5c5c57ecab..cdd9af3f75 100644
+--- a/thirdparty/xatlas/xatlas.cpp
++++ b/thirdparty/xatlas/xatlas.cpp
+@@ -8346,10 +8346,10 @@ struct Atlas
+ 			if (extents.x > 0.0f && extents.y > 0.0f) {
+ 				// Block align: align all chart extents to 4x4 blocks, but taking padding and texel center offset into account.
+ 				const int blockAlignSizeOffset = options.padding * 2 + 1;
+-				int width = ftoi_ceil(extents.x);
++				int width = max(ftoi_ceil(extents.x), ftoi_ceil(options.minChartSize));
+ 				if (options.blockAlign)
+ 					width = align(width + blockAlignSizeOffset, 4) - blockAlignSizeOffset;
+-				int height = ftoi_ceil(extents.y);
++				int height = max(ftoi_ceil(extents.y), ftoi_ceil(options.minChartSize));
+ 				if (options.blockAlign)
+ 					height = align(height + blockAlignSizeOffset, 4) - blockAlignSizeOffset;
+ 				for (uint32_t v = 0; v < chart->uniqueVertexCount(); v++) {
+diff --git a/thirdparty/xatlas/xatlas.h b/thirdparty/xatlas/xatlas.h
+index d66a96db21..d85da1bb6a 100644
+--- a/thirdparty/xatlas/xatlas.h
++++ b/thirdparty/xatlas/xatlas.h
+@@ -202,6 +202,9 @@ struct PackOptions
+ 	// Number of pixels to pad charts with.
+ 	uint32_t padding = 0;
+ 
++	// Charts thinner than this (in pixels) are stretched along their thin axis. 0 means no minimum.
++	float minChartSize = 0.0f;
++
+ 	// Unit to texel scale. e.g. a 1x1 quad with texelsPerUnit of 32 will take up approximately 32x32 texels in the atlas.
+ 	// If 0, an estimated value will be calculated to approximately match the given resolution.
+ 	// If resolution is also 0, the estimated value will approximately match a 1024x1024 atlas.

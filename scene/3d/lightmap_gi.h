@@ -226,7 +226,7 @@ private:
 	int denoiser_range = 10;
 	int bounces = 3;
 	float bounce_indirect_energy = 1.0;
-	float indirect_sample_clamp = 10.0;
+	float indirect_sample_clamp = 32.0;
 	float bias = 0.0005;
 	bool bake_ao = false;
 	float ao_distance = 1.0;
@@ -299,7 +299,7 @@ private:
 
 	static bool _lightmap_bake_step_function(float p_completion, const String &p_text, void *ud, bool p_refresh);
 
-	BakeError _save_and_reimport_atlas_textures(const Vector<Ref<Image>> &p_images, const String &p_base_name, TypedArray<TextureLayered> &r_textures, bool p_save_png, float p_resolution_scale, bool p_high_quality = false) const;
+	BakeError _save_and_reimport_atlas_textures(const Vector<Ref<Image>> &p_images, const String &p_base_name, TypedArray<TextureLayered> &r_textures, bool p_save_png, float p_resolution_scale, bool p_high_quality = false, Lightmapper *p_seam_stitcher = nullptr) const;
 	void _build_area_light_texture_atlas(const Vector<LightmapGI::LightsFound> &lights_found, HashMap<Ref<Texture2D>, AreaLightAtlasTexture> &r_texture_rects, Size2i &r_atlas_size, int &r_mipmaps) const;
 
 protected:

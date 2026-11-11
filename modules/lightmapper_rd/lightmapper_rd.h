@@ -75,7 +75,8 @@ class LightmapperRD : public Lightmapper {
 
 		float ao_contact_distance = 0.0f;
 		float ao_contact_strength = 0.0f;
-		float pad[2] = {};
+		uint32_t emissive_count = 0; // Emissive triangles in the NEE table, 0 disables emissive importance sampling.
+		float emissive_probability = 0.0f; // Chance a light sample goes to emissives instead of the environment.
 	};
 
 	struct RaytracingResources {
@@ -90,6 +91,7 @@ class LightmapperRD : public Lightmapper {
 		MeshData data;
 		int slice = 0;
 		Vector2i offset;
+		LocalVector<float> emissive_power; // Estimated power per triangle, empty if the mesh doesn't emit.
 	};
 
 	struct Light {
@@ -243,7 +245,8 @@ class LightmapperRD : public Lightmapper {
 		uint32_t mesh = 0;
 		float alpha_scissor_threshold = -1.0f;
 		uint32_t source_triangle = 0;
-		uint32_t pad[2] = {}; // Match the 16-byte-aligned GLSL std430 array stride.
+		float emissive_area_pdf = 0.0f; // Emissive NEE: selection probability / area, 0 if the triangle doesn't emit.
+		uint32_t pad = 0; // Match the 16-byte-aligned GLSL std430 array stride.
 		bool operator<(const Triangle &p_triangle) const {
 			return slice < p_triangle.slice;
 		}
@@ -332,6 +335,9 @@ class LightmapperRD : public Lightmapper {
 	static_assert(sizeof(PushConstant) == 48);
 
 	Vector<Ref<Image>> lightmap_textures;
+	LocalVector<uint32_t> emissive_table; // Pairs of (triangle index, CDF as float bits) for emissive NEE.
+	double emissive_total_power = 0.0; // Sum of luminance * area over emissive triangles.
+	LocalVector<Seam> seams_to_stitch; // Continuous seams, one per pair, kept from geometry setup for stitch_seams().
 	Vector<Ref<Image>> shadowmask_textures;
 	Vector<Color> probe_values;
 
@@ -384,6 +390,7 @@ public:
 	virtual void add_probe(const Vector3 &p_position) override;
 	virtual BakeError bake(BakeQuality p_quality, bool p_use_denoiser, float p_denoiser_strength, int p_denoiser_range, int p_bounces, float p_bounce_indirect_energy, float p_bias, bool p_bake_ao, float p_ao_distance, float p_ao_strength, float p_ao_power, float p_ao_contact_distance, float p_ao_contact_strength, int p_ao_samples, int p_max_texture_size, bool p_bake_sh, bool p_bake_shadowmask, bool p_texture_for_bounces, const Ref<Image> &p_environment_panorama, const Basis &p_environment_transform, BakeStepFunc p_step_function = nullptr, void *p_bake_userdata = nullptr, float p_exposure_normalization = 1.0, float p_environment_exposure_multiplier = 1.0, float p_supersampling_factor = 1.0f, bool p_bake_lightmaps = true, float p_indirect_sample_clamp = 0.0f) override;
 
+	void stitch_seams(const Vector<Ref<Image>> &p_slices) override;
 	int get_bake_texture_count() const override;
 	Ref<Image> get_bake_texture(int p_index) const override;
 	int get_shadowmask_texture_count() const override;

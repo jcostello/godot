@@ -821,7 +821,7 @@ bool LightmapGI::_lightmap_bake_step_function(float p_completion, const String &
 	return ret;
 }
 
-LightmapGI::BakeError LightmapGI::_save_and_reimport_atlas_textures(const Vector<Ref<Image>> &p_images, const String &p_base_name, TypedArray<TextureLayered> &r_textures, bool p_save_png, float p_resolution_scale, bool p_high_quality) const {
+LightmapGI::BakeError LightmapGI::_save_and_reimport_atlas_textures(const Vector<Ref<Image>> &p_images, const String &p_base_name, TypedArray<TextureLayered> &r_textures, bool p_save_png, float p_resolution_scale, bool p_high_quality, Lightmapper *p_seam_stitcher) const {
 	ERR_FAIL_COND_V(p_images.is_empty(), LightmapGI::BAKE_ERROR_CANT_CREATE_IMAGE);
 	Vector<Ref<Image>> images = p_images;
 	if (p_resolution_scale != 1.0f) {
@@ -833,6 +833,9 @@ LightmapGI::BakeError LightmapGI::_save_and_reimport_atlas_textures(const Vector
 			scaled->resize(width, height, Image::INTERPOLATE_TRILINEAR);
 			images.write[i] = scaled;
 		}
+	}
+	if (p_seam_stitcher) {
+		p_seam_stitcher->stitch_seams(images);
 	}
 
 	const int slice_count = images.size();
@@ -1575,7 +1578,7 @@ LightmapGI::BakeError LightmapGI::bake(Node *p_from_node, String p_image_data_pa
 					}
 
 					if (env.is_valid()) {
-						environment_image = RS::get_singleton()->environment_bake_panorama(env->get_rid(), false, Size2i(512, 256));
+						environment_image = RS::get_singleton()->environment_bake_panorama(env->get_rid(), false, Size2i(1024, 512));
 						if (use_physical_light_units) {
 							environment_intensity = env->get_bg_intensity();
 						}
@@ -1586,7 +1589,7 @@ LightmapGI::BakeError LightmapGI::bake(Node *p_from_node, String p_image_data_pa
 			} break;
 			case ENVIRONMENT_MODE_CUSTOM_SKY: {
 				if (environment_custom_sky.is_valid()) {
-					environment_image = RS::get_singleton()->sky_bake_panorama(environment_custom_sky->get_rid(), environment_custom_energy, false, Size2i(512, 256));
+					environment_image = RS::get_singleton()->sky_bake_panorama(environment_custom_sky->get_rid(), environment_custom_energy, false, Size2i(1024, 512));
 				}
 
 			} break;
@@ -1632,6 +1635,10 @@ LightmapGI::BakeError LightmapGI::bake(Node *p_from_node, String p_image_data_pa
 		const String texture_filename = p_image_data_path.get_basename();
 		const int shadowmask_texture_count = lightmapper->get_shadowmask_texture_count();
 		save_shadowmask = shadowmask_mode != LightmapGIData::SHADOWMASK_MODE_NONE && shadowmask_texture_count > 0;
+		if (p_bake_step) {
+			// Seam stitching runs on the CPU while saving and can take a while on large atlases.
+			p_bake_step(0.95, RTR("Stitching seams and saving lightmaps"), p_bake_userdata, true);
+		}
 		// Supersampled bakes are downsampled when saving.
 		const float output_scale = supersampling_enabled ? 1.0f / supersampling_factor : 1.0f;
 
@@ -1647,7 +1654,7 @@ LightmapGI::BakeError LightmapGI::bake(Node *p_from_node, String p_image_data_pa
 		}
 
 		// Save the lightmap atlases.
-		BakeError save_err = _save_and_reimport_atlas_textures(light_images, texture_filename, lightmap_textures, false, output_scale);
+		BakeError save_err = _save_and_reimport_atlas_textures(light_images, texture_filename, lightmap_textures, false, output_scale, false, lightmapper.ptr());
 		ERR_FAIL_COND_V(save_err != BAKE_ERROR_OK, save_err);
 
 		if (!direction_images.is_empty()) {
@@ -1662,7 +1669,7 @@ LightmapGI::BakeError LightmapGI::bake(Node *p_from_node, String p_image_data_pa
 			for (int i = 0; i < shadowmask_texture_count; i++) {
 				shadowmask_images.push_back(lightmapper->get_shadowmask_texture(i));
 			}
-			save_err = _save_and_reimport_atlas_textures(shadowmask_images, texture_filename + "_shadow", shadowmask_textures, true, output_scale);
+			save_err = _save_and_reimport_atlas_textures(shadowmask_images, texture_filename + "_shadow", shadowmask_textures, true, output_scale, false, lightmapper.ptr());
 			ERR_FAIL_COND_V(save_err != BAKE_ERROR_OK, save_err);
 		}
 	}
