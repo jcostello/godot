@@ -33,7 +33,10 @@
 #include "core/math/aabb.h"
 #include "core/math/transform_2d.h"
 #include "core/math/vector2.h"
+#include "core/math/vector2i.h"
 #include "core/math/vector3.h"
+#include "core/templates/hash_map.h"
+#include "core/templates/local_vector.h"
 
 // Geometry and atlas coordinates of an unmatched mesh edge. Positions are in bake space.
 struct LightmapSeamEdge {
@@ -155,5 +158,150 @@ struct LightmapSeamEdge {
 			}
 		}
 		return true;
+	}
+};
+
+// Least-squares seam stitching (Iwanicki, "Lighting Technology of The Last of Us", SIGGRAPH 2013).
+// Each constraint asks a filtered sample on one side of a seam to equal the matching sample on the
+// other side. Solves min sum(constraint^2) + lambda * sum((x - x0)^2) over only the texels the
+// constraints touch, so the rest of the lightmap is left untouched.
+struct LightmapSeamStitcher {
+	struct Tap {
+		uint32_t index = 0;
+		float weight = 0.0f;
+	};
+
+	Size2i atlas_size;
+	// Match the filter the renderer samples with: cubic B-spline over 4x4 texels (bicubic_filter_inc.glsl) or bilinear over 2x2.
+	bool bicubic = false;
+	HashMap<uint64_t, uint32_t> texel_index;
+	LocalVector<uint64_t> texels; // slice * width * height + y * width + x.
+	LocalVector<Tap> taps; // get_constraint_taps() per constraint: one side's footprint with positive weights, then the other's with negative weights.
+
+	uint32_t get_constraint_taps() const {
+		return bicubic ? 32 : 8;
+	}
+
+	void _add_taps(const Vector2 &p_uv, uint32_t p_slice, float p_sign) {
+		// Same convention as hardware filtering: texel centers sit at half-texel offsets.
+		const Vector2 p = p_uv * Vector2(atlas_size) - Vector2(0.5, 0.5);
+		const Vector2 base = p.floor();
+		const Vector2 f = p - base;
+		float weights[2][4]; // Per axis.
+		for (int axis = 0; axis < 2; axis++) {
+			const float a = f[axis];
+			if (bicubic) {
+				weights[axis][0] = (a * (a * (-a + 3.0f) - 3.0f) + 1.0f) / 6.0f;
+				weights[axis][1] = (a * a * (3.0f * a - 6.0f) + 4.0f) / 6.0f;
+				weights[axis][2] = (a * (a * (-3.0f * a + 3.0f) + 3.0f) + 1.0f) / 6.0f;
+				weights[axis][3] = a * a * a / 6.0f;
+			} else {
+				weights[axis][0] = 1.0f - a;
+				weights[axis][1] = a;
+			}
+		}
+		const int count = bicubic ? 4 : 2;
+		const int first = bicubic ? -1 : 0;
+		for (int j = 0; j < count; j++) {
+			for (int i = 0; i < count; i++) {
+				const int x = CLAMP(int(base.x) + first + i, 0, atlas_size.width - 1);
+				const int y = CLAMP(int(base.y) + first + j, 0, atlas_size.height - 1);
+				const uint64_t key = uint64_t(p_slice) * uint64_t(atlas_size.width) * uint64_t(atlas_size.height) + uint64_t(y) * uint64_t(atlas_size.width) + uint64_t(x);
+				const uint32_t *existing = texel_index.getptr(key);
+				Tap tap;
+				if (existing) {
+					tap.index = *existing;
+				} else {
+					tap.index = texels.size();
+					texel_index.insert(key, tap.index);
+					texels.push_back(key);
+				}
+				tap.weight = p_sign * weights[0][i] * weights[1][j];
+				taps.push_back(tap);
+			}
+		}
+	}
+
+	// UVs are normalized atlas coordinates; matching endpoints are the same point in 3D.
+	void add_seam(const Vector2 p_dst[2], uint32_t p_dst_slice, const Vector2 p_src[2], uint32_t p_src_slice) {
+		const Vector2 size = Vector2(atlas_size);
+		const real_t length = MAX(((p_dst[1] - p_dst[0]) * size).length(), ((p_src[1] - p_src[0]) * size).length());
+		// Two samples per texel, as in the original technique. The B-spline is smooth and four times
+		// as heavy per sample, so one per texel is enough there.
+		const int samples = CLAMP(int(Math::ceil(length * (bicubic ? 1.0 : 2.0))) + 1, 2, 8192);
+		for (int s = 0; s < samples; s++) {
+			const real_t t = (s + 0.5) / samples;
+			_add_taps(p_dst[0].lerp(p_dst[1], t), p_dst_slice, 1.0f);
+			_add_taps(p_src[0].lerp(p_src[1], t), p_src_slice, -1.0f);
+		}
+	}
+
+	// r_values holds the original texel values on input (one per entry in texels) and the stitched values on output.
+	// Conjugate gradient on the normal equations, per color channel.
+	void solve(LocalVector<Vector3> &r_values, float p_lambda = 0.02f, int p_iterations = 64) const {
+		const uint32_t n = texels.size();
+		ERR_FAIL_COND(r_values.size() != n);
+		if (n == 0) {
+			return;
+		}
+		const uint32_t constraint_taps = get_constraint_taps();
+		auto apply = [&](const LocalVector<Vector3> &p_x, LocalVector<Vector3> &r_out) {
+			for (uint32_t i = 0; i < n; i++) {
+				r_out[i] = p_x[i] * p_lambda;
+			}
+			for (uint32_t c = 0; c < taps.size(); c += constraint_taps) {
+				Vector3 d;
+				for (uint32_t k = c; k < c + constraint_taps; k++) {
+					d += p_x[taps[k].index] * taps[k].weight;
+				}
+				for (uint32_t k = c; k < c + constraint_taps; k++) {
+					r_out[taps[k].index] += d * taps[k].weight;
+				}
+			}
+		};
+		auto dot = [&](const LocalVector<Vector3> &p_a, const LocalVector<Vector3> &p_b) {
+			Vector3 sum;
+			for (uint32_t i = 0; i < n; i++) {
+				sum += p_a[i] * p_b[i];
+			}
+			return sum;
+		};
+
+		// Right-hand side is lambda * x0, so starting at x0 the residual is lambda * x0 - A * x0.
+		LocalVector<Vector3> residual;
+		residual.resize(n);
+		apply(r_values, residual);
+		for (uint32_t i = 0; i < n; i++) {
+			residual[i] = r_values[i] * p_lambda - residual[i];
+		}
+		LocalVector<Vector3> direction(residual);
+		LocalVector<Vector3> a_direction;
+		a_direction.resize(n);
+		Vector3 rs = dot(residual, residual);
+		const Vector3 tolerance = rs * 1e-8;
+		for (int iteration = 0; iteration < p_iterations; iteration++) {
+			apply(direction, a_direction);
+			const Vector3 pap = dot(direction, a_direction);
+			Vector3 alpha;
+			for (int c = 0; c < 3; c++) {
+				alpha[c] = pap[c] > 0.0 ? rs[c] / pap[c] : 0.0;
+			}
+			for (uint32_t i = 0; i < n; i++) {
+				r_values[i] += direction[i] * alpha;
+				residual[i] -= a_direction[i] * alpha;
+			}
+			const Vector3 rs_new = dot(residual, residual);
+			if (rs_new.x <= tolerance.x && rs_new.y <= tolerance.y && rs_new.z <= tolerance.z) {
+				break;
+			}
+			Vector3 beta;
+			for (int c = 0; c < 3; c++) {
+				beta[c] = rs[c] > 0.0 ? rs_new[c] / rs[c] : 0.0;
+			}
+			for (uint32_t i = 0; i < n; i++) {
+				direction[i] = residual[i] + direction[i] * beta;
+			}
+			rs = rs_new;
+		}
 	}
 };

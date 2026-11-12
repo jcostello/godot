@@ -140,13 +140,10 @@ void main() {
 			}
 		}
 
-		float d_a = dot(norm_a, pos_a);
-		float d_b = dot(norm_b, pos_b);
-		float d_c = dot(norm_c, pos_c);
-
-		vec3 proj_a = vertex_pos - norm_a * (dot(norm_a, vertex_pos) - d_a);
-		vec3 proj_b = vertex_pos - norm_b * (dot(norm_b, vertex_pos) - d_b);
-		vec3 proj_c = vertex_pos - norm_c * (dot(norm_c, vertex_pos) - d_c);
+		// Hanika, "Hacking the Shadow Terminator" (Ray Tracing Gems II): only push outward per vertex plane, never inward.
+		vec3 proj_a = vertex_pos - norm_a * min(0.0, dot(norm_a, vertex_pos - pos_a));
+		vec3 proj_b = vertex_pos - norm_b * min(0.0, dot(norm_b, vertex_pos - pos_b));
+		vec3 proj_c = vertex_pos - norm_c * min(0.0, dot(norm_c, vertex_pos - pos_c));
 
 		vec3 smooth_position = proj_a * weights.x + proj_b * weights.y + proj_c * weights.z;
 

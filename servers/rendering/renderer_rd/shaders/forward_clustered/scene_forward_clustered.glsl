@@ -1908,12 +1908,11 @@ void fragment_shader(in SceneData scene_data) {
 #endif
 
 			mat3 normal_xform = mat3(lightmaps.data[ofs].normal_xform_and_specular_intensity);
-#if defined(DO_SIDE_CHECK) || defined(UBERSHADER)
-			bool compensate_reflection_probe_cull = bool(scene_data.flags & SCENE_DATA_FLAGS_REFLECTION_PROBE_PASS);
-#ifdef UBERSHADER
-			compensate_reflection_probe_cull = compensate_reflection_probe_cull && uc_cull_mode() != POLYGON_CULL_BACK;
-#endif
-			if (compensate_reflection_probe_cull) {
+#if defined(DO_SIDE_CHECK)
+			// Probe views are mirrored, so the side check above flipped the normal of faces it should have left alone.
+			// Only materials with a side check need this, ubershader or not: the ubershader's cull mode arrives
+			// already reversed in probe views, so it can't tell them apart.
+			if (bool(scene_data.flags & SCENE_DATA_FLAGS_REFLECTION_PROBE_PASS)) {
 				normal_xform = -normal_xform;
 			}
 #endif

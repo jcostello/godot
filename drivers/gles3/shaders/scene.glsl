@@ -2134,6 +2134,7 @@ void reflection_process(samplerCube reflection_map,
 	//reflect and make local
 	vec3 ref_normal = normalize(reflect(vertex, normal));
 	ref_normal = (local_matrix * vec4(ref_normal, 0.0)).xyz;
+	float reflection_roughness = roughness;
 
 	if (use_box_project) { //box project
 
@@ -2146,9 +2147,12 @@ void reflection_process(samplerCube reflection_map,
 		float fa = min(min(rbminmax.x, rbminmax.y), rbminmax.z);
 		vec3 posonbox = local_pos + nrdir * fa;
 		ref_normal = posonbox - box_offset.xyz;
+		// Distance based roughness ("Moving Frostbite to PBR" 4.9.6): reflected points close to the surface, relative to the probe centre, blur less.
+		float distance_roughness = clamp(fa / max(length(ref_normal), 1e-4) * reflection_roughness, 0.0, reflection_roughness);
+		reflection_roughness = mix(distance_roughness, reflection_roughness, reflection_roughness);
 	}
 
-	reflection.rgb = srgb_to_linear(textureLod(reflection_map, ref_normal, roughness * MAX_ROUGHNESS_LOD).rgb);
+	reflection.rgb = srgb_to_linear(textureLod(reflection_map, ref_normal, reflection_roughness * MAX_ROUGHNESS_LOD).rgb);
 
 	if (exterior) {
 		reflection.rgb = mix(skybox, reflection.rgb, blend);

@@ -186,6 +186,9 @@ public:
 	virtual void add_probe(const Vector3 &p_position) = 0;
 	virtual BakeError bake(BakeQuality p_quality, bool p_use_denoiser, float p_denoiser_strength, int p_denoiser_range, int p_bounces, float p_bounce_indirect_energy, float p_bias, bool p_bake_ao, float p_ao_distance, float p_ao_strength, float p_ao_power, float p_ao_contact_distance, float p_ao_contact_strength, int p_ao_samples, int p_max_texture_size, bool p_bake_sh, bool p_bake_shadowmask, bool p_texture_for_bounces, const Ref<Image> &p_environment_panorama, const Basis &p_environment_transform, BakeStepFunc p_step_function = nullptr, void *p_step_userdata = nullptr, float p_exposure_normalization = 1.0, float p_environment_exposure_multiplier = 1.0, float p_supersampling_factor = 1.0, bool p_bake_lightmaps = true, float p_indirect_sample_clamp = 0.0) = 0;
 
+	// Makes the filtered samples on both sides of UV seams match, in place. Takes one image per atlas slice at the
+	// resolution the renderer will sample: it runs after downsampling, which would otherwise undo the match.
+	virtual void stitch_seams(const Vector<Ref<Image>> &p_slices) {}
 	virtual int get_bake_texture_count() const = 0;
 	virtual Ref<Image> get_bake_texture(int p_index) const = 0;
 	virtual int get_shadowmask_texture_count() const = 0;

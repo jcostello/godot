@@ -8346,10 +8346,10 @@ struct Atlas
 			if (extents.x > 0.0f && extents.y > 0.0f) {
 				// Block align: align all chart extents to 4x4 blocks, but taking padding and texel center offset into account.
 				const int blockAlignSizeOffset = options.padding * 2 + 1;
-				int width = ftoi_ceil(extents.x);
+				int width = max(ftoi_ceil(extents.x), ftoi_ceil(options.minChartSize));
 				if (options.blockAlign)
 					width = align(width + blockAlignSizeOffset, 4) - blockAlignSizeOffset;
-				int height = ftoi_ceil(extents.y);
+				int height = max(ftoi_ceil(extents.y), ftoi_ceil(options.minChartSize));
 				if (options.blockAlign)
 					height = align(height + blockAlignSizeOffset, 4) - blockAlignSizeOffset;
 				for (uint32_t v = 0; v < chart->uniqueVertexCount(); v++) {

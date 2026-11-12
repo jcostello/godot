@@ -49,7 +49,7 @@ static constexpr int UNWRAP_MAX_SUBDIVISIONS = 4;
 // (they don't need them) to keep the finer grid within this many texels.
 static constexpr double UNWRAP_MAX_GRID_TEXELS = 4.0e6;
 // Bump when the unwrap settings change, so cached UV2 is regenerated.
-static constexpr int UNWRAP_VERSION = 7;
+static constexpr int UNWRAP_VERSION = 8;
 
 bool xatlas_mesh_lightmap_unwrap_callback(float p_texel_size, const float *p_vertices, const float *p_normals, int p_vertex_count, const int *p_indices, int p_index_count, const uint8_t *p_cache_data, bool *r_use_cache, uint8_t **r_mesh_cache, int *r_mesh_cache_size, float **r_uv, int **r_vertex, int *r_vertex_count, int **r_index, int *r_index_count, int *r_size_hint_x, int *r_size_hint_y) {
 	CryptoCore::MD5Context ctx;
@@ -161,6 +161,8 @@ bool xatlas_mesh_lightmap_unwrap_callback(float p_texel_size, const float *p_ver
 		pack_options.padding = 2 * subdivisions;
 		pack_options.maxChartSize = 4094 * subdivisions; // 4094 lightmap texels: atlassing needs 2 for padding between meshes, so 4096-2
 		// Block alignment is meant for compressed textures, but LightmapGI rescales this layout anyway.
+		// Like Unity's Min Chart Size: thin charts (e.g. bevel strips) get at least 2 lightmap texels across, otherwise no texel center lands inside them.
+		pack_options.minChartSize = 2 * subdivisions;
 		pack_options.blockAlign = false;
 		pack_options.texelsPerUnit = subdivisions / p_texel_size;
 

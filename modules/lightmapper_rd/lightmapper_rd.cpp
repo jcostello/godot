@@ -555,6 +555,30 @@ Lightmapper::BakeError LightmapperRD::_blit_meshes_into_atlas(RenderingDevice *p
 			ERR_FAIL_COND_V(mi.data.emission_on_uv2->get_size() != mi.data.lightmap_size, BAKE_ERROR_LIGHTMAP_CANT_PRE_BAKE_MESHES);
 			albedo->blit_rect(mi.data.albedo_on_uv2, Rect2i(Vector2i(), mi.data.lightmap_size), mi.offset);
 			emission->blit_rect(mi.data.emission_on_uv2, Rect2i(Vector2i(), mi.data.lightmap_size), mi.offset);
+			{
+				// Estimate each triangle's emitted power (luminance * area) for emissive importance sampling.
+				// A few emission taps are enough: the pdf only steers samples, the shader reads the real emission.
+				const Ref<Image> &emission_image = mi.data.emission_on_uv2;
+				const Vector2 image_size = Vector2(mi.data.lightmap_size);
+				LocalVector<float> power;
+				power.resize(mi.data.points.size() / 3);
+				bool emits = false;
+				for (uint32_t t = 0; t < power.size(); t++) {
+					const Vector2 *uv = &mi.data.uv2[t * 3];
+					const Vector3 *p = &mi.data.points[t * 3];
+					const Vector2 center = (uv[0] + uv[1] + uv[2]) / 3.0;
+					Color sum;
+					for (int s = 0; s < 4; s++) {
+						const Vector2 tap = (s == 3 ? center : center.lerp(uv[s], 0.5)) * image_size;
+						sum += emission_image->get_pixelv(Vector2i(tap.clamp(Vector2(), image_size - Vector2(1, 1))));
+					}
+					power[t] = MAX((sum * 0.25).get_luminance(), 0.0f) * (p[1] - p[0]).cross(p[2] - p[0]).length() * 0.5f;
+					emits = emits || power[t] > 0.0f;
+				}
+				if (emits) {
+					mi.emissive_power = power;
+				}
+			}
 			mi.data.albedo_on_uv2.unref();
 			mi.data.emission_on_uv2.unref();
 			processed_meshes++;
@@ -719,7 +743,9 @@ Error LightmapperRD::_create_acceleration_structures(RenderingDevice *rd, Size2i
 	bounds = AABB();
 
 	// Each record draws one side, so the other side may be on a different atlas slice.
+	seams_to_stitch.clear();
 	auto add_seam = [&](LightmapSeamEdge p_a, LightmapSeamEdge p_b) {
+		bool continuous = false;
 		for (int side = 0; side < 2; side++) {
 			Seam seam;
 			for (int endpoint = 0; endpoint < 2; endpoint++) {
@@ -758,6 +784,7 @@ Error LightmapperRD::_create_acceleration_structures(RenderingDevice *rd, Size2i
 					}
 				}
 				seam.uv_transform[0][3] = 1.0f;
+				continuous = true;
 				Vector<int> &sources = r_slice_seam_sources.write[p_a.slice];
 				if (!sources.has(p_b.slice)) {
 					sources.push_back(p_b.slice);
@@ -766,6 +793,11 @@ Error LightmapperRD::_create_acceleration_structures(RenderingDevice *rd, Size2i
 			seams.push_back(seam);
 			slice_seam_count.write[p_a.slice]++;
 			SWAP(p_a, p_b);
+		}
+		if (continuous) {
+			// Only seams validated as continuous (coplanar or smooth across the edge), and one record
+			// for both sides: the stitching constraint is symmetric.
+			seams_to_stitch.push_back(seams[seams.size() - 2]);
 		}
 	};
 
@@ -904,6 +936,8 @@ Error LightmapperRD::_create_acceleration_structures(RenderingDevice *rd, Size2i
 				t.cull_mode = RSG::material_storage->material_get_cull_mode(material);
 			}
 			t.mesh = m_i + 1;
+			// Holds the power until the triangles are sorted, then becomes the area pdf.
+			t.emissive_area_pdf = mi.emissive_power.is_empty() ? 0.0f : mi.emissive_power[i / 3];
 			triangles.push_back(t);
 			slice_triangle_count.write[t.slice]++;
 		}
@@ -959,6 +993,48 @@ Error LightmapperRD::_create_acceleration_structures(RenderingDevice *rd, Size2i
 	triangles.sort(); //sort by slice
 	_create_raytracing_acceleration_structure(rd, triangles.span(), r_raytracing);
 	seams.sort();
+
+	{
+		// Emissive importance sampling: pick triangles proportionally to their power, see sample_emissive_light().
+		emissive_table.clear();
+		double total_power = 0.0;
+		for (const Triangle &t : triangles) {
+			total_power += t.emissive_area_pdf;
+		}
+		emissive_total_power = total_power;
+		double cdf = 0.0;
+		for (uint32_t i = 0; i < triangles.size(); i++) {
+			if (triangles[i].emissive_area_pdf <= 0.0f) {
+				continue;
+			}
+			cdf += triangles[i].emissive_area_pdf / total_power;
+			float cdf_value = float(cdf);
+			uint32_t cdf_bits;
+			memcpy(&cdf_bits, &cdf_value, sizeof(cdf_bits));
+			emissive_table.push_back(i);
+			emissive_table.push_back(cdf_bits);
+		}
+		if (!emissive_table.is_empty()) {
+			const float one = 1.0f; // Guard against rounding so the search always finds a triangle.
+			memcpy(&emissive_table[emissive_table.size() - 1], &one, sizeof(one));
+		}
+		// The pdf comes from the float CDF the shader searches, not the exact probability:
+		// with many emitters an interval can round to zero, and that triangle is never picked.
+		float previous_cdf = 0.0f;
+		for (uint32_t e = 0; e < emissive_table.size(); e += 2) {
+			Triangle &t = triangles[emissive_table[e]];
+			Vector3 p[3];
+			for (int k = 0; k < 3; k++) {
+				const Vertex &v = vertex_array[t.indices[k]];
+				p[k] = Vector3(v.position[0], v.position[1], v.position[2]);
+			}
+			const float area = (p[1] - p[0]).cross(p[2] - p[0]).length() * 0.5;
+			float cdf_value;
+			memcpy(&cdf_value, &emissive_table[e + 1], sizeof(cdf_value));
+			t.emissive_area_pdf = area > 0.0f ? (cdf_value - previous_cdf) / area : 0.0f;
+			previous_cdf = cdf_value;
+		}
+	}
 	for (Vector<int> &sources : r_slice_seam_sources) {
 		// Preserve source order when equally close margins overlap.
 		sources.sort();
@@ -2028,6 +2104,7 @@ LightmapperRD::BakeError LightmapperRD::bake(BakeQuality p_quality, bool p_use_d
 	RID env_cdf_buffer;
 	uint32_t env_cdf_width = 0;
 	uint32_t env_cdf_height = 0;
+	double env_irradiance = 0.0; // Irradiance an upward surface would get from the whole sky.
 	RID area_light_atlas_tex;
 	RID shadowmask_tex;
 	RID shadowmask_tex2;
@@ -2177,6 +2254,9 @@ LightmapperRD::BakeError LightmapperRD::bake(BakeQuality p_quality, bool p_use_d
 				}
 				env_cdf_width = cdf_w;
 				env_cdf_height = cdf_h;
+				// total sums luminance * sin_theta per source pixel; times the pixel solid angle it integrates radiance over the sphere.
+				// A uniform sky of radiance L integrates to 4 * PI * L and gives PI * L on an upward surface, hence the 0.25.
+				env_irradiance = total * (2.0 * Math::PI / src_w) * (Math::PI / src_h) * 0.25 * p_environment_exposure_multiplier;
 			}
 			env_cdf_buffer = rd->storage_buffer_create(env_cdf.size() * sizeof(float), env_cdf.span().reinterpret<uint8_t>());
 		}
@@ -2221,6 +2301,17 @@ LightmapperRD::BakeError LightmapperRD::bake(BakeQuality p_quality, bool p_use_d
 		return BAKE_ERROR_LIGHTMAP_CANT_PRE_BAKE_MESHES;
 	}
 
+	RID emissive_cdf_buffer;
+	{
+		// Even when nothing emits, the buffer must exist.
+		static const uint32_t empty_table[2] = {};
+		Span<uint8_t> eb = (emissive_table.is_empty() ? Span(empty_table) : emissive_table.span()).reinterpret<uint8_t>();
+		emissive_cdf_buffer = rd->storage_buffer_create(eb.size(), eb);
+		if (emissive_cdf_buffer.is_null()) {
+			return BAKE_ERROR_LIGHTMAP_CANT_PRE_BAKE_MESHES;
+		}
+	}
+
 	const int max_region_size = Math::nearest_power_of_2_templated(int(GLOBAL_GET("rendering/lightmapping/bake_performance/region_size")));
 	const int x_regions = Math::division_round_up(atlas_size.width, max_region_size);
 	const int y_regions = Math::division_round_up(atlas_size.height, max_region_size);
@@ -2229,7 +2320,8 @@ LightmapperRD::BakeError LightmapperRD::bake(BakeQuality p_quality, bool p_use_d
 	// once, before dropping CPU geometry; no GPU readback is needed to skip tiles.
 	Vector<uint8_t> rt_active_regions;
 	Vector<int> rt_active_region_counts;
-	if (p_bounces > 0 && raytracing.tlas.is_valid()) {
+	// The mask only depends on UV coverage, so the software tracer and the direct pass use it too.
+	{
 		rt_active_regions.resize(atlas_slices * x_regions * y_regions);
 		rt_active_regions.fill(0);
 		for (const MeshInstance &mesh : mesh_instances) {
@@ -2340,6 +2432,23 @@ LightmapperRD::BakeError LightmapperRD::bake(BakeQuality p_quality, bool p_use_d
 	bake_parameters.indirect_sample_clamp = p_indirect_sample_clamp;
 	bake_parameters.env_cdf_width = env_cdf_width;
 	bake_parameters.env_cdf_height = env_cdf_height;
+	bake_parameters.emissive_count = emissive_table.size() / 2;
+	if (bake_parameters.emissive_count > 0) {
+		if (env_cdf_width == 0) {
+			bake_parameters.emissive_probability = 1.0f;
+		} else {
+			// Irradiance from all emitters at a typical distance (a quarter of the scene diagonal), compared to the sky's.
+			// shortcut: ignores occlusion, so indoor scenes undersell emissives; MIS keeps it unbiased, only noise shifts.
+			const double distance = MAX(bounds.size.length() * 0.25, 0.01);
+			const double emissive_irradiance = emissive_total_power / (distance * distance);
+			const double total_irradiance = emissive_irradiance + env_irradiance;
+			const double probability = total_irradiance > 0.0 ? emissive_irradiance / total_irradiance : 0.5;
+			// The estimate is rough (no occlusion), so neither source goes below a quarter of the samples:
+			// that costs at most 2x variance on the other one, instead of starving indoor lamps next to a bright sky.
+			bake_parameters.emissive_probability = CLAMP(float(probability), 0.25f, 0.75f);
+		}
+	}
+	emissive_table.clear(); // Already uploaded to emissive_cdf_buffer.
 	bake_parameters.adaptive_threshold = GLOBAL_GET("rendering/lightmapping/bake_quality/adaptive_sampling_threshold");
 
 	bake_parameters_buffer = rd->uniform_buffer_create(sizeof(BakeParameters));
@@ -2835,11 +2944,13 @@ LightmapperRD::BakeError LightmapperRD::bake(BakeQuality p_quality, bool p_use_d
 	StagedLightLayers staged_light, staged_source, staged_direct;
 	// Probe-only bakes that trace lights directly never read the lightmap, so skip plotting it.
 	const bool plot_direct_light = p_bake_lightmaps || p_texture_for_bounces;
+	// The bounce pass reads direct light back: AO treats it apart, and adaptive sampling must not rescale it.
+	const bool stage_direct = p_bake_lightmaps && p_bounces > 0 && (p_bake_ao || bake_parameters.adaptive_threshold > 0.0f);
 	{
 		const int light_layers = p_bake_lightmaps ? atlas_slices * light_coefficients : 0;
 		const int source_layers = plot_direct_light ? atlas_slices : 0;
 		// Without bounces, AO runs in the direct pass while direct light is still on the GPU.
-		const int direct_layers = p_bake_ao && p_bounces > 0 ? atlas_slices * light_coefficients : 0;
+		const int direct_layers = stage_direct ? atlas_slices * light_coefficients : 0;
 		const int64_t layer_pixels = int64_t(atlas_size.width) * atlas_size.height;
 		// RGBA half layers, plus R11G11B10 source layers.
 		const int64_t staged_bytes = (light_layers + direct_layers) * layer_pixels * 8 + source_layers * layer_pixels * 4;
@@ -2977,7 +3088,12 @@ LightmapperRD::BakeError LightmapperRD::bake(BakeQuality p_quality, bool p_use_d
 		RID light_uniform_set = rd->uniform_set_create(uniforms, compute_shader_primary, 1);
 
 		int count = 0;
+		int total = 0;
+		for (int slice_regions : rt_active_region_counts) {
+			total += slice_regions;
+		}
 		for (int s = 0; s < atlas_slices; s++) {
+			int pending = 0;
 			rd->texture_clear(light_source_tex, Color(0, 0, 0, 0), 0, 1, 0, 1);
 			rd->texture_clear(light_accum_tex, Color(0, 0, 0, 0), 0, 1, 0, light_coefficients);
 			prepare_geometry_slice(s);
@@ -2987,6 +3103,9 @@ LightmapperRD::BakeError LightmapperRD::bake(BakeQuality p_quality, bool p_use_d
 
 			for (int i = 0; i < x_regions; i++) {
 				for (int j = 0; j < y_regions; j++) {
+					if (!rt_active_regions[(s * x_regions + i) * y_regions + j]) {
+						continue; // No texels: the shader would return at once, but the dispatch and its sync are not free.
+					}
 					int x = i * max_region_size;
 					int y = j * max_region_size;
 					int w = MIN((i + 1) * max_region_size, atlas_size.width) - x;
@@ -3004,16 +3123,15 @@ LightmapperRD::BakeError LightmapperRD::bake(BakeQuality p_quality, bool p_use_d
 					rd->compute_list_dispatch(compute_list, group_size.x, group_size.y, group_size.z);
 					rd->compute_list_end();
 
-					const int slice_pass = i * y_regions + j + 1;
-					const bool flush_submission = slice_pass % passes_per_submit == 0 || slice_pass == x_regions * y_regions;
+					const bool flush_submission = ++pending == passes_per_submit;
 					if (flush_submission) {
 						rd->submit();
 						rd->sync();
+						pending = 0;
 					}
 
 					count++;
 					if (p_step_function && flush_submission) {
-						int total = (atlas_slices * x_regions * y_regions);
 						int percent = count * 100 / total;
 						float p = float(count) / total * 0.1;
 						if (p_step_function(0.5 + p, vformat(RTR("Plot direct lighting %d%%"), percent), p_bake_userdata, false)) {
@@ -3021,6 +3139,11 @@ LightmapperRD::BakeError LightmapperRD::bake(BakeQuality p_quality, bool p_use_d
 						}
 					}
 				}
+			}
+			if (pending > 0) {
+				// Drain the partial batch before AO and readback use this slice.
+				rd->submit();
+				rd->sync();
 			}
 			if (p_bake_ao && p_bounces <= 0) {
 				apply_ao_slice(s);
@@ -3033,12 +3156,17 @@ LightmapperRD::BakeError LightmapperRD::bake(BakeQuality p_quality, bool p_use_d
 				}
 			}
 			// Stage direct lighting while the reusable slice accumulates bounces.
-			if (p_bake_ao && p_bounces > 0) {
+			if (stage_direct) {
 				for (int coefficient = 0; coefficient < light_coefficients; coefficient++) {
 					if (!staged_direct.store(s * light_coefficients + coefficient, rd->texture_get_data(direct_light_tex, coefficient))) {
 						return BAKE_ERROR_LIGHTMAP_CANT_PRE_BAKE_MESHES;
 					}
 				}
+			}
+			// Bounces and probes sample this bilinearly: fill empty texels so chart borders don't pull in black.
+			BakeError source_dilate_error = _dilate(rd, compute_shader, base_uniforms, push_constant, light_source_tex, light_accum_tex2, atlas_size, 1);
+			if (unlikely(source_dilate_error != BAKE_OK)) {
+				return source_dilate_error;
 			}
 			Ref<Image> source_image = Image::create_from_data(atlas_size.width, atlas_size.height, false, Image::FORMAT_RGBAH, rd->texture_get_data(light_source_tex, 0));
 			if (!staged_source.store(s, _pack_r11g11b10f(source_image))) {
@@ -3165,6 +3293,20 @@ LightmapperRD::BakeError LightmapperRD::bake(BakeQuality p_quality, bool p_use_d
 				u.append_id(adaptive_stats_tex);
 				uniforms.push_back(u);
 			}
+			{
+				RD::Uniform u;
+				u.uniform_type = RD::UNIFORM_TYPE_STORAGE_BUFFER;
+				u.binding = 11;
+				u.append_id(emissive_cdf_buffer);
+				uniforms.push_back(u);
+			}
+			{
+				RD::Uniform u;
+				u.uniform_type = RD::UNIFORM_TYPE_IMAGE;
+				u.binding = 12;
+				u.append_id(direct_light_tex);
+				uniforms.push_back(u);
+			}
 		}
 
 		RID secondary_uniform_set;
@@ -3175,12 +3317,9 @@ LightmapperRD::BakeError LightmapperRD::bake(BakeQuality p_quality, bool p_use_d
 		const int rays_per_dispatch = max_rays * passes_per_dispatch;
 		const int ray_iterations = Math::division_round_up(int32_t(push_constant.ray_count), rays_per_dispatch);
 		push_constant.ray_pass_size = max_rays;
-		int active_regions = atlas_slices * x_regions * y_regions;
-		if (hardware_raytracing) {
-			active_regions = 0;
-			for (int slice_regions : rt_active_region_counts) {
-				active_regions += slice_regions;
-			}
+		int active_regions = 0;
+		for (int slice_regions : rt_active_region_counts) {
+			active_regions += slice_regions;
 		}
 
 		if (p_step_function) {
@@ -3201,10 +3340,48 @@ LightmapperRD::BakeError LightmapperRD::bake(BakeQuality p_quality, bool p_use_d
 		uint64_t indirect_progress_usec = 0;
 		int count = 0;
 		int submissions = 0;
+		// Dispatches per submission. Starts at the project setting, then follows the measured time so a submission
+		// takes roughly 0.1 to 0.4 seconds: fewer waits on fast GPUs, while cancelling stays responsive on slow ones.
+		int batch_size = passes_per_submit;
+		int pending = 0;
+		uint64_t batch_start_time = 0;
+		// Returns true if the user cancelled.
+		auto flush_indirect = [&]() -> bool {
+			rd->submit();
+			rd->sync();
+			submissions++;
+			// Wall time includes command recording, submission and queue waits;
+			// it is deliberately not reported as a GPU timestamp measurement.
+			const uint64_t batch_usec = OS::get_singleton()->get_ticks_usec() - batch_start_time;
+			indirect_dispatch_wait_usec += batch_usec;
+			if (pending == batch_size) { // Partial batches at the end of a slice say nothing about the size.
+				if (batch_usec < 100000 && batch_size < 64) {
+					batch_size *= 2;
+				} else if (batch_usec > 400000 && batch_size > 1) {
+					batch_size /= 2;
+				}
+			}
+			pending = 0;
+			if (!p_step_function) {
+				return false;
+			}
+			const int total = active_regions * ray_iterations;
+			const uint64_t progress_start_time = OS::get_singleton()->get_ticks_usec();
+			const bool cancelled = p_step_function(0.6 + float(count) / total * 0.1, vformat(RTR("Integrate indirect lighting %d%%"), count * 100 / total), p_bake_userdata, false);
+			indirect_progress_usec += OS::get_singleton()->get_ticks_usec() - progress_start_time;
+			return cancelled;
+		};
 		for (int s = 0; s < atlas_slices; s++) {
 			for (int coefficient = 0; coefficient < light_coefficients; coefficient++) {
 				if (rd->texture_update(light_accum_tex, coefficient, staged_light.load(s * light_coefficients + coefficient)) != OK) {
 					return BAKE_ERROR_LIGHTMAP_CANT_PRE_BAKE_MESHES;
+				}
+			}
+			if (stage_direct) {
+				for (int coefficient = 0; coefficient < light_coefficients; coefficient++) {
+					if (rd->texture_update(direct_light_tex, coefficient, staged_direct.load(s * light_coefficients + coefficient)) != OK) {
+						return BAKE_ERROR_LIGHTMAP_CANT_PRE_BAKE_MESHES;
+					}
 				}
 			}
 			prepare_geometry_slice(s);
@@ -3216,7 +3393,7 @@ LightmapperRD::BakeError LightmapperRD::bake(BakeQuality p_quality, bool p_use_d
 
 			for (int i = 0; i < x_regions; i++) {
 				for (int j = 0; j < y_regions; j++) {
-					if (hardware_raytracing && !rt_active_regions[(s * x_regions + i) * y_regions + j]) {
+					if (!rt_active_regions[(s * x_regions + i) * y_regions + j]) {
 						continue;
 					}
 					int x = i * max_region_size;
@@ -3230,7 +3407,9 @@ LightmapperRD::BakeError LightmapperRD::bake(BakeQuality p_quality, bool p_use_d
 					const Vector3i group_size(Math::division_round_up(w, 8), Math::division_round_up(h, 8), 1);
 
 					for (int k = 0; k < ray_iterations; k++) {
-						const uint64_t dispatch_start_time = OS::get_singleton()->get_ticks_usec();
+						if (pending == 0) {
+							batch_start_time = OS::get_singleton()->get_ticks_usec();
+						}
 						RD::ComputeListID compute_list = rd->compute_list_begin();
 						rd->compute_list_bind_compute_pipeline(compute_list, compute_shader_secondary_pipeline);
 						rd->compute_list_bind_uniform_set(compute_list, compute_base_uniform_set, 0);
@@ -3242,37 +3421,18 @@ LightmapperRD::BakeError LightmapperRD::bake(BakeQuality p_quality, bool p_use_d
 						rd->compute_list_dispatch(compute_list, group_size.x, group_size.y, group_size.z);
 
 						rd->compute_list_end();
-						const bool flush_submission = (k + 1) % passes_per_submit == 0 || k + 1 == ray_iterations;
-						if (flush_submission) {
-							rd->submit();
-							rd->sync();
-							submissions++;
-						}
-
-						// Wall time includes command recording, submission and queue waits;
-						// it is deliberately not reported as a GPU timestamp measurement.
-						indirect_dispatch_wait_usec += OS::get_singleton()->get_ticks_usec() - dispatch_start_time;
 						count++;
-						if (p_step_function && flush_submission) {
-							int total = (active_regions * ray_iterations);
-							int percent = count * 100 / total;
-							float p = float(count) / total * 0.1;
-							const uint64_t progress_start_time = OS::get_singleton()->get_ticks_usec();
-							const bool cancelled = p_step_function(0.6 + p, vformat(RTR("Integrate indirect lighting %d%%"), percent), p_bake_userdata, false);
-							indirect_progress_usec += OS::get_singleton()->get_ticks_usec() - progress_start_time;
-							if (cancelled) {
-								return BAKE_ERROR_USER_ABORTED;
-							}
+						if (++pending == batch_size && flush_indirect()) {
+							return BAKE_ERROR_USER_ABORTED;
 						}
 					}
 				}
 			}
+			// Drain the partial batch before AO and readback use this slice.
+			if (pending > 0 && flush_indirect()) {
+				return BAKE_ERROR_USER_ABORTED;
+			}
 			if (p_bake_ao) {
-				for (int coefficient = 0; coefficient < light_coefficients; coefficient++) {
-					if (rd->texture_update(direct_light_tex, coefficient, staged_direct.load(s * light_coefficients + coefficient)) != OK) {
-						return BAKE_ERROR_LIGHTMAP_CANT_PRE_BAKE_MESHES;
-					}
-				}
 				apply_ao_slice(s);
 			}
 			for (int coefficient = 0; coefficient < light_coefficients; coefficient++) {
@@ -3342,6 +3502,13 @@ LightmapperRD::BakeError LightmapperRD::bake(BakeQuality p_quality, bool p_use_d
 				u.append_id(env_cdf_buffer);
 				uniforms.push_back(u);
 			}
+			{
+				RD::Uniform u;
+				u.uniform_type = RD::UNIFORM_TYPE_STORAGE_BUFFER;
+				u.binding = 11;
+				u.append_id(emissive_cdf_buffer);
+				uniforms.push_back(u);
+			}
 		}
 		RID light_probe_uniform_set = rd->uniform_set_create(uniforms, compute_shader_light_probes, 1);
 
@@ -3400,6 +3567,12 @@ LightmapperRD::BakeError LightmapperRD::bake(BakeQuality p_quality, bool p_use_d
 		ERR_FAIL_COND_V(uint64_t(probe_data.size()) != uint64_t(probe_values.size()) * sizeof(Color), BAKE_ERROR_LIGHTMAP_CANT_PRE_BAKE_MESHES);
 		memcpy(probe_values.ptrw(), probe_data.ptr(), probe_data.size());
 		rd->free_rid(light_probe_buffer);
+		// Dering: Lanczos sigma window sinc(l / 4) per band (Sloan, "Stupid Spherical Harmonics Tricks"), so strongly directional light doesn't leave negative lobes.
+		const float sh_band_window[9] = { 1.0f, 0.900316f, 0.900316f, 0.900316f, 0.63662f, 0.63662f, 0.63662f, 0.63662f, 0.63662f };
+		Color *probe_values_ptrw = probe_values.ptrw();
+		for (int i = 0; i < probe_values.size(); i++) {
+			probe_values_ptrw[i] *= sh_band_window[i % 9];
+		}
 
 #ifdef DEBUG_TEXTURES
 		{
@@ -3980,6 +4153,44 @@ LightmapperRD::BakeError LightmapperRD::bake(BakeQuality p_quality, bool p_use_d
 	}
 
 	return BAKE_OK;
+}
+
+void LightmapperRD::stitch_seams(const Vector<Ref<Image>> &p_slices) {
+	if (p_slices.is_empty() || seams_to_stitch.is_empty()) {
+		return;
+	}
+	// The GPU seam pass blends texels near seams; this makes the samples the renderer takes on both sides match.
+	LightmapSeamStitcher stitcher;
+	stitcher.atlas_size = p_slices[0]->get_size();
+	stitcher.bicubic = GLOBAL_GET("rendering/lightmapping/lightmap_gi/use_bicubic_filter");
+	for (const Seam &seam : seams_to_stitch) {
+		ERR_CONTINUE(int(seam.slice) >= p_slices.size() || int(seam.src_slice) >= p_slices.size());
+		const Vector2 dst[2] = { Vector2(seam.dst_uv[0], seam.dst_uv[1]), Vector2(seam.dst_uv[2], seam.dst_uv[3]) };
+		const Vector2 src[2] = { Vector2(seam.src_uv[0], seam.src_uv[1]), Vector2(seam.src_uv[2], seam.src_uv[3]) };
+		stitcher.add_seam(dst, seam.slice, src, seam.src_slice);
+	}
+	const uint64_t width = stitcher.atlas_size.width;
+	const uint64_t slice_texels = width * uint64_t(stitcher.atlas_size.height);
+	LocalVector<Vector3> values;
+	values.resize(stitcher.texels.size());
+	for (uint32_t i = 0; i < stitcher.texels.size(); i++) {
+		const uint64_t key = stitcher.texels[i];
+		const Color c = p_slices[int(key / slice_texels)]->get_pixel(int((key % slice_texels) % width), int((key % slice_texels) / width));
+		values[i] = Vector3(c.r, c.g, c.b);
+	}
+	stitcher.solve(values);
+	for (uint32_t i = 0; i < stitcher.texels.size(); i++) {
+		const uint64_t key = stitcher.texels[i];
+		const Ref<Image> &image = p_slices[int(key / slice_texels)];
+		const int x = int((key % slice_texels) % width);
+		const int y = int((key % slice_texels) / width);
+		const Vector3 v = values[i].max(Vector3()); // Light and shadow can't be negative.
+		Color c = image->get_pixel(x, y); // Keep alpha.
+		c.r = v.x;
+		c.g = v.y;
+		c.b = v.z;
+		image->set_pixel(x, y, c);
+	}
 }
 
 int LightmapperRD::get_bake_texture_count() const {
